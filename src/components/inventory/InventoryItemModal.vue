@@ -22,13 +22,16 @@
               <n-form-item label="Единица измерения" path="unit" required>
                 <n-select v-model:value="formData.unit" :options="unitOptions" placeholder="Выберите единицу" />
               </n-form-item>
+
+              <n-form-item label="Средняя цена" path="averagePrice" required>
+                <n-input-number v-model:value="formData.averagePrice" :min="0" placeholder="Введите цену"
+                  style="width: 100%">
+                  <template #suffix>₽</template>
+                </n-input-number>
+              </n-form-item>
             </n-gi>
 
             <n-gi>
-              <n-form-item label="Штрих-код" path="barcode">
-                <n-input v-model:value="formData.barcode" placeholder="Штрих-код" />
-              </n-form-item>
-
               <n-form-item label="Место хранения" path="location" required>
                 <n-input v-model:value="formData.location" placeholder="Стеллаж-полка-ячейка" />
               </n-form-item>
@@ -70,36 +73,6 @@
           </n-grid>
         </n-tab-pane>
 
-        <!-- Финансы -->
-        <n-tab-pane name="finance" tab="Финансы">
-          <n-grid :cols="2" :x-gap="24">
-            <n-gi>
-              <n-form-item label="Цена закупки" path="purchasePrice" required>
-                <n-input-number v-model:value="formData.purchasePrice" :min="0" placeholder="Цена закупки"
-                  style="width: 100%">
-                  <template #suffix>₽</template>
-                </n-input-number>
-              </n-form-item>
-
-              <n-form-item label="Средняя цена" path="averagePrice" required>
-                <n-input-number v-model:value="formData.averagePrice" :min="0" placeholder="Средняя цена"
-                  style="width: 100%">
-                  <template #suffix>₽</template>
-                </n-input-number>
-              </n-form-item>
-            </n-gi>
-
-            <n-gi>
-              <n-form-item label="Последняя цена" path="lastPurchasePrice" required>
-                <n-input-number v-model:value="formData.lastPurchasePrice" :min="0" placeholder="Последняя цена закупки"
-                  style="width: 100%">
-                  <template #suffix>₽</template>
-                </n-input-number>
-              </n-form-item>
-            </n-gi>
-          </n-grid>
-        </n-tab-pane>
-
         <!-- Поставщики -->
         <n-tab-pane name="suppliers" tab="Поставщики">
           <n-grid :cols="2" :x-gap="24">
@@ -130,7 +103,7 @@
 
       <div class="flex justify-end gap-3 mt-6">
         <n-button @click="handleCancel">Отмена</n-button>
-        <n-button type="primary" @click="handleSubmit" :loading="loading">
+        <n-button v-if="!props.itemId || isDirty" type="primary" @click="handleSubmit" :loading="loading">
           Сохранить
         </n-button>
       </div>
@@ -139,13 +112,16 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed } from 'vue'
+import { ref, reactive, computed, watch } from 'vue'
 import type { FormInst, FormRules } from 'naive-ui'
+import { useInventoryStore } from '@/stores/inventory'
+import { useMessage } from 'naive-ui'
 import {
   NModal,
   NForm,
   NFormItem,
   NInput,
+  NInputGroup,
   NInputNumber,
   NSelect,
   NButton,
@@ -157,6 +133,7 @@ import {
 
 const props = defineProps<{
   show: boolean
+  itemId?: string | null
 }>()
 
 const emit = defineEmits<{
@@ -164,10 +141,13 @@ const emit = defineEmits<{
   submit: [data: any]
 }>()
 
+const inventoryStore = useInventoryStore()
+const message = useMessage()
 const formRef = ref<FormInst | null>(null)
 const loading = ref(false)
+const initialDataStr = ref('')
 
-const title = computed(() => 'Новый материал')
+const title = computed(() => props.itemId ? 'Редактировать материал' : 'Новый материал')
 
 const formData = reactive({
   name: '',
@@ -192,15 +172,55 @@ const formData = reactive({
   popularity: 5
 })
 
+// Загрузка данных при редактировании
+watch(() => props.show, (newShow) => {
+  if (newShow && props.itemId) {
+    const item = inventoryStore.getItemById(props.itemId)
+    if (item) {
+      Object.assign(formData, { ...item })
+      initialDataStr.value = JSON.stringify(formData)
+    }
+  } else if (newShow && !props.itemId) {
+    // Сброс формы для нового элемента
+    Object.assign(formData, {
+      name: '',
+      sku: '',
+      barcode: '',
+      categoryId: '1',
+      description: '',
+      unit: 'шт',
+      currentStock: 0,
+      minStock: 0,
+      maxStock: 100,
+      reserved: 0,
+      location: '',
+      purchasePrice: 0,
+      averagePrice: 0,
+      lastPurchasePrice: 0,
+      mainSupplier: '',
+      supplierCode: '',
+      deliveryTime: 3,
+      minOrderQuantity: 1,
+      totalConsumed: 0,
+      popularity: 5
+    })
+    initialDataStr.value = JSON.stringify(formData)
+  }
+})
+
+const isDirty = computed(() => {
+  return JSON.stringify(formData) !== initialDataStr.value
+})
+
 const categoryOptions = [
-  { label: 'Древесина', value: 1 },
-  { label: 'Фурнитура', value: 2 },
-  { label: 'Отделочные материалы', value: 3 },
-  { label: 'Стекло и зеркала', value: 4 },
-  { label: 'Ткани и наполнители', value: 5 },
-  { label: 'Крепеж', value: 6 },
-  { label: 'Упаковочные материалы', value: 7 },
-  { label: 'Электроника', value: 8 }
+  { label: 'Древесина', value: '1' },
+  { label: 'Фурнитура', value: '2' },
+  { label: 'Отделочные материалы', value: '3' },
+  { label: 'Стекло и зеркала', value: '4' },
+  { label: 'Ткани и наполнители', value: '5' },
+  { label: 'Крепеж', value: '6' },
+  { label: 'Упаковочные материалы', value: '7' },
+  { label: 'Электроника', value: '8' }
 ]
 
 const unitOptions = [
@@ -224,10 +244,10 @@ const rules: FormRules = {
     { required: true, message: 'Введите артикул', trigger: 'blur' }
   ],
   categoryId: [
-    { required: true, message: 'Выберите категорию', trigger: 'change' }
+    { required: true, type: 'string', message: 'Выберите категорию', trigger: 'change' }
   ],
   unit: [
-    { required: true, message: 'Выберите единицу измерения', trigger: 'change' }
+    { required: true, type: 'string', message: 'Выберите единицу измерения', trigger: 'change' }
   ],
   currentStock: [
     { required: true, type: 'number', min: 0, message: 'Введите корректное количество', trigger: 'blur' }
@@ -238,11 +258,8 @@ const rules: FormRules = {
   maxStock: [
     { required: true, type: 'number', min: 0, message: 'Введите максимальный запас', trigger: 'blur' }
   ],
-  purchasePrice: [
-    { required: true, type: 'number', min: 0, message: 'Введите цену закупки', trigger: 'blur' }
-  ],
   averagePrice: [
-    { required: true, type: 'number', min: 0, message: 'Введите среднюю цену', trigger: 'blur' }
+    { required: true, type: 'number', min: 0, message: 'Введите цену', trigger: 'blur' }
   ],
   mainSupplier: [
     { required: true, message: 'Введите поставщика', trigger: 'blur' }
@@ -258,17 +275,22 @@ const handleCancel = () => {
   showModal.value = false
 }
 
-const handleSubmit = () => {
-  formRef.value?.validate((errors) => {
-    if (!errors) {
-      loading.value = true
+const handleSubmit = async () => {
+  try {
+    await formRef.value?.validate()
+    loading.value = true
 
-      setTimeout(() => {
-        emit('submit', formData)
-        loading.value = false
-        showModal.value = false
+    // Синхронизируем все цены с "Цена" (средняя цена)
+    formData.purchasePrice = formData.averagePrice
+    formData.lastPurchasePrice = formData.averagePrice
 
-        // Сброс формы
+    setTimeout(() => {
+      emit('submit', formData)
+      loading.value = false
+      showModal.value = false
+
+      // Сброс формы (только если не редактирование)
+      if (!props.itemId) {
         Object.assign(formData, {
           name: '',
           sku: '',
@@ -291,10 +313,10 @@ const handleSubmit = () => {
           totalConsumed: 0,
           popularity: 5
         })
-      }, 1000)
-    } else {
-      window.$message?.error('Пожалуйста, исправьте ошибки в форме')
-    }
-  })
+      }
+    }, 1000)
+  } catch (errors) {
+    message.error('Пожалуйста, исправьте ошибки в форме')
+  }
 }
 </script>

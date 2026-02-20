@@ -155,8 +155,8 @@
 
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
-import { useUserStore, type User } from '@/stores/user'
+import { useUserStore } from '@/stores/user'
+import type { User } from '@/types'
 import {
   NGrid,
   NGi,
@@ -189,7 +189,6 @@ import {
   AnalyticsOutline
 } from '@vicons/ionicons5'
 
-const router = useRouter()
 const userStore = useUserStore()
 const formRef = ref<FormInst | null>(null)
 
@@ -201,7 +200,9 @@ const userForm = reactive<UserForm>({
   email: '',
   phone: '',
   department: '',
-  role: 'worker'
+  role: 'worker',
+  isActive: true,
+  permissions: []
 })
 
 const stats = reactive({

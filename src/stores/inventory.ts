@@ -5,20 +5,20 @@ import type { InventoryItem, InventoryCategory, InventoryTransaction, Supplier, 
 export const useInventoryStore = defineStore('inventory', () => {
   // Категории материалов для мебельного производства
   const categories = ref<InventoryCategory[]>([
-    { id: 1, name: 'Древесина', icon: 'leaf-outline', description: 'Массив, МДФ, ДСП, фанера' },
-    { id: 2, name: 'Фурнитура', icon: 'construct-outline', description: 'Ручки, петли, направляющие' },
-    { id: 3, name: 'Отделочные материалы', icon: 'color-palette-outline', description: 'Лаки, краски, клей' },
-    { id: 4, name: 'Стекло и зеркала', icon: 'diamond-outline', description: 'Стекла, зеркала' },
-    { id: 5, name: 'Ткани и наполнители', icon: 'bed-outline', description: 'Ткани, поролон, синтепон' },
-    { id: 6, name: 'Крепеж', icon: 'hammer-outline', description: 'Саморезы, гвозди, болты' },
-    { id: 7, name: 'Упаковочные материалы', icon: 'cube-outline', description: 'Пленка, картон, скотч' },
-    { id: 8, name: 'Электроника', icon: 'flash-outline', description: 'Светильники, провода' }
+    { id: '1', name: 'Древесина', icon: 'leaf-outline', description: 'Массив, МДФ, ДСП, фанера' },
+    { id: '2', name: 'Фурнитура', icon: 'construct-outline', description: 'Ручки, петли, направляющие' },
+    { id: '3', name: 'Отделочные материалы', icon: 'color-palette-outline', description: 'Лаки, краски, клей' },
+    { id: '4', name: 'Стекло и зеркала', icon: 'diamond-outline', description: 'Стекла, зеркала' },
+    { id: '5', name: 'Ткани и наполнители', icon: 'bed-outline', description: 'Ткани, поролон, синтепон' },
+    { id: '6', name: 'Крепеж', icon: 'hammer-outline', description: 'Саморезы, гвозди, болты' },
+    { id: '7', name: 'Упаковочные материалы', icon: 'cube-outline', description: 'Пленка, картон, скотч' },
+    { id: '8', name: 'Электроника', icon: 'flash-outline', description: 'Светильники, провода' }
   ])
 
   // Поставщики
   const suppliers = ref<Supplier[]>([
     {
-      id: 1,
+      id: '1',
       name: 'ЛесПром Трейд',
       contactPerson: 'Иванов Алексей',
       phone: '+7 (999) 111-22-33',
@@ -31,7 +31,7 @@ export const useInventoryStore = defineStore('inventory', () => {
       isActive: true
     },
     {
-      id: 2,
+      id: '2',
       name: 'МебельФурнитура',
       contactPerson: 'Петрова Мария',
       phone: '+7 (999) 222-33-44',
@@ -44,7 +44,7 @@ export const useInventoryStore = defineStore('inventory', () => {
       isActive: true
     },
     {
-      id: 3,
+      id: '3',
       name: 'Краски и Лаки',
       contactPerson: 'Сидоров Дмитрий',
       phone: '+7 (999) 333-44-55',
@@ -61,12 +61,12 @@ export const useInventoryStore = defineStore('inventory', () => {
   // Инвентарь с демо-данными
   const items = ref<InventoryItem[]>([
     {
-      id: 1,
+      id: '1',
       name: 'Дубовая доска 40мм',
       sku: 'WOOD-DUB-40-001',
       barcode: '5901234567890',
       category: 'Древесина',
-      categoryId: 1,
+      categoryId: '1',
       description: 'Дуб массив, толщина 40мм, сорт А',
       unit: 'шт',
       currentStock: 45,
@@ -102,12 +102,12 @@ export const useInventoryStore = defineStore('inventory', () => {
       updatedAt: new Date('2024-01-20')
     },
     {
-      id: 2,
+      id: '2',
       name: 'Фанера берёзовая 18мм',
       sku: 'PLY-BIR-18-001',
       barcode: '5901234567891',
       category: 'Древесина',
-      categoryId: 1,
+      categoryId: '1',
       description: 'Берёзовая фанера, влагостойкая',
       unit: 'лист',
       currentStock: 12,
@@ -141,12 +141,12 @@ export const useInventoryStore = defineStore('inventory', () => {
       updatedAt: new Date('2024-01-22')
     },
     {
-      id: 3,
+      id: '3',
       name: 'МДФ ламинированный 16мм',
       sku: 'MDF-LAM-16-001',
       barcode: '5901234567892',
       category: 'Древесина',
-      categoryId: 1,
+      categoryId: '1',
       description: 'Ламинированный МДФ, белый матовый',
       unit: 'лист',
       currentStock: 28,
@@ -181,12 +181,12 @@ export const useInventoryStore = defineStore('inventory', () => {
       updatedAt: new Date('2024-01-21')
     },
     {
-      id: 4,
+      id: '4',
       name: 'Петли скрытые Blum',
       sku: 'HARD-BLM-001',
       barcode: '5901234567893',
       category: 'Фурнитура',
-      categoryId: 2,
+      categoryId: '2',
       description: 'Петли скрытого монтажа Blum, 110°',
       unit: 'шт',
       currentStock: 245,
@@ -217,12 +217,12 @@ export const useInventoryStore = defineStore('inventory', () => {
       updatedAt: new Date('2024-01-22')
     },
     {
-      id: 5,
+      id: '5',
       name: 'Направляющие шариковые 500мм',
       sku: 'HARD-SLD-500-001',
       barcode: '5901234567894',
       category: 'Фурнитура',
-      categoryId: 2,
+      categoryId: '2',
       description: 'Направляющие шариковые полного выдвижения',
       unit: 'пара',
       currentStock: 8,
@@ -253,12 +253,12 @@ export const useInventoryStore = defineStore('inventory', () => {
       updatedAt: new Date('2024-01-18')
     },
     {
-      id: 6,
+      id: '6',
       name: 'Лак акриловый матовый',
       sku: 'FIN-ACR-001',
       barcode: '5901234567895',
       category: 'Отделочные материалы',
-      categoryId: 3,
+      categoryId: '3',
       description: 'Акриловый лак для дерева, матовый, 5л',
       unit: 'банка',
       currentStock: 3,
@@ -289,12 +289,12 @@ export const useInventoryStore = defineStore('inventory', () => {
       updatedAt: new Date('2024-01-19')
     },
     {
-      id: 7,
+      id: '7',
       name: 'Стекло закаленное 8мм',
       sku: 'GLAS-TEM-8-001',
       barcode: '5901234567896',
       category: 'Стекло и зеркала',
-      categoryId: 4,
+      categoryId: '4',
       description: 'Закаленное стекло, прозрачное',
       unit: 'м²',
       currentStock: 24.5,
@@ -326,12 +326,12 @@ export const useInventoryStore = defineStore('inventory', () => {
       updatedAt: new Date('2024-01-21')
     },
     {
-      id: 8,
+      id: '8',
       name: 'Ткань мебельная "Велюр"',
       sku: 'FAB-VEL-001',
       barcode: '5901234567897',
       category: 'Ткани и наполнители',
-      categoryId: 5,
+      categoryId: '5',
       description: 'Мебельная ткань велюр, серый',
       unit: 'м',
       currentStock: 0,
@@ -367,8 +367,8 @@ export const useInventoryStore = defineStore('inventory', () => {
   // Транзакции
   const transactions = ref<InventoryTransaction[]>([
     {
-      id: 1,
-      itemId: 1,
+      id: '1',
+      itemId: '1',
       type: 'incoming',
       quantity: 20,
       unitPrice: 2550,
@@ -382,8 +382,8 @@ export const useInventoryStore = defineStore('inventory', () => {
       createdAt: new Date('2024-01-20T10:30:00')
     },
     {
-      id: 2,
-      itemId: 1,
+      id: '2',
+      itemId: '1',
       type: 'outgoing',
       quantity: 5,
       unitPrice: 2450,
@@ -397,8 +397,8 @@ export const useInventoryStore = defineStore('inventory', () => {
       createdAt: new Date('2024-01-21T14:20:00')
     },
     {
-      id: 3,
-      itemId: 2,
+      id: '3',
+      itemId: '2',
       type: 'outgoing',
       quantity: 3,
       unitPrice: 3150,
@@ -415,7 +415,13 @@ export const useInventoryStore = defineStore('inventory', () => {
 
   // Computed свойства
   const totalItems = computed(() => items.value.length)
-  const totalValue = computed(() => items.value.reduce((sum, item) => sum + item.totalValue, 0))
+  const totalValue = computed(() => {
+    return items.value.reduce((sum, item) => {
+      const stock = Number(item.currentStock) || 0
+      const price = Number(item.averagePrice) || 0
+      return sum + (stock * price)
+    }, 0)
+  })
 
   const lowStockItems = computed(() =>
     items.value.filter(item => item.status === 'low_stock').length
@@ -432,7 +438,7 @@ export const useInventoryStore = defineStore('inventory', () => {
       if (!categoryConsumption[item.category]) {
         categoryConsumption[item.category] = 0
       }
-      categoryConsumption[item.category] += item.totalConsumed
+      categoryConsumption[item.category] = (categoryConsumption[item.category] || 0) + item.totalConsumed
     })
 
     return {
@@ -450,25 +456,45 @@ export const useInventoryStore = defineStore('inventory', () => {
   })
 
   // Методы
-  const getItemById = (id: number) => {
+  const getItemById = (id: string) => {
     return items.value.find(item => item.id === id)
   }
 
-  const getItemsByCategory = (categoryId: number) => {
+  const getItemsByCategory = (categoryId: string) => {
     return items.value.filter(item => item.categoryId === categoryId)
+  }
+
+  const getItemUnit = (itemId: string) => {
+    const item = items.value.find(i => i.id === itemId)
+    return item?.unit || 'шт'
   }
 
   const getItemsByStatus = (status: InventoryItem['status']) => {
     return items.value.filter(item => item.status === status)
   }
 
-  const updateStock = (itemId: number, quantity: number, type: InventoryTransaction['type'], transactionData: Partial<InventoryTransaction> = {}) => {
+  const updateStock = (itemId: string, quantity: number, type: InventoryTransaction['type'], transactionData: Partial<InventoryTransaction> = {}) => {
     const item = items.value.find(i => i.id === itemId)
     if (!item) return null
 
     // Обновляем остатки
     if (type === 'incoming') {
-      item.currentStock += quantity
+      const oldStock = Number(item.currentStock) || 0
+      const oldPrice = Number(item.averagePrice) || 0
+      const newQuantity = Number(quantity) || 0
+      const newPrice = Number(transactionData.unitPrice) || oldPrice
+
+      // Расчет новой средней цены: (Старый_остаток * Старая_цена + Приход * Новая_цена) / (Старый_остаток + Приход)
+      const totalOldValue = oldStock * oldPrice
+      const totalNewValue = newQuantity * newPrice
+      const totalNewStock = oldStock + newQuantity
+
+      if (totalNewStock > 0) {
+        item.averagePrice = (totalOldValue + totalNewValue) / totalNewStock
+      }
+
+      item.currentStock = totalNewStock
+      item.lastPurchasePrice = newPrice
       item.lastReceived = new Date()
     } else if (type === 'outgoing' || type === 'write_off') {
       item.currentStock -= quantity
@@ -485,13 +511,17 @@ export const useInventoryStore = defineStore('inventory', () => {
     item.updatedAt = new Date()
 
     // Создаем транзакцию
+    const unitPrice = type === 'incoming' 
+      ? (Number(transactionData.unitPrice) || item.averagePrice) 
+      : item.averagePrice
+
     const transaction: InventoryTransaction = {
-      id: transactions.value.length + 1,
+      id: String(transactions.value.length + 1),
       itemId,
       type,
       quantity,
-      unitPrice: item.lastPurchasePrice,
-      totalPrice: quantity * (item.lastPurchasePrice || 0),
+      unitPrice,
+      totalPrice: quantity * unitPrice,
       createdBy: 'Система',
       createdAt: new Date(),
       ...transactionData
@@ -502,29 +532,65 @@ export const useInventoryStore = defineStore('inventory', () => {
   }
 
   const updateItemStatus = (item: InventoryItem) => {
-    item.available = item.currentStock - item.reserved
+    const stock = Number(item.currentStock) || 0
+    const reserved = Number(item.reserved) || 0
+    const price = Number(item.averagePrice) || 0
 
-    if (item.currentStock <= 0) {
+    item.available = stock - reserved
+
+    if (stock <= 0) {
       item.status = 'out_of_stock'
-    } else if (item.currentStock <= item.minStock) {
+    } else if (stock <= Number(item.minStock || 0)) {
       item.status = 'low_stock'
-    } else if (item.reserved > 0 && item.available <= item.minStock) {
+    } else if (reserved > 0 && item.available <= Number(item.minStock || 0)) {
       item.status = 'reserved'
     } else {
       item.status = 'in_stock'
     }
 
-    // Обновляем общую стоимость
-    item.totalValue = item.currentStock * item.averagePrice
+    // Обновляем общую стоимость (индивидуальное поле товара)
+    item.totalValue = stock * price
   }
 
   const addItem = (itemData: Omit<InventoryItem, 'id' | 'createdAt' | 'updatedAt' | 'available' | 'totalValue' | 'status'>) => {
+    const catId = String(itemData.categoryId)
+    const catObj = categories.value.find(c => String(c.id) === catId)
+    
+    // Безопасное приведение к числам
+    const currentStock = Number(itemData.currentStock) || 0
+    const reserved = Number(itemData.reserved) || 0
+    const averagePrice = Number(itemData.averagePrice) || 0
+    const minStock = Number(itemData.minStock) || 0
+    const maxStock = Number(itemData.maxStock) || 0
+    const purchasePrice = Number(itemData.purchasePrice) || 0
+    const lastPurchasePrice = Number(itemData.lastPurchasePrice) || 0
+    const deliveryTime = Number(itemData.deliveryTime) || 0
+    const minOrderQuantity = Number(itemData.minOrderQuantity) || 0
+
+    // Автоматическая генерация QR-штрихкода, если не указан
+    const barcode = itemData.barcode || `MAT-${new Date().getFullYear().toString().substring(2)}-${Math.random().toString(36).substring(2, 9).toUpperCase()}`
+
     const newItem: InventoryItem = {
       ...itemData,
-      id: items.value.length + 1,
-      available: itemData.currentStock - itemData.reserved,
-      totalValue: itemData.currentStock * itemData.averagePrice,
+      categoryId: catId,
+      category: catObj ? catObj.name : 'Неизвестно',
+      id: String(Math.max(0, ...items.value.map(i => parseInt(i.id))) + 1),
+      barcode,
+      currentStock,
+      reserved,
+      averagePrice,
+      minStock,
+      maxStock,
+      purchasePrice,
+      lastPurchasePrice,
+      deliveryTime,
+      minOrderQuantity,
+      available: currentStock - reserved,
+      totalValue: currentStock * averagePrice,
       status: 'in_stock',
+      alternativeSuppliers: itemData.alternativeSuppliers || [],
+      totalConsumed: itemData.totalConsumed || 0,
+      popularity: itemData.popularity || 5,
       createdAt: new Date(),
       updatedAt: new Date()
     }
@@ -534,15 +600,35 @@ export const useInventoryStore = defineStore('inventory', () => {
     return newItem
   }
 
-  const updateItem = (id: number, updates: Partial<InventoryItem>) => {
+  const updateItem = (id: string, updates: Partial<InventoryItem>) => {
     const index = items.value.findIndex(item => item.id === id)
     if (index !== -1) {
-      items.value[index] = { ...items.value[index], ...updates, updatedAt: new Date() }
+      let finalUpdates = { ...updates }
+      
+      // Синхронизируем текстовую категорию, если изменили ID категории
+      if (updates.categoryId) {
+        finalUpdates.categoryId = String(updates.categoryId)
+        const catObj = categories.value.find(c => String(c.id) === finalUpdates.categoryId)
+        if (catObj) {
+          finalUpdates.category = catObj.name
+        }
+      }
+
+      // Безопасное приведение числовых полей
+      const numericFields = ['currentStock', 'reserved', 'averagePrice', 'minStock', 'maxStock', 'purchasePrice', 'lastPurchasePrice', 'deliveryTime', 'minOrderQuantity']
+      numericFields.forEach(field => {
+        if (field in updates) {
+          // @ts-ignore
+          finalUpdates[field] = Number(updates[field]) || 0
+        }
+      })
+
+      items.value[index] = { ...items.value[index], ...finalUpdates, updatedAt: new Date() } as InventoryItem
       updateItemStatus(items.value[index])
     }
   }
 
-  const deleteItem = (id: number) => {
+  const deleteItem = (id: string) => {
     const index = items.value.findIndex(item => item.id === id)
     if (index !== -1) {
       items.value.splice(index, 1)
@@ -573,7 +659,7 @@ export const useInventoryStore = defineStore('inventory', () => {
     return colorMap[status] || 'default'
   }
 
-  const getTransactionsByItem = (itemId: number) => {
+  const getTransactionsByItem = (itemId: string) => {
     return transactions.value.filter(transaction => transaction.itemId === itemId)
   }
 
@@ -603,6 +689,7 @@ export const useInventoryStore = defineStore('inventory', () => {
     // Методы
     getItemById,
     getItemsByCategory,
+    getItemUnit,
     getItemsByStatus,
     updateStock,
     addItem,

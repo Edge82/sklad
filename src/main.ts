@@ -11,8 +11,9 @@ const pinia = createPinia()
 
 // Регистрируем все компоненты Naive UI глобально
 for (const [key, component] of Object.entries(Naive)) {
-  if (component.name && key.startsWith('N')) {
-    app.component(key, component)
+  const comp = component as any
+  if (comp && typeof comp === 'object' && comp.name && key.startsWith('N')) {
+    app.component(key, comp)
   }
 }
 

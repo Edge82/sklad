@@ -31,7 +31,11 @@ import {
   AnalyticsOutline,
   SettingsOutline,
   PersonCircleOutline,
-  DocumentTextOutline
+  DocumentTextOutline,
+  QrCodeOutline,
+  HammerOutline,
+  SyncOutline,
+  CarOutline
 } from '@vicons/ionicons5'
 import type { MenuOption } from 'naive-ui'
 
@@ -47,7 +51,7 @@ function renderIcon(icon: any) {
 
 const menuOptions: MenuOption[] = [
   {
-    label: 'Статистика',
+    label: 'Дашборд',
     key: '/dashboard',
     icon: renderIcon(HomeOutline)
   },
@@ -62,27 +66,34 @@ const menuOptions: MenuOption[] = [
     icon: renderIcon(DocumentTextOutline)
   },
   {
+    label: 'Сканирование (QR)',
+    key: '/scan',
+    icon: renderIcon(QrCodeOutline)
+  },
+  {
+    label: 'Инструменты',
+    key: '/tools',
+    icon: renderIcon(HammerOutline)
+  },
+  {
     label: 'Сотрудники',
     key: '/employees',
     icon: renderIcon(PeopleOutline)
   },
   {
+    label: 'Отгрузка',
+    key: '/shipment',
+    icon: renderIcon(CarOutline)
+  },
+  {
+    label: 'Интеграция 1С',
+    key: '/integration',
+    icon: renderIcon(SyncOutline)
+  },
+  {
     label: 'Отчеты',
     key: '/reports',
     icon: renderIcon(AnalyticsOutline)
-  },
-  {
-    type: 'divider'
-  },
-  {
-    label: 'Личный кабинет',
-    key: '/profile',
-    icon: renderIcon(PersonCircleOutline)
-  },
-  {
-    label: 'Настройки',
-    key: '/settings',
-    icon: renderIcon(SettingsOutline)
   }
 ]
 

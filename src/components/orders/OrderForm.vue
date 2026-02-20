@@ -13,7 +13,7 @@
         </n-form-item>
 
         <n-form-item label="Email" path="customerEmail">
-          <n-input v-model:value="formData.customerEmail" placeholder="email@example.com" type="email" />
+          <n-input v-model:value="formData.customerEmail" placeholder="email@example.com" />
         </n-form-item>
       </n-gi>
 
@@ -47,8 +47,8 @@
 
           <n-grid :cols="3" :x-gap="12">
             <n-gi>
-              <n-form-item label="Наименование" :path="`items[${index}].itemName`" required>
-                <n-input v-model:value="item.itemName" placeholder="Наименование товара" />
+              <n-form-item label="Наименование" :path="`items[${index}].productName`" required>
+                <n-input v-model:value="item.productName" placeholder="Наименование товара" />
               </n-form-item>
             </n-gi>
 
@@ -118,7 +118,7 @@
     <div class="flex justify-end gap-3 mt-6">
       <n-button @click="$emit('cancel')">Отмена</n-button>
       <n-button type="primary" @click="handleSubmit" :loading="loading">
-        Создать заказ
+        {{ initialData ? 'Сохранить изменения' : 'Создать заказ' }}
       </n-button>
     </div>
   </n-form>
@@ -127,6 +127,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed } from 'vue'
 import type { FormInst, FormRules } from 'naive-ui'
+import { useMessage } from 'naive-ui'
 import {
   NForm,
   NFormItem,
@@ -150,27 +151,32 @@ const emit = defineEmits<{
   cancel: []
 }>()
 
+const props = defineProps<{
+  initialData?: any
+}>()
+
 const userStore = useUserStore()
+const message = useMessage()
 const formRef = ref<FormInst | null>(null)
 const loading = ref(false)
 
 const formData = reactive({
-  customerName: '',
-  customerPhone: '',
-  customerEmail: '',
-  status: 'new' as const,
-  priority: 'medium' as const,
-  orderDate: new Date(),
-  deadline: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000), // +14 дней
-  items: [
+  customerName: props.initialData?.customerName || '',
+  customerPhone: props.initialData?.customerPhone || '',
+  customerEmail: props.initialData?.customerEmail || '',
+  status: props.initialData?.status || 'new' as const,
+  priority: props.initialData?.priority || 'medium' as const,
+  orderDate: props.initialData?.orderDate ? new Date(props.initialData.orderDate).getTime() : Date.now(),
+  deadline: props.initialData?.deadline ? new Date(props.initialData.deadline).getTime() : Date.now() + 14 * 24 * 60 * 60 * 1000,
+  items: props.initialData?.items ? JSON.parse(JSON.stringify(props.initialData.items)) : [
     {
-      itemName: '',
+      productName: '',
       quantity: 1,
       unitPrice: 0,
       materialUsed: ''
     }
   ],
-  notes: ''
+  notes: props.initialData?.notes || ''
 })
 
 const statusOptions = [
@@ -211,9 +217,9 @@ const rules: FormRules = {
     { required: true, message: 'Выберите приоритет', trigger: 'change' }
   ],
   deadline: [
-    { required: true, message: 'Выберите срок выполнения', trigger: 'change' }
+    { required: true, type: 'number', message: 'Выберите срок выполнения', trigger: 'change' }
   ],
-  'items[0].itemName': [
+  'items[0].productName': [
     { required: true, message: 'Введите наименование товара', trigger: 'blur' }
   ],
   'items[0].quantity': [
@@ -238,7 +244,7 @@ const formatCurrency = (amount: number) => {
 
 const addItem = () => {
   formData.items.push({
-    itemName: '',
+    productName: '',
     quantity: 1,
     unitPrice: 0,
     materialUsed: ''
@@ -249,31 +255,32 @@ const removeItem = (index: number) => {
   formData.items.splice(index, 1)
 }
 
-const handleSubmit = () => {
-  formRef.value?.validate((errors) => {
-    if (!errors) {
-      loading.value = true
+const handleSubmit = async () => {
+  try {
+    await formRef.value?.validate()
+    loading.value = true
 
-      // Подготовка данных для отправки
-      const orderData = {
-        ...formData,
-        totalAmount: totalAmount.value,
-        items: formData.items.map((item, index) => ({
-          ...item,
-          totalPrice: item.quantity * item.unitPrice
-        })),
-        createdBy: userStore.user?.name || 'Система'
-      }
-
-      // Имитация задержки API
-      setTimeout(() => {
-        emit('submit', orderData)
-        loading.value = false
-      }, 1000)
-    } else {
-      window.$message?.error('Пожалуйста, исправьте ошибки в форме')
+    // Подготовка данных для отправки
+    const orderData = {
+      ...formData,
+      totalAmount: totalAmount.value,
+      items: formData.items.map((item) => ({
+        ...item,
+        id: Math.random().toString(36).substr(2, 9),
+        productId: `PROD-${Math.random().toString(36).substr(2, 5).toUpperCase()}`,
+        totalPrice: item.quantity * item.unitPrice
+      })),
+      createdBy: userStore.user?.name || 'Система'
     }
-  })
+
+    // Имитация задержки API
+    setTimeout(() => {
+      emit('submit', orderData)
+      loading.value = false
+    }, 1000)
+  } catch (errors) {
+    message.error('Пожалуйста, исправьте ошибки в форме')
+  }
 }
 </script>
 

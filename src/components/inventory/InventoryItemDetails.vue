@@ -1,15 +1,13 @@
 <template>
-  <n-modal v-model:show="showModal" preset="card" :title="`Детали: ${item?.name || 'Материал'}`" style="width: 1000px"
-    :bordered="false" size="huge" @close="handleClose">
-    <div v-if="item" class="item-details">
-      <!-- Шапка с основной информацией -->
-      <div class="mb-6">
+  <div v-if="item" class="item-details">
+    <!-- Шапка с основной информацией -->
+    <div class="mb-6">
         <div class="flex justify-between items-start mb-4">
           <div>
             <n-h2 class="m-0">{{ item.name }}</n-h2>
             <div class="flex items-center gap-3 mt-2">
               <n-text code>{{ item.sku }}</n-text>
-              <n-tag :type="inventoryStore.getStatusColor(item.status)" size="small">
+              <n-tag :type="(inventoryStore.getStatusColor(item.status) as any)" size="small">
                 {{ inventoryStore.getStatusLabel(item.status) }}
               </n-tag>
               <n-text depth="3">{{ item.category }}</n-text>
@@ -203,10 +201,10 @@
                     <n-thing title="Последний расход" :description="formatDate(item.lastIssued)" />
                   </n-list-item>
                   <n-list-item>
-                    <n-thing title="Дата создания" :description="formatDate(item.createdAt)" />
+                    <n-thing title="Дата создания" :description="item.createdAt ? formatDate(item.createdAt) : '-'" />
                   </n-list-item>
                   <n-list-item>
-                    <n-thing title="Последнее обновление" :description="formatDate(item.updatedAt)" />
+                    <n-thing title="Последнее обновление" :description="item.updatedAt ? formatDate(item.updatedAt) : '-'" />
                   </n-list-item>
                 </n-list>
               </n-card>
@@ -216,15 +214,22 @@
       </n-tabs>
 
       <div class="flex justify-end gap-3 mt-6">
-        <n-button @click="showModal = false">Закрыть</n-button>
+        <n-button @click="$emit('close')">Закрыть</n-button>
       </div>
     </div>
 
     <div v-else class="text-center py-8">
       <n-text depth="3">Материал не найден</n-text>
     </div>
-  </n-modal>
-</template>
+
+    <QRPrintModal
+      v-if="item"
+      v-model:show="showPrintModal"
+      :title="item.name"
+      :code="item.barcode || item.sku"
+      :description="`Артикул: ${item.sku}`"
+    />
+  </template>
 
 <script setup lang="ts">
 import { ref, computed, h } from 'vue'
@@ -260,24 +265,20 @@ import {
   ArrowUpOutline,
   SwapHorizontalOutline
 } from '@vicons/ionicons5'
+import QRPrintModal from '@/components/common/QRPrintModal.vue'
 
 const props = defineProps<{
-  show: boolean
-  itemId: number | null
+  itemId: string | null
 }>()
 
 const emit = defineEmits<{
-  'update:show': [value: boolean]
-  edit: [id: number]
+  close: []
+  edit: [id: string]
 }>()
 
 const inventoryStore = useInventoryStore()
 const historyDateRange = ref<[number, number] | null>(null)
-
-const showModal = computed({
-  get: () => props.show,
-  set: (value) => emit('update:show', value)
-})
+const showPrintModal = ref(false)
 
 const item = computed(() => {
   return props.itemId ? inventoryStore.getItemById(props.itemId) : null
@@ -294,7 +295,7 @@ const filteredHistory = computed(() => {
   if (historyDateRange.value) {
     const [start, end] = historyDateRange.value
     history = history.filter(transaction => {
-      const date = transaction.createdAt.getTime()
+      const date = new Date(transaction.createdAt).getTime()
       return date >= start && date <= end
     })
   }
@@ -398,18 +399,21 @@ const getTransactionTypeLabel = (type: string) => {
 
 // Обработчики
 const handleClose = () => {
-  showModal.value = false
+  emit('close')
 }
 
 const handleEdit = () => {
   if (item.value) {
     emit('edit', item.value.id)
-    showModal.value = false
   }
 }
 
 const printLabel = () => {
-  window.$message?.info('Печать этикетки')
+  if (item.value && (item.value.barcode || item.value.sku)) {
+    showPrintModal.value = true
+  } else {
+    window.$message?.warning('Для печати необходим штрих-код или артикул')
+  }
 }
 
 const loadHistory = () => {

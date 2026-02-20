@@ -5,8 +5,10 @@ import type { Employee, Department } from '@/types'
 export const useEmployeesStore = defineStore('employees', () => {
   const employees = ref<Employee[]>([
     {
-      id: 1,
+      id: '1',
       name: 'Иван Петров',
+      avatar: 'https://i.pravatar.cc/150?u=1',
+      photo: 'https://i.pravatar.cc/150?u=1',
       email: 'ivan.petrov@furniture.com',
       phone: '+7 (999) 123-45-67',
       position: 'Менеджер по производству',
@@ -19,11 +21,17 @@ export const useEmployeesStore = defineStore('employees', () => {
       address: 'г. Москва, ул. Производственная, д. 15',
       skills: ['Управление', 'Планирование', 'Контроль качества'],
       lastLogin: new Date('2024-01-22T09:30:00'),
-      notes: 'Ответственный сотрудник'
+      notes: 'Ответственный сотрудник',
+      userId: 'user-1',
+      currentTools: [],
+      currentOrders: [],
+      materialHistory: []
     },
     {
-      id: 2,
+      id: '2',
       name: 'Мария Сидорова',
+      avatar: 'https://i.pravatar.cc/150?u=2',
+      photo: 'https://i.pravatar.cc/150?u=2',
       email: 'maria.sidorova@furniture.com',
       phone: '+7 (999) 987-65-43',
       position: 'Старший кладовщик',
@@ -34,11 +42,17 @@ export const useEmployeesStore = defineStore('employees', () => {
       hireDate: new Date('2022-05-10'),
       birthDate: new Date('1990-11-05'),
       skills: ['Учет', 'Инвентаризация', 'ERP системы'],
-      lastLogin: new Date('2024-01-22T08:45:00')
+      lastLogin: new Date('2024-01-22T08:45:00'),
+      userId: 'user-2',
+      currentTools: [],
+      currentOrders: [],
+      materialHistory: []
     },
     {
-      id: 3,
+      id: '3',
       name: 'Алексей Волков',
+      avatar: 'https://i.pravatar.cc/150?u=3',
+      photo: 'https://i.pravatar.cc/150?u=3',
       email: 'aleksey.volkov@furniture.com',
       phone: '+7 (999) 555-44-33',
       position: 'Мастер столярного цеха',
@@ -49,11 +63,17 @@ export const useEmployeesStore = defineStore('employees', () => {
       hireDate: new Date('2020-08-22'),
       birthDate: new Date('1988-03-14'),
       skills: ['Столярные работы', 'Черчение', 'Работа с деревом'],
-      lastLogin: new Date('2024-01-21T17:20:00')
+      lastLogin: new Date('2024-01-21T17:20:00'),
+      userId: 'user-3',
+      currentTools: [],
+      currentOrders: [],
+      materialHistory: []
     },
     {
-      id: 4,
+      id: '4',
       name: 'Ольга Козлова',
+      avatar: 'https://i.pravatar.cc/150?u=4',
+      photo: 'https://i.pravatar.cc/150?u=4',
       email: 'olga.kozlova@furniture.com',
       phone: '+7 (999) 777-88-99',
       position: 'Бухгалтер',
@@ -64,11 +84,17 @@ export const useEmployeesStore = defineStore('employees', () => {
       hireDate: new Date('2021-11-30'),
       birthDate: new Date('1992-09-18'),
       skills: ['Бухгалтерия', 'Налоги', '1С'],
-      lastLogin: new Date('2024-01-22T10:15:00')
+      lastLogin: new Date('2024-01-22T10:15:00'),
+      userId: 'user-4',
+      currentTools: [],
+      currentOrders: [],
+      materialHistory: []
     },
     {
-      id: 5,
+      id: '5',
       name: 'Сергей Николаев',
+      avatar: 'https://i.pravatar.cc/150?u=5',
+      photo: 'https://i.pravatar.cc/150?u=5',
       email: 'sergey.nikolaev@furniture.com',
       phone: '+7 (999) 222-33-44',
       position: 'Сборщик мебели',
@@ -80,11 +106,17 @@ export const useEmployeesStore = defineStore('employees', () => {
       birthDate: new Date('1995-12-08'),
       skills: ['Сборка мебели', 'Чтение чертежей'],
       lastLogin: new Date('2024-01-15T16:40:00'),
-      notes: 'В отпуске до 01.02.2024'
+      notes: 'В отпуске до 01.02.2024',
+      userId: 'user-5',
+      currentTools: [],
+      currentOrders: [],
+      materialHistory: []
     },
     {
-      id: 6,
+      id: '6',
       name: 'Екатерина Морозова',
+      avatar: 'https://i.pravatar.cc/150?u=6',
+      photo: 'https://i.pravatar.cc/150?u=6',
       email: 'ekaterina.morozova@furniture.com',
       phone: '+7 (999) 666-55-44',
       position: 'Менеджер по продажам',
@@ -95,11 +127,17 @@ export const useEmployeesStore = defineStore('employees', () => {
       hireDate: new Date('2022-07-01'),
       birthDate: new Date('1993-04-25'),
       skills: ['Продажи', 'Переговоры', 'CRM'],
-      lastLogin: new Date('2024-01-22T11:05:00')
+      lastLogin: new Date('2024-01-22T11:05:00'),
+      userId: 'user-6',
+      currentTools: [],
+      currentOrders: [],
+      materialHistory: []
     },
     {
-      id: 7,
+      id: '7',
       name: 'Дмитрий Семенов',
+      avatar: 'https://i.pravatar.cc/150?u=7',
+      photo: 'https://i.pravatar.cc/150?u=7',
       email: 'dmitry.semenov@furniture.com',
       phone: '+7 (999) 333-22-11',
       position: 'Водитель-экспедитор',
@@ -110,11 +148,17 @@ export const useEmployeesStore = defineStore('employees', () => {
       hireDate: new Date('2023-04-10'),
       birthDate: new Date('1987-08-30'),
       skills: ['Вождение', 'Логистика', 'Погрузка'],
-      lastLogin: new Date('2024-01-22T07:20:00')
+      lastLogin: new Date('2024-01-22T07:20:00'),
+      userId: 'user-7',
+      currentTools: [],
+      currentOrders: [],
+      materialHistory: []
     },
     {
-      id: 8,
+      id: '8',
       name: 'Анна Васнецова',
+      avatar: 'https://i.pravatar.cc/150?u=8',
+      photo: 'https://i.pravatar.cc/150?u=8',
       email: 'anna.vasnetsova@furniture.com',
       phone: '+7 (999) 444-55-66',
       position: 'Дизайнер',
@@ -126,17 +170,21 @@ export const useEmployeesStore = defineStore('employees', () => {
       birthDate: new Date('1991-06-12'),
       skills: ['3D моделирование', 'Дизайн', 'AutoCAD'],
       lastLogin: new Date('2024-01-18T14:30:00'),
-      notes: 'На больничном'
+      notes: 'На больничном',
+      userId: 'user-8',
+      currentTools: [],
+      currentOrders: [],
+      materialHistory: []
     }
   ])
 
   const departments = ref<Department[]>([
-    { id: 1, name: 'Производство', employeeCount: 3, budget: 5000000, location: 'Цех №1' },
-    { id: 2, name: 'Склад', employeeCount: 1, budget: 1500000, location: 'Складской комплекс' },
-    { id: 3, name: 'Продажи', employeeCount: 1, budget: 3000000, location: 'Офис, 3 этаж' },
-    { id: 4, name: 'Финансы', employeeCount: 1, budget: 1000000, location: 'Офис, 2 этаж' },
-    { id: 5, name: 'Логистика', employeeCount: 1, budget: 2000000, location: 'Гараж' },
-    { id: 6, name: 'Дизайн', employeeCount: 1, budget: 1800000, location: 'Офис, 4 этаж' }
+    { id: '1', name: 'Производство', employeeCount: 3, budget: 5000000, location: 'Цех №1' },
+    { id: '2', name: 'Склад', employeeCount: 1, budget: 1500000, location: 'Складской комплекс' },
+    { id: '3', name: 'Продажи', employeeCount: 1, budget: 3000000, location: 'Офис, 3 этаж' },
+    { id: '4', name: 'Финансы', employeeCount: 1, budget: 1000000, location: 'Офис, 2 этаж' },
+    { id: '5', name: 'Логистика', employeeCount: 1, budget: 2000000, location: 'Гараж' },
+    { id: '6', name: 'Дизайн', employeeCount: 1, budget: 1800000, location: 'Офис, 4 этаж' }
   ])
 
   // Computed
@@ -151,15 +199,16 @@ export const useEmployeesStore = defineStore('employees', () => {
       if (!stats[emp.department]) {
         stats[emp.department] = { count: 0, totalSalary: 0 }
       }
-      stats[emp.department].count++
-      stats[emp.department].totalSalary += emp.salary
+      const deptStat = stats[emp.department]!
+      deptStat.count++
+      deptStat.totalSalary += emp.salary
     })
 
     return stats
   })
 
   // Methods
-  const getEmployeeById = (id: number) => {
+  const getEmployeeById = (id: string) => {
     return employees.value.find(emp => emp.id === id)
   }
 
@@ -170,12 +219,12 @@ export const useEmployeesStore = defineStore('employees', () => {
   const addEmployee = (employee: Omit<Employee, 'id'>) => {
     const newEmployee: Employee = {
       ...employee,
-      id: employees.value.length + 1
+      id: String(employees.value.length + 1)
     }
     employees.value.push(newEmployee)
 
     // Обновляем статистику отдела
-    const dept = departments.value.find(d => d.name === employee.department)
+    const dept = departments.value.find((d: Department) => d.name === employee.department)
     if (dept) {
       dept.employeeCount++
     }
@@ -183,18 +232,35 @@ export const useEmployeesStore = defineStore('employees', () => {
     return newEmployee
   }
 
-  const updateEmployee = (id: number, updates: Partial<Employee>) => {
+  const updateEmployee = (id: string, updates: Partial<Employee>) => {
     const index = employees.value.findIndex(emp => emp.id === id)
     if (index !== -1) {
-      const oldDept = employees.value[index].department
+      const employee = employees.value[index]
+      if (!employee) return
+      
+      const oldDept = employee.department
       const newDept = updates.department
 
-      employees.value[index] = { ...employees.value[index], ...updates }
+      // Создаем полностью новый объект
+      const updatedEmployee = { 
+        ...employee, 
+        ...updates
+      } as Employee
+
+      // Синхронизируем поля аватара и фото, если пришло только одно из них
+      if (updates.avatar && !updates.photo) updatedEmployee.photo = updates.avatar
+      if (updates.photo && !updates.avatar) updatedEmployee.avatar = updates.photo
+
+      // Заменяем объект в массиве
+      employees.value[index] = updatedEmployee
+
+      // Принудительно триггерим реактивность всего массива через копирование
+      employees.value = [...employees.value]
 
       // Обновляем статистику отделов если изменился отдел
       if (newDept && oldDept !== newDept) {
-        const oldDeptObj = departments.value.find(d => d.name === oldDept)
-        const newDeptObj = departments.value.find(d => d.name === newDept)
+        const oldDeptObj = departments.value.find((d: Department) => d.name === oldDept)
+        const newDeptObj = departments.value.find((d: Department) => d.name === newDept)
 
         if (oldDeptObj) oldDeptObj.employeeCount--
         if (newDeptObj) newDeptObj.employeeCount++
@@ -202,13 +268,15 @@ export const useEmployeesStore = defineStore('employees', () => {
     }
   }
 
-  const deleteEmployee = (id: number) => {
+  const deleteEmployee = (id: string) => {
     const index = employees.value.findIndex(emp => emp.id === id)
     if (index !== -1) {
       const employee = employees.value[index]
-      const dept = departments.value.find(d => d.name === employee.department)
-      if (dept) {
-        dept.employeeCount--
+      if (employee) {
+        const dept = departments.value.find((d: Department) => d.name === employee.department)
+        if (dept) {
+          dept.employeeCount--
+        }
       }
       employees.value.splice(index, 1)
     }

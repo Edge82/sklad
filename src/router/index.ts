@@ -16,12 +16,32 @@ const routes: RouteRecordRaw[] = [
     name: 'Inventory',
     component: () => import('@/views/Inventory.vue')
   },
-    {
+  {
     path: '/orders',
     name: 'Orders',
     component: () => import('@/views/Orders.vue')
   },
-    {
+  {
+    path: '/scan',
+    name: 'Scan',
+    component: () => import('@/views/Scan.vue')
+  },
+  {
+    path: '/tools',
+    name: 'Tools',
+    component: () => import('@/views/Tools.vue')
+  },
+  {
+    path: '/integration',
+    name: 'Integration',
+    component: () => import('@/views/Integration.vue')
+  },
+  {
+    path: '/shipment',
+    name: 'Shipment',
+    component: () => import('@/views/Shipment.vue')
+  },
+  {
     path: '/employees',
     name: 'Employees',
     component: () => import('@/views/Employees.vue')
@@ -35,6 +55,11 @@ const routes: RouteRecordRaw[] = [
     path: '/login',
     name: 'Login',
     component: () => import('@/views/Login.vue')
+  },
+  {
+    path: '/reports',
+    name: 'Reports',
+    component: () => import('@/views/Reports.vue')
   }
 ]
 

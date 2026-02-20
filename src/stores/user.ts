@@ -1,17 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-
-export interface User {
-  id: number
-  name: string
-  email: string
-  role: 'admin' | 'manager' | 'worker'
-  avatar?: string
-  department: string
-  phone: string
-  lastLogin: Date
-  createdAt: Date
-}
+import type { User } from '@/types'
 
 export interface UserSettings {
   theme: 'dark' | 'light'
@@ -21,7 +10,19 @@ export interface UserSettings {
 }
 
 export const useUserStore = defineStore('user', () => {
-  const user = ref<User | null>(null)
+  const user = ref<User | null>({
+    id: '1',
+    email: 'admin@warehouse.com',
+    name: 'Александр Иванов',
+    role: 'director',
+    department: 'Управление',
+    isActive: true,
+    permissions: ['all'],
+    phone: '+7 (900) 123-45-67',
+    avatar: '',
+    createdAt: new Date()
+  })
+  
   const settings = ref<UserSettings>({
     theme: 'dark',
     notifications: true,
@@ -30,52 +31,51 @@ export const useUserStore = defineStore('user', () => {
   })
 
   const isAuthenticated = computed(() => user.value !== null)
-  const isAdmin = computed(() => user.value?.role === 'admin')
+  const isDirector = computed(() => user.value?.role === 'director')
   const isManager = computed(() => user.value?.role === 'manager')
+  const isStorekeeper = computed(() => user.value?.role === 'storekeeper')
+  const isWorker = computed(() => user.value?.role === 'worker')
 
   const setUser = (userData: User) => {
     user.value = userData
   }
 
-  const updateProfile = (profileData: Partial<User>) => {
-    if (user.value) {
-      user.value = { ...user.value, ...profileData }
+  const logout = () => {
+    user.value = null
+  }
+
+  const initDemoUser = () => {
+    if (!user.value) {
+      user.value = {
+        id: '1',
+        email: 'admin@warehouse.com',
+        name: 'Александр Иванов',
+        role: 'director',
+        department: 'Управление',
+        isActive: true,
+        permissions: ['all'],
+        createdAt: new Date()
+      }
     }
   }
 
-  const updateSettings = (newSettings: Partial<UserSettings>) => {
-    settings.value = { ...settings.value, ...newSettings }
-  }
-
-  const logout = () => {
-    user.value = null
-    // В реальном приложении здесь был бы вызов API
-  }
-
-  // Инициализация демо-пользователя
-  const initDemoUser = () => {
-    setUser({
-      id: 1,
-      name: 'Иван Петров',
-      email: 'ivan.petrov@furniture.com',
-      role: 'manager',
-      department: 'Производство',
-      phone: '+7 (999) 123-45-67',
-      lastLogin: new Date(),
-      createdAt: new Date('2023-01-15')
-    })
+  const updateProfile = (updates: Partial<User>) => {
+    if (user.value) {
+      user.value = { ...user.value, ...updates }
+    }
   }
 
   return {
     user,
     settings,
     isAuthenticated,
-    isAdmin,
+    isDirector,
     isManager,
+    isStorekeeper,
+    isWorker,
     setUser,
-    updateProfile,
-    updateSettings,
     logout,
-    initDemoUser
+    initDemoUser,
+    updateProfile
   }
 })

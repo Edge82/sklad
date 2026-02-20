@@ -108,7 +108,7 @@ import {
 
 const inventoryStore = useInventoryStore()
 
-const props = defineProps<{
+defineProps<{
   showLowStock?: boolean
   showOutOfStock?: boolean
 }>()

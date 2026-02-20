@@ -241,7 +241,8 @@
       </div>
 
       <n-data-table :columns="columns" :data="filteredItems" :pagination="pagination"
-        :row-key="(row: InventoryItem) => row.id" striped @update:sorter="handleSorterChange" />
+        :row-key="(row: InventoryItem) => row.id" striped @update:sorter="handleSorterChange"
+        :row-props="rowProps" />
     </n-card>
 
     <!-- Последние операции -->
@@ -281,7 +282,12 @@
     </n-card>
 
     <!-- Модалки -->
-    <InventoryItemModal v-model:show="showCreateModal" @submit="handleItemSubmit" />
+    <InventoryItemModal 
+      v-model:show="showCreateModal" 
+      :item-id="selectedItemId"
+      @submit="handleItemSubmit" 
+      @update:show="(val) => !val && (selectedItemId = null)"
+    />
 
     <InventoryReportModal v-model:show="showReportModal" />
 
@@ -290,6 +296,22 @@
 
     <InventoryTransactionModal v-model:show="showIssueModal" type="outgoing" title="Расход материалов"
       @submit="handleTransactionSubmit" />
+
+    <n-modal v-model:show="showDetailsModal" preset="card" title="Детали материала" style="width: 1000px">
+      <InventoryItemDetails 
+        v-if="selectedItemId" 
+        :item-id="selectedItemId" 
+        @close="showDetailsModal = false"
+        @edit="handleEditFromDetails" 
+      />
+    </n-modal>
+
+    <QRPrintModal
+      v-model:show="showPrintModal"
+      :title="printData.title"
+      :code="printData.code"
+      :description="printData.description"
+    />
   </div>
 </template>
 
@@ -341,19 +363,36 @@ import {
   EyeOutline,
   PencilOutline,
   TrashOutline,
-  LocationOutline
+  LocationOutline,
+  PrintOutline,
+  QrCodeOutline
 } from '@vicons/ionicons5'
-// import InventoryItemModal from '@/components/inventory/InventoryItemModal.vue'
-// import InventoryReportModal from '@/components/inventory/InventoryReportModal.vue'
-// import InventoryTransactionModal from '@/components/inventory/InventoryTransactionModal.vue'
+import InventoryItemModal from '@/components/inventory/InventoryItemModal.vue'
+import InventoryReportModal from '@/components/inventory/InventoryReportModal.vue'
+import InventoryTransactionModal from '@/components/inventory/InventoryTransactionModal.vue'
+import InventoryItemDetails from '@/components/inventory/InventoryItemDetails.vue'
+import QRPrintModal from '@/components/common/QRPrintModal.vue'
+import { useDialog, useMessage } from 'naive-ui'
 
 const inventoryStore = useInventoryStore()
+const dialog = useDialog()
+const message = useMessage()
 
 // Модальные окна
 const showCreateModal = ref(false)
 const showReportModal = ref(false)
 const showReceiptModal = ref(false)
 const showIssueModal = ref(false)
+const showDetailsModal = ref(false)
+const showPrintModal = ref(false)
+const isEditMode = ref(false)
+const selectedItemId = ref<string | null>(null)
+
+const printData = reactive({
+  title: '',
+  code: '',
+  description: ''
+})
 
 // Фильтры
 const searchQuery = ref('')
@@ -387,7 +426,7 @@ const pagination = computed(() => ({
   showSizePicker: true,
   pageSizes: [10, 25, 50, 100],
   onChange: (page: number) => {
-    console.log('Page changed:', page)
+    // Handle page change if needed
   },
   onUpdatePageSize: (pageSize: number) => {
     itemsPerPage.value = pageSize
@@ -511,7 +550,7 @@ const columns: DataTableColumns<InventoryItem> = [
     key: 'status',
     width: 120,
     render: (row) => h(NTag, {
-      type: inventoryStore.getStatusColor(row.status),
+      type: inventoryStore.getStatusColor(row.status) as any,
       size: 'small',
       bordered: false
     }, { default: () => inventoryStore.getStatusLabel(row.status) })
@@ -542,26 +581,26 @@ const columns: DataTableColumns<InventoryItem> = [
   {
     title: 'Действия',
     key: 'actions',
-    width: 150,
+    width: 100,
     fixed: 'right',
     render: (row) => h('div', { class: 'flex gap-2' }, [
       h(NButton, {
         size: 'small',
         type: 'info',
         quaternary: true,
-        onClick: () => viewItem(row.id)
-      }, { icon: () => h(NIcon, null, { default: () => h(EyeOutline) }) }),
-      h(NButton, {
-        size: 'small',
-        type: 'warning',
-        quaternary: true,
-        onClick: () => editItem(row.id)
-      }, { icon: () => h(NIcon, null, { default: () => h(PencilOutline) }) }),
+        onClick: (e) => {
+          e.stopPropagation()
+          handlePrintQR(row)
+        }
+      }, { icon: () => h(NIcon, null, { default: () => h(QrCodeOutline) }) }),
       h(NButton, {
         size: 'small',
         type: 'error',
         quaternary: true,
-        onClick: () => deleteItem(row.id)
+        onClick: (e) => {
+          e.stopPropagation()
+          deleteItem(row.id)
+        }
       }, { icon: () => h(NIcon, null, { default: () => h(TrashOutline) }) })
     ])
   }
@@ -590,8 +629,8 @@ const formatDateTime = (date: Date) => {
   }).format(date)
 }
 
-const getCategoryIcon = (categoryId: number) => {
-  const category = inventoryStore.categories.find(c => c.id === categoryId)
+const getCategoryIcon = (categoryId: string | number) => {
+  const category = inventoryStore.categories.find(c => String(c.id) === String(categoryId))
   switch (category?.name) {
     case 'Древесина': return h('span', '🌲')
     case 'Фурнитура': return h('span', '🔧')
@@ -605,7 +644,7 @@ const getCategoryIcon = (categoryId: number) => {
   }
 }
 
-const getItemUnit = (itemId: number) => {
+const getItemUnit = (itemId: string) => {
   const item = inventoryStore.getItemById(itemId)
   return item?.unit || 'шт'
 }
@@ -649,62 +688,93 @@ const resetFilters = () => {
 
 const viewLowStock = () => {
   filters.status = 'low_stock'
-  window.$message?.info(`Показано ${inventoryStore.lowStockItems} позиций с малым остатком`)
+  message.info(`Показано ${inventoryStore.lowStockItems} позиций с малым остатком`)
 }
 
 const viewOutOfStock = () => {
   filters.status = 'out_of_stock'
-  window.$message?.info(`Показано ${inventoryStore.outOfStockItems} отсутствующих позиций`)
+  message.info(`Показано ${inventoryStore.outOfStockItems} отсутствующих позиций`)
 }
 
 const scanBarcode = () => {
-  window.$message?.info('Сканирование штрих-кода (в разработке)')
+  message.info('Сканирование штрих-кода (в разработке)')
 }
 
 const startInventory = () => {
-  window.$message?.info('Начало инвентаризации (в разработке)')
+  message.info('Начало инвентаризации (в разработке)')
 }
 
 const exportData = () => {
-  window.$message?.success('Данные экспортированы в Excel')
+  message.success('Данные экспортированы в Excel')
 }
 
-const viewItem = (id: number) => {
-  window.$message?.info(`Просмотр материала #${id}`)
+const viewItem = (id: string) => {
+  selectedItemId.value = id
+  showDetailsModal.value = true
 }
 
-const editItem = (id: number) => {
-  window.$message?.info(`Редактирование материала #${id}`)
-}
-
-const deleteItem = (id: number) => {
-  if (window.$dialog) {
-    window.$dialog.warning({
-      title: 'Удаление материала',
-      content: 'Вы уверены, что хотите удалить этот материал?',
-      positiveText: 'Удалить',
-      negativeText: 'Отмена',
-      onPositiveClick: () => {
-        inventoryStore.deleteItem(id)
-        window.$message?.success('Материал удален')
-      }
-    })
+const handlePrintQR = (item: any) => {
+  if (item && (item.barcode || item.sku)) {
+    printData.title = item.name
+    printData.code = item.barcode || item.sku
+    printData.description = `Артикул: ${item.sku}`
+    showPrintModal.value = true
+  } else {
+    message.warning('Для печати необходим штрих-код или артикул')
   }
 }
 
+const handleEditFromDetails = (id: string) => {
+  selectedItemId.value = id
+  showDetailsModal.value = false
+  editItem(id)
+}
+
+const editItem = (id: string) => {
+  selectedItemId.value = id
+  showCreateModal.value = true
+}
+
+const deleteItem = (id: string) => {
+  dialog.warning({
+    title: 'Удаление материала',
+    content: 'Вы уверены, что хотите удалить этот материал? Это действие нельзя будет отменить.',
+    positiveText: 'Удалить',
+    negativeText: 'Отмена',
+    onPositiveClick: () => {
+      inventoryStore.deleteItem(id)
+      message.success('Материал удален')
+    }
+  })
+}
+
 const handleItemSubmit = (itemData: any) => {
-  inventoryStore.addItem(itemData)
-  window.$message?.success('Материал успешно добавлен')
+  if (selectedItemId.value) {
+    inventoryStore.updateItem(selectedItemId.value, itemData)
+    message.success('Материал успешно обновлен')
+  } else {
+    inventoryStore.addItem(itemData)
+    message.success('Материал успешно добавлен')
+  }
+  selectedItemId.value = null
 }
 
 const handleTransactionSubmit = (transactionData: any) => {
   const { itemId, quantity, type, ...rest } = transactionData
   inventoryStore.updateStock(itemId, quantity, type, rest)
-  window.$message?.success('Операция успешно выполнена')
+  message.success('Операция успешно выполнена')
 }
 
 const handleSorterChange = (sorter: any) => {
-  console.log('Сортировка изменена:', sorter)
+}
+
+const rowProps = (row: InventoryItem) => {
+  return {
+    style: 'cursor: pointer;',
+    onClick: () => {
+      editItem(row.id)
+    }
+  }
 }
 </script>
 

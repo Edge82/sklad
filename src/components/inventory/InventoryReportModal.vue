@@ -217,7 +217,7 @@ const stockReportColumns: DataTableColumns = [
     key: 'status',
     width: 120,
     render: (row: any) => h(NTag, {
-      type: inventoryStore.getStatusColor(row.status),
+      type: inventoryStore.getStatusColor(row.status) as any,
       size: 'small'
     }, { default: () => inventoryStore.getStatusLabel(row.status) })
   },
@@ -287,13 +287,14 @@ const totalInventoryValue = computed(() => {
 const valueByCategory = computed(() => {
   const categories: Record<string, { count: number, value: number }> = {}
 
-  inventoryStore.items.forEach(item => {
-    if (!categories[item.category]) {
-      categories[item.category] = { count: 0, value: 0 }
-    }
-    categories[item.category].count++
-    categories[item.category].value += item.totalValue
-  })
+    inventoryStore.items.forEach(item => {
+      if (!categories[item.category]) {
+        categories[item.category] = { count: 0, value: 0 }
+      }
+      const cat = categories[item.category]!
+      cat.count++
+      cat.value += item.totalValue
+    })
 
   return Object.entries(categories).map(([name, data]) => ({
     name,

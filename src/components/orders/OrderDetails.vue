@@ -81,7 +81,7 @@
         <tbody>
           <tr v-for="(item, index) in order.items" :key="item.id">
             <td>{{ index + 1 }}</td>
-            <td>{{ item.itemName }}</td>
+            <td>{{ item.productName || item.itemName }}</td>
             <td>{{ item.quantity }}</td>
             <td>{{ formatCurrency(item.unitPrice) }}</td>
             <td>{{ item.materialUsed || '-' }}</td>
@@ -203,28 +203,32 @@ const props = defineProps<{
 }>()
 
 const isOverdue = computed(() => {
-  return new Date(props.order.deadline) < new Date() && props.order.status !== 'completed'
+  if (!props.order.deadline) return false
+  return new Date(props.order.deadline) < new Date() && (props.order.status as string) !== 'completed'
 })
 
-const formatDate = (date: Date) => {
+const formatDate = (date: Date | string | undefined) => {
+  if (!date) return '-'
   return new Intl.DateTimeFormat('ru-RU', {
     day: '2-digit',
     month: '2-digit',
     year: 'numeric'
-  }).format(date)
+  }).format(new Date(date))
 }
 
-const formatDateTime = (date: Date) => {
+const formatDateTime = (date: Date | string | undefined) => {
+  if (!date) return '-'
   return new Intl.DateTimeFormat('ru-RU', {
     day: '2-digit',
     month: '2-digit',
     year: 'numeric',
     hour: '2-digit',
     minute: '2-digit'
-  }).format(date)
+  }).format(new Date(date))
 }
 
-const formatCurrency = (amount: number) => {
+const formatCurrency = (amount: number | undefined) => {
+  if (amount === undefined) return '-'
   return new Intl.NumberFormat('ru-RU', {
     style: 'currency',
     currency: 'RUB',
@@ -233,11 +237,15 @@ const formatCurrency = (amount: number) => {
 }
 
 const getStatusLabel = (status: Order['status']) => {
-  const statusMap: Record<Order['status'], string> = {
+  const statusMap: Record<string, string> = {
     'new': 'Новый',
     'processing': 'В обработке',
+    'printing': 'Печать QR',
+    'in_progress': 'В производстве',
+    'partially_ready': 'Частично готов',
     'ready': 'Готов',
-    'shipped': 'Отправлен',
+    'partially_shipped': 'Частично отгружен',
+    'shipped': 'Отгружен',
     'completed': 'Завершен',
     'cancelled': 'Отменен'
   }
@@ -245,19 +253,24 @@ const getStatusLabel = (status: Order['status']) => {
 }
 
 const getStatusColor = (status: Order['status']) => {
-  const colorMap: Record<Order['status'], string> = {
+  const colorMap: Record<string, string> = {
     'new': 'default',
     'processing': 'warning',
-    'ready': 'info',
+    'printing': 'info',
+    'in_progress': 'warning',
+    'partially_ready': 'info',
+    'ready': 'success',
+    'partially_shipped': 'info',
     'shipped': 'primary',
     'completed': 'success',
     'cancelled': 'error'
   }
-  return colorMap[status] || 'default'
+  return (colorMap[status] || 'default') as any
 }
 
 const getPriorityLabel = (priority: Order['priority']) => {
-  const priorityMap: Record<Order['priority'], string> = {
+  if (!priority) return 'Не указан'
+  const priorityMap: Record<string, string> = {
     'low': 'Низкий',
     'medium': 'Средний',
     'high': 'Высокий',
@@ -267,13 +280,14 @@ const getPriorityLabel = (priority: Order['priority']) => {
 }
 
 const getPriorityColor = (priority: Order['priority']) => {
-  const colorMap: Record<Order['priority'], string> = {
+  if (!priority) return 'default' as any
+  const colorMap: Record<string, string> = {
     'low': 'success',
     'medium': 'warning',
     'high': 'error',
     'urgent': 'error'
   }
-  return colorMap[priority] || 'default'
+  return (colorMap[priority] || 'default') as any
 }
 
 const printOrder = () => {

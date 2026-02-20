@@ -1,21 +1,38 @@
 <template>
-  <div v-if="employee" class="employee-details">
+  <div v-if="currentEmployee" class="employee-details">
     <!-- Шапка профиля -->
     <div class="mb-6">
       <div class="flex items-start gap-4">
-        <n-avatar round :size="80" :src="employee.avatar" class="flex-shrink-0">
-          {{ employee.name.charAt(0) }}
-        </n-avatar>
-        <div class="flex-grow">
-          <n-h2 class="m-0">{{ employee.name }}</n-h2>
+        <!-- Фото сотрудника -->
+        <div class="shrink-0 relative">
+          <n-avatar 
+            v-if="avatarSrc"
+            round 
+            :size="100" 
+            :src="avatarSrc" 
+            :key="avatarKey"
+            class="shrink-0 border border-gray-700 shadow-xl"
+            object-fit="cover"
+          />
+          <n-avatar 
+            v-else
+            round 
+            :size="100" 
+            class="shrink-0 border-2 border-gray-700"
+          >
+            {{ currentEmployee.name.charAt(0) }}
+          </n-avatar>
+        </div>
+        <div class="grow">
+          <n-h2 class="m-0 text-2xl font-bold">{{ currentEmployee.name }}</n-h2>
           <div class="flex items-center gap-3 mt-2">
-            <n-tag :type="getRoleColor(employee.role)" size="small">
-              {{ getRoleLabel(employee.role) }}
+            <n-tag :type="(getRoleColor(currentEmployee.role) as any)" size="small">
+              {{ getRoleLabel(currentEmployee.role) }}
             </n-tag>
-            <n-tag :type="getStatusColor(employee.status)" size="small">
-              {{ getStatusLabel(employee.status) }}
+            <n-tag :type="(getStatusColor(currentEmployee.status) as any)" size="small">
+              {{ getStatusLabel(currentEmployee.status) }}
             </n-tag>
-            <span class="text-gray-500">{{ employee.position }}</span>
+            <span class="text-gray-400 font-medium">{{ currentEmployee.position }}</span>
           </div>
         </div>
       </div>
@@ -33,7 +50,7 @@
                   <MailOutline />
                 </n-icon>
               </template>
-              <n-text>{{ employee.email }}</n-text>
+              <n-text>{{ currentEmployee.email }}</n-text>
             </n-list-item>
             <n-list-item>
               <template #prefix>
@@ -41,15 +58,15 @@
                   <CallOutline />
                 </n-icon>
               </template>
-              <n-text>{{ employee.phone }}</n-text>
+              <n-text>{{ currentEmployee.phone }}</n-text>
             </n-list-item>
-            <n-list-item v-if="employee.address">
+            <n-list-item v-if="currentEmployee.address">
               <template #prefix>
                 <n-icon>
                   <LocationOutline />
                 </n-icon>
               </template>
-              <n-text>{{ employee.address }}</n-text>
+              <n-text>{{ currentEmployee.address }}</n-text>
             </n-list-item>
             <n-list-item>
               <template #prefix>
@@ -58,7 +75,7 @@
                 </n-icon>
               </template>
               <n-text>
-                {{ employee.birthDate ? formatDate(employee.birthDate) : 'Не указано' }}
+                {{ currentEmployee.birthDate ? formatDate(currentEmployee.birthDate) : 'Не указано' }}
               </n-text>
             </n-list-item>
           </n-list>
@@ -75,7 +92,7 @@
                   <BusinessOutline />
                 </n-icon>
               </template>
-              <n-text>{{ employee.department }}</n-text>
+              <n-text>{{ currentEmployee.department }}</n-text>
             </n-list-item>
             <n-list-item>
               <template #prefix>
@@ -83,7 +100,7 @@
                   <CalendarOutline />
                 </n-icon>
               </template>
-              <n-text>Принят: {{ formatDate(employee.hireDate) }}</n-text>
+              <n-text>Принят: {{ formatDate(currentEmployee.hireDate) }}</n-text>
             </n-list-item>
             <n-list-item>
               <template #prefix>
@@ -91,15 +108,15 @@
                   <CashOutline />
                 </n-icon>
               </template>
-              <n-text>{{ formatCurrency(employee.salary) }} / мес</n-text>
+              <n-text>{{ formatCurrency(currentEmployee.salary) }} / мес</n-text>
             </n-list-item>
-            <n-list-item v-if="employee.lastLogin">
+            <n-list-item v-if="currentEmployee.lastLogin">
               <template #prefix>
                 <n-icon>
                   <TimeOutline />
                 </n-icon>
               </template>
-              <n-text>Последний вход: {{ formatDateTime(employee.lastLogin) }}</n-text>
+              <n-text>Последний вход: {{ formatDateTime(currentEmployee.lastLogin) }}</n-text>
             </n-list-item>
           </n-list>
         </n-card>
@@ -109,10 +126,12 @@
       <n-gi :span="2">
         <n-card title="Навыки">
           <div class="flex flex-wrap gap-2">
-            <n-tag v-for="skill in employee.skills" :key="skill" type="info" round>
-              {{ skill }}
-            </n-tag>
-            <n-tag v-if="employee.skills.length === 0" type="default">
+            <template v-if="currentEmployee.skills && currentEmployee.skills.length > 0">
+              <n-tag v-for="skill in currentEmployee.skills" :key="skill" type="info" round>
+                {{ skill }}
+              </n-tag>
+            </template>
+            <n-tag v-else type="default">
               Навыки не указаны
             </n-tag>
           </div>
@@ -120,9 +139,9 @@
       </n-gi>
 
       <!-- Примечания -->
-      <n-gi :span="2" v-if="employee.notes">
+      <n-gi :span="2" v-if="currentEmployee.notes">
         <n-card title="Примечания">
-          <n-text>{{ employee.notes }}</n-text>
+          <n-text>{{ currentEmployee.notes }}</n-text>
         </n-card>
       </n-gi>
 
@@ -173,7 +192,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, watch } from 'vue'
+import { useEmployeesStore } from '@/stores/employees'
 import type { Employee } from '@/types'
 import {
   NCard,
@@ -208,18 +228,42 @@ const props = defineProps<{
   employee: Employee
 }>()
 
+// Используем стор для получения самой актуальной копии данных
+const employeesStore = useEmployeesStore()
+const currentEmployee = computed(() => {
+  return employeesStore.employees.find(e => e.id === props.employee.id) || props.employee
+})
+
+const avatarSrc = computed(() => {
+  return currentEmployee.value?.avatar || currentEmployee.value?.photo || ''
+})
+
+const avatarKey = computed(() => {
+  return `avatar-${currentEmployee.value?.id}-${avatarSrc.value?.length || 0}`
+})
+
 const formatDate = (date: Date) => {
-  return new Intl.DateTimeFormat('ru-RU').format(date)
+  if (!date) return 'Не указано'
+  try {
+    return new Intl.DateTimeFormat('ru-RU').format(new Date(date))
+  } catch (err) {
+    return 'Некорректная дата'
+  }
 }
 
 const formatDateTime = (date: Date) => {
-  return new Intl.DateTimeFormat('ru-RU', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit'
-  }).format(date)
+  if (!date) return 'Не указано'
+  try {
+    return new Intl.DateTimeFormat('ru-RU', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    }).format(new Date(date))
+  } catch (err) {
+    return 'Некорректная дата/время'
+  }
 }
 
 const formatCurrency = (amount: number) => {
@@ -227,7 +271,7 @@ const formatCurrency = (amount: number) => {
     style: 'currency',
     currency: 'RUB',
     minimumFractionDigits: 0
-  }).format(amount)
+  }).format(amount || 0)
 }
 
 const getRoleLabel = (role: Employee['role']) => {
@@ -273,29 +317,15 @@ const getStatusColor = (status: Employee['status']) => {
 }
 
 const sendMessage = () => {
-  window.$message?.info('Отправка сообщения сотруднику')
 }
 
 const editEmployee = () => {
-  window.$message?.info('Редактирование сотрудника')
 }
 
 const viewDocuments = () => {
-  window.$message?.info('Просмотр документов сотрудника')
 }
 
 const dismissEmployee = () => {
-  if (window.$dialog) {
-    window.$dialog.warning({
-      title: 'Увольнение сотрудника',
-      content: 'Вы уверены, что хотите уволить этого сотрудника?',
-      positiveText: 'Уволить',
-      negativeText: 'Отмена',
-      onPositiveClick: () => {
-        window.$message?.success('Сотрудник уволен')
-      }
-    })
-  }
 }
 </script>
 

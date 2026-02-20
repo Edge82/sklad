@@ -9,7 +9,28 @@
         </n-form-item>
 
         <n-form-item label="Email" path="email" required>
-          <n-input v-model:value="formData.email" placeholder="email@company.com" type="email" />
+          <n-input v-model:value="formData.email" placeholder="email@company.com" />
+        </n-form-item>
+
+        <n-form-item label="Фото сотрудника" path="avatar">
+          <div class="flex items-center gap-4">
+            <n-avatar
+              round
+              :size="80"
+              :src="formData.avatar"
+              fallback-src="https://0x0.st/H-8W.png"
+            />
+            <n-upload
+              @change="handleFileListChange"
+              :max="1"
+              accept="image/*"
+              list-type="image"
+              :show-file-list="false"
+            >
+              <n-button>Загрузить фото</n-button>
+            </n-upload>
+            <n-button v-if="formData.avatar" quaternary @click="formData.avatar = ''; formData.photo = ''">Удалить</n-button>
+          </div>
         </n-form-item>
 
         <n-form-item label="Телефон" path="phone" required>
@@ -77,7 +98,7 @@
 
     <div class="flex justify-end gap-3 mt-6">
       <n-button @click="$emit('cancel')">Отмена</n-button>
-      <n-button type="primary" @click="handleSubmit" :loading="loading">
+      <n-button type="primary" @click="handleSubmit" :loading="loading" :disabled="isReading">
         Сохранить
       </n-button>
     </div>
@@ -85,8 +106,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive } from 'vue'
+import { ref, reactive, watch } from 'vue'
 import type { FormInst, FormRules } from 'naive-ui'
+import { useEmployeesStore } from '@/stores/employees'
+import { useMessage } from 'naive-ui'
 import {
   NForm,
   NFormItem,
@@ -98,20 +121,55 @@ import {
   NH3,
   NGrid,
   NGi,
-  NDynamicTags
+  NDynamicTags,
+  NUpload,
+  NAvatar
 } from 'naive-ui'
+import type { UploadFileInfo } from 'naive-ui'
+
+const props = defineProps<{
+  employeeId?: string | null
+}>()
 
 const emit = defineEmits<{
   submit: [data: any]
   cancel: []
 }>()
 
+const employeesStore = useEmployeesStore()
+const message = useMessage()
 const formRef = ref<FormInst | null>(null)
 const loading = ref(false)
+const isReading = ref(false)
+
+const handleFileListChange = (data: any) => {
+  const fileList = Array.isArray(data) ? data : data.fileList
+  if (fileList && fileList.length > 0) {
+    const file = fileList[fileList.length - 1].file
+    if (file) {
+      isReading.value = true
+      const reader = new FileReader()
+      reader.onload = (e) => {
+        const base64 = e.target?.result as string
+        formData.avatar = base64
+        formData.photo = base64
+        isReading.value = false
+      }
+      reader.onerror = (err) => {
+        console.error('❌ FileReader error:', err)
+        message.error('Ошибка при чтении файла')
+        isReading.value = false
+      }
+      reader.readAsDataURL(file)
+    }
+  }
+}
 
 const formData = reactive({
   name: '',
   email: '',
+  avatar: '',
+  photo: '',
   phone: '',
   position: '',
   department: '',
@@ -124,6 +182,48 @@ const formData = reactive({
   skills: [] as string[],
   notes: ''
 })
+
+// Загрузка данных при редактировании
+watch(() => props.employeeId, (newId) => {
+  if (newId) {
+    const employee = employeesStore.getEmployeeById(newId)
+    if (employee) {
+      // Маппинг данных из стора в форму
+      formData.name = employee.name || ''
+      formData.email = employee.email || ''
+      formData.avatar = employee.avatar || employee.photo || ''
+      formData.photo = employee.photo || employee.avatar || ''
+      formData.phone = employee.phone || ''
+      formData.position = employee.position || ''
+      formData.department = employee.department || ''
+      formData.role = employee.role || 'worker'
+      formData.status = employee.status || 'active'
+      formData.salary = employee.salary || 50000
+      formData.hireDate = employee.hireDate ? new Date(employee.hireDate).getTime() : Date.now()
+      formData.birthDate = employee.birthDate ? new Date(employee.birthDate).getTime() : null
+      formData.address = employee.address || ''
+      formData.skills = [...(employee.skills || [])]
+      formData.notes = employee.notes || ''
+    }
+  } else {
+    // Сброс формы для нового сотрудника
+    formData.name = ''
+    formData.email = ''
+    formData.avatar = ''
+    formData.photo = ''
+    formData.phone = ''
+    formData.position = ''
+    formData.department = ''
+    formData.role = 'worker'
+    formData.status = 'active'
+    formData.salary = 50000
+    formData.hireDate = Date.now()
+    formData.birthDate = null
+    formData.address = ''
+    formData.skills = []
+    formData.notes = ''
+  }
+}, { immediate: true })
 
 const departmentOptions = [
   { label: 'Производство', value: 'Производство' },
@@ -171,28 +271,28 @@ const rules: FormRules = {
     { required: true, type: 'number', min: 0, message: 'Зарплата должна быть положительной', trigger: 'blur' }
   ],
   hireDate: [
-    { required: true, message: 'Выберите дату приема', trigger: 'change' }
+    { required: true, type: 'number', message: 'Выберите дату приема', trigger: 'change' }
   ]
 }
 
-const handleSubmit = () => {
-  formRef.value?.validate((errors) => {
-    if (!errors) {
-      loading.value = true
+const handleSubmit = async () => {
+  try {
+    await formRef.value?.validate()
+    loading.value = true
 
-      const employeeData = {
-        ...formData,
-        hireDate: formData.hireDate ? new Date(formData.hireDate) : new Date(),
-        birthDate: formData.birthDate ? new Date(formData.birthDate) : undefined
-      }
-
-      setTimeout(() => {
-        emit('submit', employeeData)
-        loading.value = false
-      }, 1000)
-    } else {
-      window.$message?.error('Пожалуйста, исправьте ошибки в форме')
+    // Создаем копию данных для отправки
+    const employeeData = {
+      ...formData,
+      avatar: formData.avatar || formData.photo, // Убеждаемся что оба поля имеют значение
+      photo: formData.avatar || formData.photo,
+      hireDate: formData.hireDate ? new Date(formData.hireDate) : new Date(),
+      birthDate: formData.birthDate ? new Date(formData.birthDate) : undefined
     }
-  })
+
+    emit('submit', employeeData)
+    loading.value = false
+  } catch (errors) {
+    message.error('Пожалуйста, исправьте ошибки в форме')
+  }
 }
 </script>

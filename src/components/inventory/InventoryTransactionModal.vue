@@ -21,7 +21,7 @@
                   Доступно: {{ selectedItem.available }} {{ selectedItem.unit }}
                 </div>
               </div>
-              <n-tag :type="inventoryStore.getStatusColor(selectedItem.status)" size="small">
+              <n-tag :type="(inventoryStore.getStatusColor(selectedItem.status) as any)" size="small">
                 {{ inventoryStore.getStatusLabel(selectedItem.status) }}
               </n-tag>
             </div>
@@ -115,6 +115,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, watch } from 'vue'
 import { useInventoryStore } from '@/stores/inventory'
+import { useMessage } from 'naive-ui'
 import type { FormInst, FormRules } from 'naive-ui'
 import type { InventoryItem } from '@/types'
 import {
@@ -144,6 +145,7 @@ const emit = defineEmits<{
 }>()
 
 const inventoryStore = useInventoryStore()
+const message = useMessage()
 const formRef = ref<FormInst | null>(null)
 const loading = ref(false)
 const selectedItem = ref<InventoryItem | null>(null)
@@ -292,7 +294,7 @@ const showModal = computed({
 // Правила валидации
 const rules: FormRules = {
   itemId: [
-    { required: true, message: 'Выберите материал', trigger: 'change', type: 'number' }
+    { required: true, message: 'Выберите материал', trigger: 'change' }
   ],
   quantity: [
     { required: true, message: 'Введите количество', trigger: 'blur', type: 'number' },
@@ -336,7 +338,7 @@ if (props.type === 'transfer') {
 }
 
 // Методы
-const handleItemSelect = (itemId: number) => {
+const handleItemSelect = (itemId: string) => {
   selectedItem.value = inventoryStore.getItemById(itemId) || null
   if (selectedItem.value && props.type !== 'incoming') {
     formData.unitPrice = selectedItem.value.averagePrice
@@ -372,27 +374,28 @@ const handleCancel = () => {
   showModal.value = false
 }
 
-const handleSubmit = () => {
-  formRef.value?.validate((errors) => {
-    if (!errors && formData.itemId) {
-      loading.value = true
+const handleSubmit = async () => {
+  try {
+    await formRef.value?.validate()
+    if (!formData.itemId) return
 
-      const transactionData = {
-        ...formData,
-        type: props.type,
-        totalPrice: totalAmount.value
-      }
+    loading.value = true
 
-      // Имитация задержки API
-      setTimeout(() => {
-        emit('submit', transactionData)
-        loading.value = false
-        handleCancel()
-      }, 1000)
-    } else {
-      window.$message?.error('Пожалуйста, заполните все обязательные поля')
+    const transactionData = {
+      ...formData,
+      type: props.type,
+      totalPrice: totalAmount.value
     }
-  })
+
+    // Имитация задержки API
+    setTimeout(() => {
+      emit('submit', transactionData)
+      loading.value = false
+      handleCancel()
+    }, 1000)
+  } catch (errors) {
+    message.error('Пожалуйста, заполните все обязательные поля')
+  }
 }
 
 // Сброс формы при закрытии
