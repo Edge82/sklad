@@ -32,7 +32,7 @@ const props = defineProps<{
   description?: string
 }>()
 
-const emit = defineEmits(['update:show'])
+defineEmits(['update:show'])
 
 const qrUrl = computed(() => {
   return `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(props.code)}`

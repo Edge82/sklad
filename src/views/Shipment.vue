@@ -150,7 +150,6 @@ import {
   SearchOutline, 
   TrashOutline, 
   EyeOutline,
-  QrCodeOutline,
   DocumentTextOutline,
   CarOutline,
   CheckmarkCircleOutline,
@@ -253,7 +252,7 @@ const handleSubmit = async () => {
       waybillNumber: '',
       status: 'pending'
     })
-  } catch (err) {
+  } catch {
     message.error('Заполните обязательные поля')
   } finally {
     submitting.value = false

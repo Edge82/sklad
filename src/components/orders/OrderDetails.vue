@@ -329,7 +329,7 @@ const getStatusLabel = (status: Order['status']) => {
 }
 
 const getStatusColor = (status: Order['status']) => {
-  const colorMap: Record<string, string> = {
+  const colorMap: Record<string, 'default' | 'error' | 'primary' | 'info' | 'success' | 'warning'> = {
     'new': 'default',
     'processing': 'warning',
     'printing': 'info',
@@ -341,7 +341,7 @@ const getStatusColor = (status: Order['status']) => {
     'completed': 'success',
     'cancelled': 'error'
   }
-  return (colorMap[status] || 'default') as any
+  return colorMap[status] || 'default'
 }
 
 const getPriorityLabel = (priority: Order['priority']) => {
@@ -356,14 +356,14 @@ const getPriorityLabel = (priority: Order['priority']) => {
 }
 
 const getPriorityColor = (priority: Order['priority']) => {
-  if (!priority) return 'default' as any
-  const colorMap: Record<string, string> = {
+  if (!priority) return 'default'
+  const colorMap: Record<string, 'default' | 'error' | 'primary' | 'info' | 'success' | 'warning'> = {
     'low': 'success',
     'medium': 'warning',
     'high': 'error',
     'urgent': 'error'
   }
-  return (colorMap[priority] || 'default') as any
+  return colorMap[priority] || 'default'
 }
 
 const printOrder = () => {

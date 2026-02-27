@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import type { Order, OrderStatus, OrderShipment } from '@/types'
+import type { Order, OrderStatus, OrderShipment, QRCode } from '@/types'
 
 export const useOrdersStore = defineStore('orders', () => {
   const orders = ref<Order[]>([
@@ -41,7 +41,7 @@ export const useOrdersStore = defineStore('orders', () => {
   const pendingOrders = computed(() => orders.value.filter(o => o.status === 'new' || o.status === 'in_progress').length)
   const readyOrders = computed(() => orders.value.filter(o => o.status === 'ready').length)
 
-  const getOrderProgress = (orderId: string, qrCodes: any[]) => {
+  const getOrderProgress = (orderId: string, qrCodes: QRCode[]) => {
     const orderItems = qrCodes.filter(q => q.orderId === orderId)
     const totalGenerated = orderItems.length
     if (totalGenerated === 0) return 0
@@ -53,7 +53,7 @@ export const useOrdersStore = defineStore('orders', () => {
     return Math.min(Math.round((scannedCount / totalGenerated) * 100), 100)
   }
 
-  const getOrderItemProgress = (orderId: string, productId: string, qrCodes: any[]) => {
+  const getOrderItemProgress = (orderId: string, productId: string, qrCodes: QRCode[]) => {
     const itemCodes = qrCodes.filter(q => q.orderId === orderId && q.productId === productId)
     const totalGenerated = itemCodes.length
     if (totalGenerated === 0) return 0

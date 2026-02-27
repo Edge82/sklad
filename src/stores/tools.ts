@@ -89,11 +89,11 @@ export const useToolsStore = defineStore('tools', () => {
     return tools.value.find(t => t.id === id)
   }
 
-  function addTool(toolData: any) {
+  function addTool(toolData: Omit<Tool, 'id'>) {
     const newTool: Tool = {
       ...toolData,
       id: Math.random().toString(36).substr(2, 9)
-    }
+    } as Tool
     tools.value.unshift(newTool)
     return newTool
   }

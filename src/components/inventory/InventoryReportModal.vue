@@ -133,6 +133,7 @@
 <script setup lang="ts">
 import { reactive, computed, h } from 'vue'
 import { useInventoryStore } from '@/stores/inventory'
+import type { InventoryItem } from '@/types'
 import type { DataTableColumns } from 'naive-ui'
 import {
   NModal,
@@ -161,6 +162,37 @@ import {
   ArrowUpOutline,
   SwapHorizontalOutline
 } from '@vicons/ionicons5'
+
+interface StockReportRow {
+  name: string
+  category: string
+  stock: number
+  unit: string
+  minStock: number
+  maxStock: number
+  status: InventoryItem['status']
+  value: number
+}
+
+interface MovementReportRow {
+  type: string
+  itemName: string
+  quantity: number
+  price: number
+  total: number
+  document: string
+  date: Date
+  createdBy: string
+}
+
+interface SupplierReportRow {
+  name: string
+  contacts: string
+  materials: string
+  rating: number
+  deliveryTime: string
+  isActive: boolean
+}
 
 const props = defineProps<{
   show: boolean
@@ -208,25 +240,25 @@ const transactionTypeOptions = [
 ]
 
 // Отчет по остаткам
-const stockReportColumns: DataTableColumns = [
+const stockReportColumns: DataTableColumns<StockReportRow> = [
   { title: 'Материал', key: 'name', width: 200 },
   { title: 'Категория', key: 'category', width: 120 },
-  { title: 'Остаток', key: 'stock', width: 100, render: (row: any) => `${row.stock} ${row.unit}` },
+  { title: 'Остаток', key: 'stock', width: 100, render: (row) => `${row.stock} ${row.unit}` },
   { title: 'Мин. запас', key: 'minStock', width: 100 },
   { title: 'Макс. запас', key: 'maxStock', width: 100 },
   {
     title: 'Статус',
     key: 'status',
     width: 120,
-    render: (row: any) => h(NTag, {
-      type: inventoryStore.getStatusColor(row.status) as any,
+    render: (row) => h(NTag, {
+      type: inventoryStore.getStatusColor(row.status),
       size: 'small'
     }, { default: () => inventoryStore.getStatusLabel(row.status) })
   },
-  { title: 'Стоимость', key: 'value', width: 120, render: (row: any) => formatCurrency(row.value) }
+  { title: 'Стоимость', key: 'value', width: 120, render: (row) => formatCurrency(row.value) }
 ]
 
-const stockReportData = computed(() => {
+const stockReportData = computed<StockReportRow[]>(() => {
   return inventoryStore.items.map(item => ({
     name: item.name,
     category: item.category,
@@ -240,12 +272,12 @@ const stockReportData = computed(() => {
 })
 
 // Отчет по движению
-const movementReportColumns: DataTableColumns = [
+const movementReportColumns: DataTableColumns<MovementReportRow> = [
   {
     title: 'Тип',
     key: 'type',
     width: 100,
-    render: (row: any) => {
+    render: (row) => {
       const icon = row.type === 'incoming' ? ArrowDownOutline :
         row.type === 'outgoing' ? ArrowUpOutline : SwapHorizontalOutline
       const color = row.type === 'incoming' ? 'success' :
@@ -258,22 +290,22 @@ const movementReportColumns: DataTableColumns = [
   },
   { title: 'Материал', key: 'itemName', width: 200 },
   { title: 'Количество', key: 'quantity', width: 100 },
-  { title: 'Цена', key: 'price', width: 100, render: (row: any) => formatCurrency(row.price || 0) },
-  { title: 'Сумма', key: 'total', width: 120, render: (row: any) => formatCurrency(row.total || 0) },
+  { title: 'Цена', key: 'price', width: 100, render: (row) => formatCurrency(row.price || 0) },
+  { title: 'Сумма', key: 'total', width: 120, render: (row) => formatCurrency(row.total || 0) },
   { title: 'Документ', key: 'document', width: 150 },
-  { title: 'Дата', key: 'date', width: 150, render: (row: any) => formatDate(row.date) },
+  { title: 'Дата', key: 'date', width: 150, render: (row) => formatDate(row.date) },
   { title: 'Создал', key: 'createdBy', width: 120 }
 ]
 
-const movementReportData = computed(() => {
+const movementReportData = computed<MovementReportRow[]>(() => {
   return inventoryStore.transactions.map(t => {
     const item = inventoryStore.getItemById(t.itemId)
     return {
       type: t.type,
       itemName: item?.name || 'Неизвестно',
       quantity: t.quantity,
-      price: t.unitPrice,
-      total: t.totalPrice,
+      price: t.unitPrice || 0,
+      total: t.totalPrice || 0,
       document: t.documentNumber || '-',
       date: t.createdAt,
       createdBy: t.createdBy
@@ -318,14 +350,14 @@ const valueByStatus = computed(() => {
   })
 
   return Object.entries(statuses).map(([type, data]) => ({
-    type,
+    type: type as InventoryItem['status'],
     count: data.count,
     value: data.value
   }))
 })
 
 // Отчет по поставщикам
-const supplierReportColumns: DataTableColumns = [
+const supplierReportColumns: DataTableColumns<SupplierReportRow> = [
   { title: 'Поставщик', key: 'name', width: 200 },
   { title: 'Контакты', key: 'contacts', width: 200 },
   { title: 'Материалы', key: 'materials', width: 150 },
@@ -335,14 +367,14 @@ const supplierReportColumns: DataTableColumns = [
     title: 'Статус',
     key: 'status',
     width: 100,
-    render: (row: any) => h(NTag, {
+    render: (row) => h(NTag, {
       type: row.isActive ? 'success' : 'default',
       size: 'small'
     }, { default: () => row.isActive ? 'Активен' : 'Неактивен' })
   }
 ]
 
-const supplierReportData = computed(() => {
+const supplierReportData = computed<SupplierReportRow[]>(() => {
   return inventoryStore.suppliers.map(s => ({
     name: s.name,
     contacts: `${s.contactPerson}, ${s.phone}`,
@@ -366,8 +398,8 @@ const formatDate = (date: Date) => {
   return new Intl.DateTimeFormat('ru-RU').format(date)
 }
 
-const getStatusLabel = (status: string) => {
-  return inventoryStore.getStatusLabel(status as any)
+const getStatusLabel = (status: InventoryItem['status']) => {
+  return inventoryStore.getStatusLabel(status)
 }
 
 const getTransactionTypeLabel = (type: string) => {

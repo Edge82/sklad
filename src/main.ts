@@ -1,4 +1,4 @@
-import { createApp } from 'vue'
+import { createApp, type Component } from 'vue'
 import { createPinia } from 'pinia'
 import App from './App.vue'
 import router from './router'
@@ -11,7 +11,7 @@ const pinia = createPinia()
 
 // Регистрируем все компоненты Naive UI глобально
 for (const [key, component] of Object.entries(Naive)) {
-  const comp = component as any
+  const comp = component as Component & { name?: string }
   if (comp && typeof comp === 'object' && comp.name && key.startsWith('N')) {
     app.component(key, comp)
   }

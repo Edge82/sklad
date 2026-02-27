@@ -40,7 +40,7 @@ import EmployeeDetails from '@/components/employees/EmployeeDetails.vue'
 const route = useRoute()
 const router = useRouter()
 const employeesStore = useEmployeesStore()
-const detailsRef = ref<any>(null)
+const detailsRef = ref<InstanceType<typeof EmployeeDetails> | null>(null)
 
 const employeeId = computed(() => route.params.id as string)
 const employee = computed(() => employeesStore.employees.find(e => e.id === employeeId.value))

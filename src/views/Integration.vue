@@ -39,19 +39,27 @@
 
 <script setup lang="ts">
 import { ref, h } from 'vue'
-import { NTag } from 'naive-ui'
+import { NTag, type DataTableColumns } from 'naive-ui'
 import { useIntegrationStore } from '@/stores/integration'
 
 const integrationStore = useIntegrationStore()
 const syncing = ref(false)
 
-const logColumns = [
-  { title: 'Дата', key: 'date', render(row: any) { return row.date.toLocaleString() } },
+interface SyncLog {
+  id: number
+  date: Date
+  type: string
+  status: string
+  details: string
+}
+
+const logColumns: DataTableColumns<SyncLog> = [
+  { title: 'Дата', key: 'date', render(row) { return row.date.toLocaleString() } },
   { title: 'Тип', key: 'type' },
   { 
     title: 'Статус', 
     key: 'status',
-    render(row: any) {
+    render(row) {
       return h(NTag, { type: row.status === 'success' ? 'success' : 'error' }, { default: () => row.status })
     }
   },

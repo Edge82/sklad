@@ -715,7 +715,7 @@ export const useInventoryStore = defineStore('inventory', () => {
   const updateItem = (id: string, updates: Partial<InventoryItem>) => {
     const index = items.value.findIndex(item => item.id === id)
     if (index !== -1) {
-      let finalUpdates = { ...updates }
+      const finalUpdates = { ...updates }
       
       // Синхронизируем текстовую категорию, если изменили ID категории
       if (updates.categoryId) {
@@ -727,11 +727,14 @@ export const useInventoryStore = defineStore('inventory', () => {
       }
 
       // Безопасное приведение числовых полей
-      const numericFields = ['currentStock', 'reserved', 'averagePrice', 'minStock', 'maxStock', 'purchasePrice', 'lastPurchasePrice', 'deliveryTime', 'minOrderQuantity']
+      const numericFields = ['currentStock', 'reserved', 'averagePrice', 'minStock', 'maxStock', 'purchasePrice', 'lastPurchasePrice', 'deliveryTime', 'minOrderQuantity'] as const
       numericFields.forEach(field => {
         if (field in updates) {
-          // @ts-ignore
-          finalUpdates[field] = Number(updates[field]) || 0
+          const val = updates[field]
+          if (val !== undefined) {
+            // field mapping
+            finalUpdates[field] = Number(val) || 0
+          }
         }
       })
 
@@ -759,8 +762,8 @@ export const useInventoryStore = defineStore('inventory', () => {
     return statusMap[status] || status
   }
 
-  const getStatusColor = (status: InventoryItem['status']) => {
-    const colorMap: Record<InventoryItem['status'], string> = {
+  const getStatusColor = (status: InventoryItem['status']): 'success' | 'warning' | 'error' | 'info' | 'primary' | 'default' => {
+    const colorMap: Record<InventoryItem['status'], 'success' | 'warning' | 'error' | 'info' | 'primary' | 'default'> = {
       'in_stock': 'success',
       'low_stock': 'warning',
       'out_of_stock': 'error',
@@ -815,8 +818,8 @@ export const useInventoryStore = defineStore('inventory', () => {
       // Это происходит, когда в заказе указано новое изделие, которого раньше не было на складе
       const newItemId = productId || `PRD-${Math.random().toString(36).substr(2, 5).toUpperCase()}`
       
-      const qrStore = (window as any).qrCodesStore // Пытаемся получить имя из QR если доступно
-      const qrData = qrStore?.qrCodes?.find((q: any) => q.productId === productId)
+      const qrStore = (window as { qrCodesStore?: { qrCodes?: { productId: string; productName: string }[] } }).qrCodesStore 
+      const qrData = qrStore?.qrCodes?.find((q) => q.productId === productId)
       const productName = qrData?.productName || productId || 'Новое изделие'
 
       const newItem: InventoryItem = {

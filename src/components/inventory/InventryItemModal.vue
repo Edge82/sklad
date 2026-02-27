@@ -141,6 +141,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed } from 'vue'
 import type { FormInst, FormRules } from 'naive-ui'
+import type { InventoryItem } from '@/types'
 import {
   NModal,
   NForm,
@@ -162,7 +163,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'update:show': [value: boolean]
-  submit: [data: any]
+  submit: [data: Partial<InventoryItem>]
 }>()
 
 const formRef = ref<FormInst | null>(null)

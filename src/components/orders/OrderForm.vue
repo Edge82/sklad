@@ -145,14 +145,15 @@ import {
 } from 'naive-ui'
 import { AddCircleOutline } from '@vicons/ionicons5'
 import { useUserStore } from '@/stores/user'
+import type { Order } from '@/types'
 
 const emit = defineEmits<{
-  submit: [data: any]
+  submit: [data: Partial<Order>]
   cancel: []
 }>()
 
 const props = defineProps<{
-  initialData?: any
+  initialData?: Partial<Order>
 }>()
 
 const userStore = useUserStore()
@@ -164,8 +165,8 @@ const formData = reactive({
   customerName: props.initialData?.customerName || '',
   customerPhone: props.initialData?.customerPhone || '',
   customerEmail: props.initialData?.customerEmail || '',
-  status: props.initialData?.status || 'new' as const,
-  priority: props.initialData?.priority || 'medium' as const,
+  status: props.initialData?.status || 'new',
+  priority: props.initialData?.priority || 'medium',
   orderDate: props.initialData?.orderDate ? new Date(props.initialData.orderDate).getTime() : Date.now(),
   deadline: props.initialData?.deadline ? new Date(props.initialData.deadline).getTime() : Date.now() + 14 * 24 * 60 * 60 * 1000,
   items: props.initialData?.items ? JSON.parse(JSON.stringify(props.initialData.items)) : [
@@ -196,7 +197,7 @@ const priorityOptions = [
 ]
 
 const totalAmount = computed(() => {
-  return formData.items.reduce((sum: number, item: any) => {
+  return formData.items.reduce((sum: number, item: { quantity: number; unitPrice: number }) => {
     return sum + (item.quantity * item.unitPrice)
   }, 0)
 })
@@ -262,22 +263,24 @@ const handleSubmit = async () => {
     // Подготовка данных для отправки
     const orderData = {
       ...formData,
+      orderDate: new Date(formData.orderDate),
+      deadline: new Date(formData.deadline),
       totalAmount: totalAmount.value,
-      items: formData.items.map((item: any) => ({
+      items: formData.items.map((item: { productName: string; quantity: number; unitPrice: number; materialUsed: string }) => ({
         ...item,
         id: Math.random().toString(36).substr(2, 9),
         productId: `PROD-${Math.random().toString(36).substr(2, 5).toUpperCase()}`,
         totalPrice: item.quantity * item.unitPrice
       })),
       createdBy: userStore.user?.name || 'Система'
-    }
+    } as Partial<Order> // Partially built order
 
     // Имитация задержки API
     setTimeout(() => {
       emit('submit', orderData)
       loading.value = false
     }, 1000)
-  } catch (errors) {
+  } catch {
     message.error('Пожалуйста, исправьте ошибки в форме')
   }
 }

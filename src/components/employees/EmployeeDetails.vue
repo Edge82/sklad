@@ -184,9 +184,9 @@
 import { ref, computed, h, reactive } from 'vue'
 import { useEmployeesStore } from '@/stores/employees'
 import { useToolsStore } from '@/stores/tools'
-import { useQRCodesStore } from '@/stores/qrCodes'
 import EmployeeProductionDocument from './EmployeeProductionDocument.vue'
 import type { Employee } from '@/types'
+import type { DataTableColumns } from 'naive-ui'
 import {
   NCard,
   NText,
@@ -215,7 +215,6 @@ import {
   CallOutline,
   BusinessOutline,
   CashOutline,
-  ArrowBackOutline,
   BuildOutline,
   TimeOutline,
   LogInOutline
@@ -228,12 +227,12 @@ const props = withDefaults(defineProps<{
   mode: 'full'
 })
 
-const selectedInvoice = ref<any>(null)
+import type { MaterialInvoice, Tool } from '@/types'
+const selectedInvoice = ref<MaterialInvoice | null>(null)
 
 // Используем сторы для получения самой актуальной копии данных
 const employeesStore = useEmployeesStore()
 const toolsStore = useToolsStore()
-const qrCodesStore = useQRCodesStore()
 const message = useMessage()
 
 const currentEmployee = computed(() => {
@@ -290,12 +289,12 @@ const confirmReturn = () => {
   selectedToolId.value = null
 }
 
-const invoiceColumns = [
+const invoiceColumns: DataTableColumns<MaterialInvoice> = [
   {
     title: 'Заказ №',
     key: 'orderNumber',
     width: 150,
-    render: (row: any) => h('div', { class: 'flex items-center gap-2' }, [
+    render: (row) => h('div', { class: 'flex items-center gap-2' }, [
       h(NIcon, { color: '#18a058' }, { default: () => h(BusinessOutline) }),
       h('div', { class: 'font-bold text-white uppercase group-hover:text-green-500 transition-colors' }, row.orderNumber)
     ])
@@ -304,13 +303,13 @@ const invoiceColumns = [
     title: 'Дата комплектации',
     key: 'date',
     width: 150,
-    render: (row: any) => h('div', { class: 'text-gray-300' }, formatDate(row.date))
+    render: (row) => h('div', { class: 'text-gray-300' }, formatDate(row.date))
   },
   {
     title: 'Позиций ТМЦ',
     key: 'items',
     width: 120,
-    render: (row: any) => h(NTag, { type: 'success', quaternary: true, size: 'small' }, { default: () => `${row.items?.length || 0} шт.` })
+    render: (row) => h(NTag, { type: 'success', quaternary: true, size: 'small' }, { default: () => `${row.items?.length || 0} шт.` })
   },
   {
     title: 'Статус',
@@ -323,44 +322,49 @@ const invoiceColumns = [
   }
 ]
 
-const toolColumns = [
+const toolColumns: DataTableColumns<Tool> = [
   {
     title: 'Инструмент',
     key: 'name',
-    render: (row: any) => h('div', { class: 'flex items-center gap-3' }, [
+    render: (row) => h('div', { class: 'flex items-center gap-3' }, [
       h(NIcon, { size: '20', color: '#f0a020' }, { default: () => h(BuildOutline) }),
       h('div', [
         h('div', { class: 'font-bold text-white' }, row.name),
-        h('div', { class: 'text-[10px] text-gray-500 uppercase' }, row.category)
+        h('div', { class: 'text-[10px] text-gray-500 uppercase' }, row.type)
       ])
     ])
   },
   {
     title: 'Инв. номер',
     key: 'inventoryNumber',
-    render: (row: any) => h('div', { class: 'font-mono text-gray-400' }, row.inventoryNumber)
+    render: (row) => h('div', { class: 'font-mono text-gray-400' }, row.inventoryNumber)
   },
   {
     title: 'Дата выдачи',
     key: 'issuedAt',
-    render: (row: any) => h('div', { class: 'flex items-center gap-1 text-gray-300' }, [
+    render: (row) => h('div', { class: 'flex items-center gap-1 text-gray-300' }, [
       h(NIcon, { size: '14' }, { default: () => h(TimeOutline) }),
-      h('span', formatDate(row.issuedAt))
+      h('span', row.issuedAt ? formatDate(row.issuedAt) : '-')
     ])
   },
   {
-    title: 'Состояние',
-    key: 'condition',
-    render: (row: any) => h(NTag, { 
-      size: 'small', 
-      type: row.condition === 'new' ? 'success' : 'warning',
-      quaternary: true 
-    }, { default: () => row.condition === 'new' ? 'Новый' : 'Б/У' })
+    title: 'Статус',
+    key: 'status',
+    render: (row) => {
+      const statusMap: Record<string, { label: string, type: 'success' | 'info' | 'warning' | 'error' | 'default' }> = {
+        'in_stock': { label: 'На складе', type: 'success' },
+        'issued': { label: 'Выдано', type: 'info' },
+        'repair': { label: 'В ремонте', type: 'warning' },
+        'written_off': { label: 'Списано', type: 'error' }
+      }
+      const s = statusMap[row.status] || { label: row.status, type: 'default' }
+      return h(NTag, { size: 'small', type: s.type, quaternary: true }, { default: () => s.label })
+    }
   },
   {
     title: 'Действия',
     key: 'actions',
-    render: (row: any) => h(NButton, {
+    render: (row) => h(NButton, {
       size: 'small',
       type: 'warning',
       ghost: true,
@@ -388,7 +392,7 @@ const formatDate = (date: Date) => {
   if (!date) return 'Не указано'
   try {
     return new Intl.DateTimeFormat('ru-RU').format(new Date(date))
-  } catch (err) {
+  } catch {
     return 'Некорректная дата'
   }
 }
@@ -441,18 +445,6 @@ const getStatusColor = (status: Employee['status']) => {
     'sick': 'error'
   }
   return colorMap[status] || 'default'
-}
-
-const sendMessage = () => {
-}
-
-const editEmployee = () => {
-}
-
-const viewDocuments = () => {
-}
-
-const dismissEmployee = () => {
 }
 
 // Экспортируем состояние для управления из родительских компонентов

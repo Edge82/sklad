@@ -107,7 +107,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, watch } from 'vue'
-import type { FormInst, FormRules } from 'naive-ui'
+import type { FormInst, FormRules, UploadFileInfo } from 'naive-ui'
 import { useEmployeesStore } from '@/stores/employees'
 import { useMessage } from 'naive-ui'
 import type { Employee } from '@/types'
@@ -132,7 +132,7 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  submit: [data: any]
+  submit: [data: Partial<Employee>]
   cancel: []
 }>()
 
@@ -142,10 +142,11 @@ const formRef = ref<FormInst | null>(null)
 const loading = ref(false)
 const isReading = ref(false)
 
-const handleFileListChange = (data: any) => {
-  const fileList = Array.isArray(data) ? data : data.fileList
+const handleFileListChange = (data: { fileList: UploadFileInfo[] }) => {
+  const fileList = data.fileList
   if (fileList && fileList.length > 0) {
-    const file = fileList[fileList.length - 1].file
+    const lastFile = fileList[fileList.length - 1]
+    const file = lastFile?.file
     if (file) {
       isReading.value = true
       const reader = new FileReader()
@@ -155,8 +156,8 @@ const handleFileListChange = (data: any) => {
         formData.photo = base64
         isReading.value = false
       }
-      reader.onerror = (err) => {
-        console.error('❌ FileReader error:', err)
+      reader.onerror = () => {
+        console.error('❌ FileReader error')
         message.error('Ошибка при чтении файла')
         isReading.value = false
       }
@@ -291,7 +292,7 @@ const handleSubmit = async () => {
 
     emit('submit', employeeData)
     loading.value = false
-  } catch (errors) {
+  } catch {
     message.error('Пожалуйста, исправьте ошибки в форме')
   }
 }

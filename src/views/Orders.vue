@@ -41,7 +41,7 @@
         <n-data-table 
           :columns="columns" 
           :data="ordersStore.orders" 
-          :row-props="(row: any) => ({
+          :row-props="(row: Order) => ({
              style: 'cursor: pointer',
              onClick: () => handleRowClick(row)
           })"
@@ -55,7 +55,7 @@
           <n-data-table 
              :columns="invoiceRegistryColumns" 
              :data="orderInvoices" 
-             :row-props="(row: any) => ({
+             :row-props="(row: InvoiceRow) => ({
                 style: 'cursor: pointer',
                 onClick: () => handleInvoiceRowClick(row)
              })"
@@ -68,7 +68,6 @@
        <n-card border-variant="dark" content-style="padding: 0;">
           <EmployeeProductionDocument 
             v-if="viewMode === 'details' && selectedInvoiceDetail"
-            :employee="{ id: selectedInvoiceDetail.employeeId, name: selectedInvoiceDetail.employeeName, position: selectedInvoiceDetail.employeePosition, department: 'Производство' } as any"
             :tools="[]"
             :scannedItems="[]"
             :materials="[selectedInvoiceDetail]"
@@ -94,7 +93,7 @@
       style="width: 800px"
     >
       <OrderForm 
-        :initial-data="selectedOrderForEdit" 
+        :initial-data="selectedOrderForEdit || undefined" 
         @submit="handleOrderSubmit" 
         @cancel="showCreateModal = false" 
       />
@@ -118,6 +117,7 @@ import { ref, h, watch, computed } from 'vue'
 import { useOrdersStore } from '@/stores/orders'
 import { useEmployeesStore } from '@/stores/employees'
 import { useQRCodesStore } from '@/stores/qrCodes'
+import type { Order } from '@/types'
 import { NButton, NIcon, NTag, NSpace, NModal, useMessage, useDialog, NH1, NText, NGrid, NGi, NCard, NStatistic, NDataTable, NProgress } from 'naive-ui'
 import {
   AddCircleOutline,
@@ -125,13 +125,28 @@ import {
   EyeOutline,
   CreateOutline,
   TrashOutline,
-  DocumentTextOutline,
   ArrowBackOutline
 } from '@vicons/ionicons5'
 import QRGeneratorModal from '@/components/qr-generator/QRGeneratorModal.vue'
 import OrderForm from '@/components/orders/OrderForm.vue'
 import OrderDetails from '@/components/orders/OrderDetails.vue'
 import EmployeeProductionDocument from '@/components/employees/EmployeeProductionDocument.vue'
+
+interface InvoiceRow {
+  id: string
+  date: Date
+  orderNumber: string
+  items: Array<{
+    productName: string
+    article?: string
+    unit: string
+    quantity: number
+    scannedAt?: Date
+  }>
+  employeeName: string
+  employeeId: string
+  employeePosition: string
+}
 
 const ordersStore = useOrdersStore()
 const employeesStore = useEmployeesStore()
@@ -142,25 +157,25 @@ const showCreateModal = ref(false)
 const showQRModal = ref(false)
 const showDetailsModal = ref(false)
 
-const selectedOrderForQR = ref<any>(null)
-const selectedOrderForDetails = ref<any>(null)
-const selectedOrderForEdit = ref<any>(null)
-const selectedOrderForInvoices = ref<any>(null)
-const selectedInvoiceDetail = ref<any>(null)
+const selectedOrderForQR = ref<Order | null>(null)
+const selectedOrderForDetails = ref<Order | null>(null)
+const selectedOrderForEdit = ref<Order | null>(null)
+const selectedOrderForInvoices = ref<Order | null>(null)
+const selectedInvoiceDetail = ref<InvoiceRow | null>(null)
 
 // Навигация: 'list' (список заказов), 'invoices' (список накладных заказа), 'details' (просмотр накладной)
 const viewMode = ref<'list' | 'invoices' | 'details'>('list')
 
-const handleRowClick = (row: any) => {
+const handleRowClick = (row: Order) => {
   handleViewInvoices(row)
 }
 
-const handleViewInvoices = (row: any) => {
+const handleViewInvoices = (row: Order) => {
   selectedOrderForInvoices.value = row
   viewMode.value = 'invoices'
 }
 
-const handleInvoiceRowClick = (row: any) => {
+const handleInvoiceRowClick = (row: InvoiceRow) => {
   selectedInvoiceDetail.value = row
   viewMode.value = 'details'
 }
@@ -170,7 +185,7 @@ const orderInvoices = computed(() => {
   if (!selectedOrderForInvoices.value) return []
   
   const orderNumber = selectedOrderForInvoices.value.orderNumber
-  const allInvoices: any[] = []
+  const allInvoices: InvoiceRow[] = []
   
   employeesStore.employees.forEach(emp => {
     if (emp.materialHistory) {
@@ -195,17 +210,17 @@ const invoiceRegistryColumns = [
   {
     title: 'ID Накладной',
     key: 'id',
-    render: (row: any) => h('div', { class: 'font-mono font-bold text-green-500' }, row.id)
+    render: (row: InvoiceRow) => h('div', { class: 'font-mono font-bold text-green-500' }, row.id)
   },
   {
     title: 'Дата и время',
     key: 'date',
-    render: (row: any) => h('div', formatDate(row.date))
+    render: (row: InvoiceRow) => h('div', formatDate(row.date))
   },
   {
     title: 'Сотрудник',
     key: 'employeeName',
-    render: (row: any) => h('div', [
+    render: (row: InvoiceRow) => h('div', [
       h('div', { class: 'font-bold' }, row.employeeName),
       h('div', { class: 'text-[10px] text-gray-500 uppercase' }, row.employeePosition)
     ])
@@ -213,7 +228,7 @@ const invoiceRegistryColumns = [
   {
     title: 'Позиций ТМЦ',
     key: 'itemsCount',
-    render: (row: any) => h(NTag, { type: 'success', quaternary: true }, { default: () => `${row.items?.length || 0} шт.` })
+    render: (row: InvoiceRow) => h(NTag, { type: 'success', quaternary: true }, { default: () => `${row.items?.length || 0} шт.` })
   }
 ]
 
@@ -241,18 +256,18 @@ watch(showCreateModal, (val) => {
   if (!val) selectedOrderForEdit.value = null
 })
 
-const handleOrderSubmit = (data: any) => {
+const handleOrderSubmit = (data: Partial<Order>) => {
   if (selectedOrderForEdit.value) {
-    ordersStore.updateOrder(selectedOrderForEdit.value.id, data)
+    ordersStore.updateOrder(selectedOrderForEdit.value.id, data as Order)
     message.success('Заказ успешно обновлен')
   } else {
-    ordersStore.addOrder(data)
+    ordersStore.addOrder(data as Order)
     message.success('Заказ успешно создан')
   }
   showCreateModal.value = false
 }
 
-const handleDeleteOrder = (order: any) => {
+const handleDeleteOrder = (order: Order) => {
   dialog.warning({
     title: 'Удаление заказа',
     content: `Вы уверены, что хотите удалить заказ ${order.orderNumber}?`,
@@ -270,7 +285,7 @@ const columns = [
     title: 'Номер', 
     key: 'orderNumber',
     width: 140,
-    render(row: any) {
+    render(row: Order) {
       return h('span', {
         style: 'font-weight: 800; font-family: monospace; font-size: 14px; color: var(--n-primary-color);'
       }, row.orderNumber)
@@ -281,9 +296,8 @@ const columns = [
     title: 'Готовность (склад)',
     key: 'qrProgress',
     width: 220,
-    render(row: any) {
+    render(row: Order) {
       const percentage = ordersStore.getOrderProgress(row.id, qrCodesStore.qrCodes)
-      const expectedTotal = row.items?.reduce((sum: number, item: any) => sum + (item.quantity || item.plannedQuantity || 0), 0) || 0
       const orderCodes = qrCodesStore.qrCodes.filter(q => q.orderId === row.id)
       const scannedCount = orderCodes.filter(q => q.status === 'scanned' || q.status === 'shipped').length
       const generatedCount = orderCodes.length
@@ -310,14 +324,14 @@ const columns = [
   { 
     title: 'Статус', 
     key: 'status',
-    render(row: any) {
+    render(row: Order) {
       return h(NTag, { type: 'info' }, { default: () => row.status })
     }
   },
   {
     title: 'Действия',
     key: 'actions',
-    render(row: any) {
+    render(row: Order) {
       return h(NSpace, null, {
         default: () => [
           h(NButton, {

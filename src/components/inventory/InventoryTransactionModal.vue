@@ -117,7 +117,7 @@ import { ref, reactive, computed, watch } from 'vue'
 import { useInventoryStore } from '@/stores/inventory'
 import { useMessage } from 'naive-ui'
 import type { FormInst, FormRules } from 'naive-ui'
-import type { InventoryItem } from '@/types'
+import type { InventoryItem, InventoryTransaction } from '@/types'
 import {
   NModal,
   NForm,
@@ -142,7 +142,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'update:show': [value: boolean]
-  submit: [data: any]
+  submit: [data: Partial<InventoryTransaction>]
 }>()
 
 const inventoryStore = useInventoryStore()
@@ -156,7 +156,7 @@ const formData = reactive({
   quantity: 1,
   unitPrice: 0,
   documentNumber: '',
-  documentType: '',
+  documentType: undefined as InventoryTransaction['documentType'],
   reason: '',
   sourceLocation: '',
   destinationLocation: ''
@@ -392,6 +392,7 @@ const handleSubmit = async () => {
 
     const transactionData = {
       ...formData,
+      itemId: formData.itemId!,
       type: props.type,
       totalPrice: totalAmount.value
     }
@@ -402,7 +403,7 @@ const handleSubmit = async () => {
       loading.value = false
       handleCancel()
     }, 1000)
-  } catch (errors) {
+  } catch {
     message.error('Пожалуйста, заполните все обязательные поля')
   }
 }

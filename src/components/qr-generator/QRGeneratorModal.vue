@@ -26,12 +26,13 @@
 import { ref, computed } from 'vue'
 import { useQRCodesStore } from '@/stores/qrCodes'
 import { useUserStore } from '@/stores/user'
+import type { OrderItem } from '@/types'
 
 const props = defineProps<{
   show: boolean
   orderId: string
   orderNumber: string
-  items: any[]
+  items: OrderItem[]
 }>()
 
 const emit = defineEmits(['close', 'generated'])
@@ -58,6 +59,7 @@ const selectedProductName = computed(() => {
 })
 
 function handleGenerate() {
+  if (!form.value.productId) return
   const item = props.items.find(i => (i.productId || i.id) === form.value.productId)
   if (!item) return
   

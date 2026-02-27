@@ -92,7 +92,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'update:show': [value: boolean]
-  submit: [data: any]
+  submit: [data: Partial<Tool>]
 }>()
 
 const toolsStore = useToolsStore()
@@ -209,7 +209,7 @@ const handleSubmit = async () => {
       loading.value = false
       showModal.value = false
     }, 500)
-  } catch (err) {
+  } catch {
     message.error('Пожалуйста, заполните обязательные поля')
   }
 }

@@ -130,7 +130,7 @@ const props = defineProps<{
   itemName: string
 }>()
 
-const emit = defineEmits(['update:show'])
+defineEmits(['update:show'])
 
 const qrStore = useQRCodesStore()
 const dialog = useDialog()
@@ -167,7 +167,7 @@ const getStatusLabel = (status: string) => {
   return map[status] || status
 }
 
-const formatDate = (date: any) => {
+const formatDate = (date: string | Date | number | undefined) => {
   if (!date) return '-'
   return new Intl.DateTimeFormat('ru-RU', {
     day: '2-digit',

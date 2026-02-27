@@ -342,8 +342,8 @@ export const useEmployeesStore = defineStore('employees', () => {
     return statusMap[status] || status
   }
 
-  const getStatusColor = (status: Employee['status']) => {
-    const colorMap: Record<Employee['status'], string> = {
+  const getStatusColor = (status: Employee['status']): 'success' | 'default' | 'warning' | 'error' => {
+    const colorMap: Record<Employee['status'], 'success' | 'default' | 'warning' | 'error'> = {
       'active': 'success',
       'inactive': 'default',
       'vacation': 'warning',

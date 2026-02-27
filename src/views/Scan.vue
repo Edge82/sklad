@@ -55,21 +55,26 @@ import { QrCodeOutline } from '@vicons/ionicons5'
 import { useQRCodesStore } from '@/stores/qrCodes'
 import { useUserStore } from '@/stores/user'
 import { useInventoryStore } from '@/stores/inventory'
-import { useMessage } from 'naive-ui'
 
 const scanMode = ref('receive')
 const lastScannedCode = ref('')
 const scanResult = ref<{ title: string, message: string, type: 'success' | 'error' | 'warning' } | null>(null)
-const scanHistory = ref<any[]>([])
+interface ScanLog {
+  id: number
+  code: string
+  time: Date
+  resultType: 'success' | 'error' | 'warning' | 'info' | 'primary' | 'default'
+  resultMessage: string
+}
+const scanHistory = ref<ScanLog[]>([])
 
 const qrStore = useQRCodesStore()
 const userStore = useUserStore()
 const inventoryStore = useInventoryStore()
-const message = useMessage()
 
 // Делаем qrStore доступным глобально для функции авто-создания в inventoryStore
 if (typeof window !== 'undefined') {
-  (window as any).qrCodesStore = qrStore
+  (window as unknown as { qrCodesStore: unknown }).qrCodesStore = qrStore
 }
 
 function handleScan() {
@@ -120,13 +125,14 @@ function handleScan() {
   lastScannedCode.value = ''
 }
 
-function setResult(title: string, message: string, type: any) {
+function setResult(title: string, message: string, type: 'success' | 'error' | 'warning') {
   scanResult.value = { title, message, type }
   setTimeout(() => { scanResult.value = null }, 5000)
 }
 
-function addToHistory(code: string, message: string, type: any) {
+function addToHistory(code: string, message: string, type: 'success' | 'error' | 'warning') {
   scanHistory.value.unshift({
+    id: Date.now(),
     time: new Date(),
     code,
     resultMessage: message,

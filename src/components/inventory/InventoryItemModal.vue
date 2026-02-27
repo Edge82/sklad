@@ -45,7 +45,7 @@
                 <n-input v-model:value="formData.name" placeholder="Название материала" />
               </n-form-item>
 
-              <n-form-item v-if="props.mode !== 'product'" label="Артикул (SKU)" path="sku" required>
+              <n-form-item label="Артикул (SKU)" path="sku" required>
                 <n-input v-model:value="formData.sku" placeholder="Уникальный артикул" />
               </n-form-item>
 
@@ -58,7 +58,7 @@
                 </n-input-group>
               </n-form-item>
 
-              <n-form-item v-if="props.mode !== 'product'" label="Категория" path="categoryId" required>
+              <n-form-item label="Категория" path="categoryId" required>
                 <n-select v-model:value="formData.categoryId" :options="categoryOptions"
                   placeholder="Выберите категорию" />
               </n-form-item>
@@ -67,21 +67,16 @@
                 <n-select v-model:value="formData.unit" :options="unitOptions" placeholder="Выберите единицу" />
               </n-form-item>
 
-              <n-form-item v-if="props.mode !== 'product'" label="Средняя цена" path="averagePrice" required>
+              <n-form-item label="Средняя цена" path="averagePrice" required>
                 <n-input-number v-model:value="formData.averagePrice" :min="0" placeholder="Введите цену"
                   style="width: 100%">
                   <template #suffix>₽</template>
                 </n-input-number>
               </n-form-item>
-
-              <n-form-item v-if="props.mode === 'product'" label="Количество" path="currentStock" required>
-                <n-input-number v-model:value="formData.currentStock" :min="0" placeholder="Введите количество"
-                  style="width: 100%" />
-              </n-form-item>
             </n-gi>
 
             <n-gi>
-              <n-form-item v-if="props.mode !== 'product'" label="Место хранения" path="location" required>
+              <n-form-item label="Место хранения" path="location" required>
                 <n-input v-model:value="formData.location" placeholder="Стеллаж-полка-ячейка" />
               </n-form-item>
 
@@ -94,7 +89,7 @@
         </n-tab-pane>
 
         <!-- Количественные показатели -->
-        <n-tab-pane v-if="props.mode !== 'product'" name="quantities" tab="Количества">
+        <n-tab-pane name="quantities" tab="Количества">
           <n-grid :cols="2" :x-gap="24">
             <n-gi>
               <n-form-item label="Текущий остаток" path="currentStock" required>
@@ -123,7 +118,7 @@
         </n-tab-pane>
 
         <!-- Поставщики -->
-        <n-tab-pane v-if="props.mode !== 'product'" name="suppliers" tab="Поставщики">
+        <n-tab-pane name="suppliers" tab="Поставщики">
           <n-grid :cols="2" :x-gap="24">
             <n-gi>
               <n-form-item label="Основной поставщик" path="mainSupplier" required>
@@ -165,6 +160,7 @@ import { ref, reactive, computed, watch } from 'vue'
 import type { FormInst, FormRules } from 'naive-ui'
 import { useInventoryStore } from '@/stores/inventory'
 import { useMessage } from 'naive-ui'
+import type { InventoryItem } from '@/types'
 import {
   NModal,
   NForm,
@@ -188,7 +184,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'update:show': [value: boolean]
-  submit: [data: any]
+  submit: [data: Partial<InventoryItem>]
 }>()
 
 const inventoryStore = useInventoryStore()
@@ -365,7 +361,14 @@ const handleSubmit = async () => {
     formData.lastPurchasePrice = formData.averagePrice
 
     setTimeout(() => {
-      emit('submit', formData)
+      const item = {
+      ...formData,
+      id: props.itemId || `ITEM-${Math.random().toString(36).substr(2, 9).toUpperCase()}`,
+      category: inventoryStore.categories.find(c => c.id === formData.categoryId)?.name || 'Прочее',
+      available: formData.currentStock - formData.reserved,
+      totalValue: formData.currentStock * formData.averagePrice
+    }
+    emit('submit', item)
       loading.value = false
       showModal.value = false
 
@@ -395,7 +398,7 @@ const handleSubmit = async () => {
         })
       }
     }, 1000)
-  } catch (errors) {
+  } catch {
     message.error('Пожалуйста, исправьте ошибки в форме')
   }
 }

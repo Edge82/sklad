@@ -62,11 +62,12 @@
 
 <script setup lang="ts">
 import { ref, h, reactive } from 'vue'
-import { NTag, NButton, NSpace, NIcon, useDialog, useMessage } from 'naive-ui'
+import { NTag, NButton, NSpace, NIcon, useDialog, useMessage, type DataTableColumns } from 'naive-ui'
 import { useToolsStore } from '@/stores/tools'
 import { PencilOutline, TrashOutline, QrCodeOutline } from '@vicons/ionicons5'
 import ToolModal from '@/components/tools/ToolModal.vue'
 import QRPrintModal from '@/components/common/QRPrintModal.vue'
+import type { Tool } from '@/types'
 
 const toolsStore = useToolsStore()
 const dialog = useDialog()
@@ -92,7 +93,7 @@ const handleEditTool = (id: string) => {
   showModal.value = true
 }
 
-const handlePrintQR = (tool: any) => {
+const handlePrintQR = (tool: Tool) => {
   printData.title = tool.name
   printData.code = tool.qrCode || tool.inventoryNumber
   printData.description = `Инв. №: ${tool.inventoryNumber}`
@@ -112,24 +113,24 @@ const handleDeleteTool = (id: string) => {
   })
 }
 
-const handleToolSubmit = (toolData: any) => {
+const handleToolSubmit = (toolData: Partial<Tool>) => {
   if (selectedToolId.value) {
     toolsStore.updateTool(selectedToolId.value, toolData)
     message.success('Данные инструмента обновлены')
   } else {
-    toolsStore.addTool(toolData)
+    toolsStore.addTool(toolData as Omit<Tool, 'id'>)
     message.success('Инструмент добавлен в реестр')
   }
 }
 
-const columns = [
+const columns: DataTableColumns<Tool> = [
   { title: 'Инв. №', key: 'inventoryNumber' },
   { title: 'Наименование', key: 'name' },
   { 
     title: 'Тип', 
     key: 'type',
-    render(row: any) {
-      const typeMap: any = {
+    render(row) {
+      const typeMap: Record<string, string> = {
         'power_tool': 'Электро',
         'hand_tool': 'Ручной',
         'measuring': 'Измерит.',
@@ -142,23 +143,23 @@ const columns = [
   { 
     title: 'Статус', 
     key: 'status',
-    render(row: any) {
-      const statusMap: any = {
+    render(row) {
+      const statusMap: Record<string, { label: string, type: 'success' | 'info' | 'warning' | 'error' | 'default' }> = {
         'in_stock': { label: 'На складе', type: 'success' },
         'issued': { label: 'Выдано', type: 'info' },
         'repair': { label: 'В ремонте', type: 'warning' },
         'written_off': { label: 'Списано', type: 'error' }
       }
-      const s = statusMap[row.status]
+      const s = statusMap[row.status] || { label: row.status, type: 'default' }
       return h(NTag, { type: s.type }, { default: () => s.label })
     }
   },
-  { title: 'Где/У кого', key: 'issuedToName', render(row: any) { return row.issuedToName || row.location || '-' } },
+  { title: 'Где/У кого', key: 'issuedToName', render(row) { return row.issuedToName || row.location || '-' } },
   {
     title: 'Действия',
     key: 'actions',
     width: 150,
-    render(row: any) {
+    render(row) {
       return h(NSpace, null, {
         default: () => [
           h(NButton, {

@@ -421,11 +421,8 @@ import {
   ArrowDownOutline,
   ArrowUpOutline,
   SwapHorizontalOutline,
-  EyeOutline,
-  PencilOutline,
   TrashOutline,
   LocationOutline,
-  PrintOutline,
   QrCodeOutline
 } from '@vicons/ionicons5'
 import InventoryItemModal from '@/components/inventory/InventoryItemModal.vue'
@@ -456,7 +453,6 @@ const showReceiptModal = ref(false)
 const showIssueModal = ref(false)
 const showDetailsModal = ref(false)
 const showPrintModal = ref(false)
-const isEditMode = ref(false)
 const selectedItemId = ref<string | null>(null)
 const isGrouped = ref(false)
 
@@ -497,7 +493,7 @@ const pagination = computed(() => ({
   pageCount: Math.ceil(filteredItems.value.length / itemsPerPage.value),
   showSizePicker: true,
   pageSizes: [10, 25, 50, 100],
-  onChange: (page: number) => {
+  onChange: () => {
     // Handle page change if needed
   },
   onUpdatePageSize: (pageSize: number) => {
@@ -603,26 +599,40 @@ const filteredOutOfStockCount = computed(() => {
   return filteredItems.value.filter(item => item.status === 'out_of_stock').length
 })
 
-const tableData = computed(() => {
-  if (!isGrouped.value || props.mode !== 'product') return filteredItems.value
+type InventoryTableRow = (InventoryItem & { isGroup?: boolean; available?: number; isLowStock?: boolean }) | {
+  id: string
+  name: string
+  sku: string
+  currentStock: number
+  totalValue: number
+  isGroup: true
+  children: InventoryItem[]
+}
+
+const tableData = computed<InventoryTableRow[]>(() => {
+  if (!isGrouped.value || props.mode !== 'product') return filteredItems.value as InventoryTableRow[]
   
   const groups: Record<string, InventoryItem[]> = {}
   const itemsWithoutOrder: InventoryItem[] = []
   
   filteredItems.value.forEach(item => {
     if (item.orderNumber) {
-      if (!groups[item.orderNumber]) groups[item.orderNumber] = []
-      groups[item.orderNumber].push(item)
+      if (!groups[item.orderNumber]) {
+        groups[item.orderNumber] = []
+      }
+      groups[item.orderNumber]!.push(item)
     } else {
       itemsWithoutOrder.push(item)
     }
   })
   
-  const result: any[] = []
+  const result: InventoryTableRow[] = []
   
   // Группы с заказами
   Object.keys(groups).forEach(orderNo => {
     const groupItems = groups[orderNo]
+    if (!groupItems) return
+
     const totalQty = groupItems.reduce((s, i) => s + i.currentStock, 0)
     const totalVal = groupItems.reduce((s, i) => s + i.totalValue, 0)
 
@@ -657,28 +667,29 @@ const tableData = computed(() => {
 })
 
 // Колонки таблицы
-const columns: DataTableColumns<any> = [
+const columns: DataTableColumns<InventoryTableRow> = [
   {
     title: props.mode === 'product' ? 'Изделие' : 'Материал',
     key: 'name',
     width: 250,
     render: (row) => {
-      if (row.isGroup) {
+      if ('isGroup' in row && row.isGroup) {
         return h('div', { class: 'flex items-center gap-2 font-bold text-blue-400 uppercase tracking-wider' }, [
           h(NIcon, { size: '20' }, () => h(BusinessOutline)),
           h('span', row.name)
         ])
       }
+      const item = row as InventoryItem
       return h('div', { 
         class: 'flex items-center gap-3',
         style: isGrouped.value ? 'padding-left: 32px; border-left: 2px solid rgba(32, 128, 240, 0.3); margin-left: -12px;' : ''
       }, [
         h('div', { class: 'w-8 h-8 bg-gray-800 rounded flex items-center justify-center shrink-0' },
-          h(NIcon, { size: '16' }, () => getCategoryIcon(row.categoryId))
+          h(NIcon, { size: '16' }, () => getCategoryIcon(item.categoryId))
         ),
         h('div', [
-          h('div', { class: 'font-medium' }, row.name),
-          h('div', { class: 'text-xs text-gray-400' }, row.sku)
+          h('div', { class: 'font-medium' }, item.name),
+          h('div', { class: 'text-xs text-gray-400' }, item.sku)
         ])
       ])
     }
@@ -687,11 +698,12 @@ const columns: DataTableColumns<any> = [
     title: 'Заказ',
     key: 'orderNumber',
     width: 130,
-    render: (row: any) => {
-      if (row.isGroup) return null
+    render: (row: InventoryTableRow) => {
+      if ('isGroup' in row && row.isGroup && !('orderNumber' in row)) return null
+      const item = row as InventoryItem
       return h('div', { class: 'flex items-center gap-1 font-bold' }, [
         h(NIcon, { color: '#18a058' }, () => h(BusinessOutline)),
-        h('span', { class: 'text-green-500' }, row.orderNumber || '-')
+        h('span', { class: 'text-green-500' }, item.orderNumber || '-')
       ])
     }
   }] : []),
@@ -700,18 +712,19 @@ const columns: DataTableColumns<any> = [
     key: 'stock',
     width: 150,
     render: (row) => {
-      if (row.isGroup) {
+      if ('isGroup' in row && row.isGroup && !('unit' in row)) {
         return h('div', { class: 'font-bold' }, `Итог: ${row.currentStock} шт.`)
       }
+      const item = row as InventoryItem & { available: number; isLowStock: boolean }
       return h('div', [
         h('div', { class: 'font-medium' }, [
-          h('span', { class: row.currentStock <= row.minStock ? 'text-yellow-500' : '' },
-            `${row.currentStock} ${row.unit}`
+          h('span', { class: item.currentStock <= item.minStock ? 'text-yellow-500' : '' },
+            `${item.currentStock} ${item.unit}`
           ),
-          row.reserved > 0 && h('span', { class: 'text-gray-500 ml-2' }, `(${row.reserved} резерв)`)
+          item.reserved > 0 && h('span', { class: 'text-gray-500 ml-2' }, `(${item.reserved} резерв)`)
         ]),
         h('div', { class: 'text-xs text-gray-500' },
-          `Доступно: ${row.available} ${row.unit}`
+          `Доступно: ${item.available} ${item.unit}`
         )
       ])
     }
@@ -721,12 +734,13 @@ const columns: DataTableColumns<any> = [
     key: 'status',
     width: 120,
     render: (row) => {
-      if (row.isGroup) return null
+      if ('isGroup' in row && row.isGroup && !('status' in row)) return null
+      const item = row as InventoryItem
       return h(NTag, {
-        type: inventoryStore.getStatusColor(row.status) as any,
+        type: inventoryStore.getStatusColor(item.status),
         size: 'small',
         bordered: false
-      }, { default: () => inventoryStore.getStatusLabel(row.status) })
+      }, { default: () => inventoryStore.getStatusLabel(item.status) })
     }
   },
   {
@@ -734,10 +748,11 @@ const columns: DataTableColumns<any> = [
     key: 'location',
     width: 120,
     render: (row) => {
-      if (row.isGroup) return null
+      if ('isGroup' in row && row.isGroup && !('location' in row)) return null
+      const item = row as InventoryItem
       return h('div', { class: 'flex items-center gap-1' }, [
         h(NIcon, { size: '14' }, () => h(LocationOutline)),
-        h('span', row.location)
+        h('span', item.location)
       ])
     }
   },
@@ -746,10 +761,15 @@ const columns: DataTableColumns<any> = [
     key: 'price',
     width: 100,
     render: (row) => {
-      if (row.isGroup) return null
-      return formatCurrency(row.averagePrice)
+      if ('isGroup' in row && row.isGroup && !('averagePrice' in row)) return null
+      const item = row as InventoryItem
+      return formatCurrency(item.averagePrice)
     },
-    sorter: (a, b) => a.averagePrice - b.averagePrice
+    sorter: (a, b) => {
+      const aPrice = 'averagePrice' in a ? a.averagePrice : 0
+      const bPrice = 'averagePrice' in b ? b.averagePrice : 0
+      return aPrice - bPrice
+    }
   },
   {
     title: 'Стоимость',
@@ -801,10 +821,6 @@ const formatCurrency = (amount: number) => {
     currency: 'RUB',
     minimumFractionDigits: 0
   }).format(amount)
-}
-
-const formatDate = (date: Date) => {
-  return new Intl.DateTimeFormat('ru-RU').format(date)
 }
 
 const formatDateTime = (date: Date) => {
@@ -896,12 +912,7 @@ const exportData = () => {
   message.success('Данные экспортированы в Excel')
 }
 
-const viewItem = (id: string) => {
-  selectedItemId.value = id
-  showDetailsModal.value = true
-}
-
-const handlePrintQR = (item: any) => {
+const handlePrintQR = (item: InventoryItem) => {
   if (item && (item.barcode || item.sku)) {
     printData.title = item.name
     printData.code = item.barcode || item.sku
@@ -937,29 +948,31 @@ const deleteItem = (id: string) => {
   })
 }
 
-const handleItemSubmit = (itemData: any) => {
-  const itemLabel = props.mode === 'product' ? 'изделие' : 'материал'
+const handleItemSubmit = (itemData: Partial<InventoryItem>) => {
   if (selectedItemId.value) {
     inventoryStore.updateItem(selectedItemId.value, itemData)
     message.success(`${props.mode === 'product' ? 'Изделие' : 'Материал'} успешно обновлено`)
   } else {
-    inventoryStore.addItem(itemData)
+    inventoryStore.addItem(itemData as Parameters<typeof inventoryStore.addItem>[0])
     message.success(`${props.mode === 'product' ? 'Изделие' : 'Материал'} успешно добавлено`)
   }
   selectedItemId.value = null
 }
 
-const handleTransactionSubmit = (transactionData: any) => {
+const handleTransactionSubmit = (transactionData: Partial<InventoryTransaction>) => {
   const { itemId, quantity, type, ...rest } = transactionData
-  inventoryStore.updateStock(itemId, quantity, type, rest)
-  message.success('Операция успешно выполнена')
+  if (itemId && quantity && type) {
+    inventoryStore.updateStock(itemId, quantity, type, rest)
+    message.success('Операция успешно выполнена')
+  }
 }
 
-const handleSorterChange = (sorter: any) => {
+const handleSorterChange = () => {
 }
 
-const rowProps = (row: any) => {
-  if (row.isGroup) {
+const rowProps = (row: InventoryTableRow) => {
+  const isGroup = 'isGroup' in row && row.isGroup
+  if (isGroup) {
     return {
       style: 'background: rgba(32, 128, 240, 0.08); font-weight: bold; cursor: default;',
       class: 'group-header-row'
@@ -968,7 +981,7 @@ const rowProps = (row: any) => {
   return {
     style: 'cursor: pointer;',
     onClick: () => {
-      editItem(row.id)
+      editItem((row as InventoryItem).id)
     }
   }
 }

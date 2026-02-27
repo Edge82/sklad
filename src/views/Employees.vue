@@ -296,7 +296,6 @@
 
 <script setup lang="ts">
 import { ref, reactive, computed, h } from 'vue'
-import { useRouter } from 'vue-router'
 import { useEmployeesStore } from '@/stores/employees'
 import type { Employee } from '@/types'
 import type { DataTableColumns, SelectOption } from 'naive-ui'
@@ -345,7 +344,7 @@ const dialog = useDialog()
 const message = useMessage()
 
 const selectedInlineEmployee = ref<Employee | null>(null)
-const detailsRef = ref<any>(null)
+const detailsRef = ref<InstanceType<typeof EmployeeDetails> | null>(null)
 const showCreateModal = ref(false)
 const showViewModal = ref(false)
 const selectedEmployeeIdForView = ref<string | null>(null)
@@ -518,10 +517,10 @@ const employeeColumns: DataTableColumns<Employee> = [
     key: 'status',
     width: 120,
     render: (row) => {
-      const isOnline = row.lastLogin && (Date.now() - row.lastLogin.getTime()) < 5 * 60 * 1000 // 5 минут
+      const isOnline = row.lastLogin && (Date.now() - new Date(row.lastLogin).getTime()) < 5 * 60 * 1000 // 5 минут
       return h('div', { class: 'flex items-center gap-2' }, [
         h(NTag, {
-          type: employeesStore.getStatusColor(row.status) as any,
+          type: employeesStore.getStatusColor(row.status),
           size: 'small'
         }, { default: () => employeesStore.getStatusLabel(row.status) }),
         isOnline && h(NBadge, { dot: true, type: 'success' })
@@ -638,12 +637,12 @@ const exportData = () => {
   message.success('Данные экспортированы')
 }
 
-const handleEmployeeSubmit = (employeeData: any) => {
+const handleEmployeeSubmit = (employeeData: Partial<Employee>) => {
   if (selectedEmployeeId.value) {
     employeesStore.updateEmployee(selectedEmployeeId.value, employeeData)
     message.success('Данные сотрудника обновлены')
   } else {
-    employeesStore.addEmployee(employeeData)
+    employeesStore.addEmployee(employeeData as Omit<Employee, 'id'>)
     message.success('Сотрудник успешно добавлен')
   }
   showCreateModal.value = false

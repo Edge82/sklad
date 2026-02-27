@@ -14,17 +14,30 @@
 import { computed, h } from 'vue'
 import { NDataTable, NTag, NIcon} from 'naive-ui'
 import { CheckmarkCircleOutline, TimeOutline } from '@vicons/ionicons5'
-import type { Employee, Tool, QRCode } from '@/types'
+import type { Tool, QRCode, MaterialInvoice } from '@/types'
+
+interface ProductionRow {
+  key: string
+  index: number
+  orderNumber?: string
+  name: string
+  subtext: string
+  unit: string
+  quantity: number
+  timestamp?: string | Date
+  status: string
+  isScanned: boolean
+  showScanOk: boolean
+}
 
 const props = defineProps<{
-  employee: Employee
   tools: Tool[]
   scannedItems: QRCode[]
-  materials?: any[]
+  materials?: MaterialInvoice[]
 }>()
 
 const combinedData = computed(() => {
-  const result: any[] = []
+  const result: ProductionRow[] = []
   
   // Scanned details
   props.scannedItems.forEach((doc, index) => {
@@ -46,7 +59,7 @@ const combinedData = computed(() => {
   // Materials from invoice
   const offset = props.scannedItems.length
   props.materials?.forEach((group) => {
-    group.items?.forEach((item: any, iIdx: number) => {
+    group.items?.forEach((item, iIdx) => {
       result.push({
         key: `item-${group.date}-${iIdx}`,
         index: offset + iIdx + 1,
@@ -71,12 +84,12 @@ const columns = [
     title: '№',
     key: 'index',
     width: 60,
-    render: (row: any) => h('span', { class: 'text-gray-500 font-bold' }, row.index)
+    render: (row: ProductionRow) => h('span', { class: 'text-gray-500 font-bold' }, row.index)
   },
   {
     title: 'Комплектующие / Артикул',
     key: 'name',
-    render: (row: any) => h('div', [
+    render: (row: ProductionRow) => h('div', [
       h('div', { class: 'font-bold text-white uppercase text-[12px] tracking-tight' }, row.name),
       h('div', { class: 'text-[10px] text-gray-500 font-mono mt-0.5' }, row.subtext)
     ])
@@ -85,25 +98,25 @@ const columns = [
     title: 'Заказ',
     key: 'orderNumber',
     width: 120,
-    render: (row: any) => h(NTag, { type: 'success', quaternary: true, size: 'small', class: 'font-bold font-mono' }, { default: () => row.orderNumber || '—' })
+    render: (row: ProductionRow) => h(NTag, { type: 'success', quaternary: true, size: 'small', class: 'font-bold font-mono' }, { default: () => row.orderNumber || '—' })
   },
   {
     title: 'Ед.',
     key: 'unit',
     width: 80,
-    render: (row: any) => h('span', { class: 'text-gray-400 font-medium' }, row.unit)
+    render: (row: ProductionRow) => h('span', { class: 'text-gray-400 font-medium' }, row.unit)
   },
   {
     title: 'Кол-во',
     key: 'quantity',
     width: 80,
-    render: (row: any) => h('span', { class: 'font-black text-white' }, row.quantity)
+    render: (row: ProductionRow) => h('span', { class: 'font-black text-white' }, row.quantity)
   },
   {
     title: 'Дата, время',
     key: 'timestamp',
     width: 150,
-    render: (row: any) => h('div', { class: 'flex items-center gap-1.5 text-gray-400 text-[11px]' }, [
+    render: (row: ProductionRow) => h('div', { class: 'flex items-center gap-1.5 text-gray-400 text-[11px]' }, [
       h(NIcon, { size: 14 }, { default: () => h(TimeOutline) }),
       h('span', formatDateTime(row.timestamp))
     ])
@@ -113,7 +126,7 @@ const columns = [
     key: 'status',
     width: 180,
     align: 'right' as const,
-    render: (row: any) => h('div', { class: 'flex flex-col items-end' }, [
+    render: (row: ProductionRow) => h('div', { class: 'flex flex-col items-end' }, [
       h('div', { class: 'flex items-center gap-1.5' }, [
         h(NIcon, { color: '#18a058' }, { default: () => h(CheckmarkCircleOutline) }),
         h('span', { class: 'text-[10px] font-black uppercase text-green-500' }, row.status)
@@ -125,7 +138,7 @@ const columns = [
   }
 ]
 
-const formatDateTime = (date: any) => {
+const formatDateTime = (date: string | Date | undefined) => {
   if (!date) return '-'
   const d = new Date(date)
   if (isNaN(d.getTime())) return '-'

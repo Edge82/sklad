@@ -16,7 +16,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, h } from 'vue'
+import { ref, computed, h, type Component } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   NLayoutSider,
@@ -29,8 +29,6 @@ import {
   CubeOutline,
   PeopleOutline,
   AnalyticsOutline,
-  SettingsOutline,
-  PersonCircleOutline,
   DocumentTextOutline,
   QrCodeOutline,
   HammerOutline,
@@ -45,7 +43,7 @@ const collapsed = ref(false)
 
 const currentRoute = computed(() => route.path)
 
-function renderIcon(icon: any) {
+function renderIcon(icon: Component) {
   return () => h(NIcon, null, { default: () => h(icon) })
 }
 
