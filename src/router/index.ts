@@ -14,7 +14,14 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/inventory',
     name: 'Inventory',
-    component: () => import('@/views/Inventory.vue')
+    component: () => import('@/views/Inventory.vue'),
+    props: { mode: 'material' }
+  },
+  {
+    path: '/inventory/finished',
+    name: 'FinishedGoods',
+    component: () => import('@/views/Inventory.vue'),
+    props: { mode: 'product' }
   },
   {
     path: '/orders',
@@ -45,6 +52,11 @@ const routes: RouteRecordRaw[] = [
     path: '/employees',
     name: 'Employees',
     component: () => import('@/views/Employees.vue')
+  },
+  {
+    path: '/employees/:id',
+    name: 'EmployeeDetails',
+    component: () => import('@/views/EmployeeDetailsView.vue')
   },
   {
     path: '/profile',

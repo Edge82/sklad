@@ -234,10 +234,9 @@
 <script setup lang="ts">
 import { ref, computed, h } from 'vue'
 import { useInventoryStore } from '@/stores/inventory'
-import type { InventoryItem, InventoryTransaction } from '@/types'
+import type {  InventoryTransaction } from '@/types'
 import type { DataTableColumns } from 'naive-ui'
 import {
-  NModal,
   NTabs,
   NTabPane,
   NGrid,
@@ -255,7 +254,8 @@ import {
   NSpace,
   NDataTable,
   NStatistic,
-  NProgress
+  NProgress,
+  useMessage
 } from 'naive-ui'
 import {
   PencilOutline,
@@ -277,6 +277,7 @@ const emit = defineEmits<{
 }>()
 
 const inventoryStore = useInventoryStore()
+const message = useMessage()
 const historyDateRange = ref<[number, number] | null>(null)
 const showPrintModal = ref(false)
 
@@ -397,11 +398,6 @@ const getTransactionTypeLabel = (type: string) => {
   return typeMap[type] || type
 }
 
-// Обработчики
-const handleClose = () => {
-  emit('close')
-}
-
 const handleEdit = () => {
   if (item.value) {
     emit('edit', item.value.id)
@@ -412,12 +408,12 @@ const printLabel = () => {
   if (item.value && (item.value.barcode || item.value.sku)) {
     showPrintModal.value = true
   } else {
-    window.$message?.warning('Для печати необходим штрих-код или артикул')
+    message.warning('Для печати необходим штрих-код или артикул')
   }
 }
 
 const loadHistory = () => {
-  window.$message?.success('История обновлена')
+  message.success('История обновлена')
 }
 </script>
 

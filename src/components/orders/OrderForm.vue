@@ -8,7 +8,7 @@
           <n-input v-model:value="formData.customerName" placeholder="Введите ФИО клиента" />
         </n-form-item>
 
-        <n-form-item label="Телефон" path="customerPhone" required>
+        <n-form-item label="Телефон" path="customerPhone">
           <n-input v-model:value="formData.customerPhone" placeholder="+7 (999) 999-99-99" />
         </n-form-item>
 
@@ -39,8 +39,8 @@
         <n-h3>Позиции заказа</n-h3>
         <div v-for="(item, index) in formData.items" :key="index" class="order-item mb-4 p-4 border rounded">
           <div class="flex justify-between items-center mb-3">
-            <n-text strong>Позиция {{ index + 1 }}</n-text>
-            <n-button v-if="formData.items.length > 1" size="small" type="error" quaternary @click="removeItem(index)">
+            <n-text strong>Позиция {{ Number(index) + 1 }}</n-text>
+            <n-button v-if="formData.items.length > 1" size="small" type="error" quaternary @click="removeItem(Number(index))">
               Удалить
             </n-button>
           </div>
@@ -196,7 +196,7 @@ const priorityOptions = [
 ]
 
 const totalAmount = computed(() => {
-  return formData.items.reduce((sum, item) => {
+  return formData.items.reduce((sum: number, item: any) => {
     return sum + (item.quantity * item.unitPrice)
   }, 0)
 })
@@ -207,8 +207,7 @@ const rules: FormRules = {
     { min: 2, message: 'Имя должно быть не менее 2 символов', trigger: 'blur' }
   ],
   customerPhone: [
-    { required: true, message: 'Введите телефон', trigger: 'blur' },
-    { pattern: /^[\d\s()+-\/]+$/, message: 'Некорректный номер телефона', trigger: 'blur' }
+    { pattern: /^[\d\s()+-\/]*$/, message: 'Некорректный номер телефона', trigger: 'blur' }
   ],
   customerEmail: [
     { type: 'email', message: 'Некорректный email', trigger: 'blur' }
@@ -264,7 +263,7 @@ const handleSubmit = async () => {
     const orderData = {
       ...formData,
       totalAmount: totalAmount.value,
-      items: formData.items.map((item) => ({
+      items: formData.items.map((item: any) => ({
         ...item,
         id: Math.random().toString(36).substr(2, 9),
         productId: `PROD-${Math.random().toString(36).substr(2, 5).toUpperCase()}`,

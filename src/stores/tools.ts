@@ -12,6 +12,30 @@ export const useToolsStore = defineStore('tools', () => {
       qrCode: 'QR-TOOL-001',
       status: 'in_stock',
       location: 'Стеллаж 1, полка 2'
+    },
+    {
+      id: '2',
+      name: 'Лобзик Makita 4329',
+      type: 'power_tool',
+      inventoryNumber: 'TOOL-002',
+      qrCode: 'QR-TOOL-002',
+      status: 'issued',
+      location: 'У сотрудника',
+      issuedTo: '1',
+      issuedToName: 'Иван Петров',
+      issuedAt: new Date('2024-01-20T09:00:00')
+    },
+    {
+      id: '3',
+      name: 'Набор отверток Gross',
+      type: 'hand_tool',
+      inventoryNumber: 'TOOL-003',
+      qrCode: 'QR-TOOL-003',
+      status: 'issued',
+      location: 'У сотрудника',
+      issuedTo: '1',
+      issuedToName: 'Иван Петров',
+      issuedAt: new Date('2024-01-21T10:30:00')
     }
   ])
   
@@ -53,6 +77,11 @@ export const useToolsStore = defineStore('tools', () => {
     const tool = tools.value.find(t => t.id === breakdown.toolId)
     if (tool) {
       tool.status = 'repair'
+      // Автоматически снимаем с сотрудника и очищаем местоположение при поломке
+      tool.issuedTo = undefined
+      tool.issuedToName = undefined
+      tool.issuedAt = undefined
+      tool.location = undefined
     }
   }
 
@@ -72,7 +101,18 @@ export const useToolsStore = defineStore('tools', () => {
   function updateTool(id: string, updates: Partial<Tool>) {
     const index = tools.value.findIndex(t => t.id === id)
     if (index !== -1) {
-      tools.value[index] = { ...tools.value[index], ...updates } as Tool
+      const tool = tools.value[index]
+      const newStatus = updates.status
+
+      // Если статус меняется на ремонт или списание, автоматически очищаем привязку к сотруднику и местоположение
+      if (newStatus && (newStatus === 'repair' || newStatus === 'written_off')) {
+        updates.issuedTo = undefined
+        updates.issuedToName = undefined
+        updates.issuedAt = undefined
+        updates.location = undefined
+      }
+
+      tools.value[index] = { ...tool, ...updates } as Tool
     }
   }
 

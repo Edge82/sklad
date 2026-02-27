@@ -225,6 +225,21 @@ export interface RepairAction {
   result: 'success' | 'failure';
 }
 
+export interface MaterialInvoice {
+  id: string;
+  date: Date;
+  orderNumber: string;
+  items: MaterialInvoiceItem[];
+}
+
+export interface MaterialInvoiceItem {
+  productName: string;
+  quantity: number;
+  unit: string;
+  article?: string;
+  scannedAt?: Date;
+}
+
 export interface Employee {
   id: string;
   userId: string;
@@ -266,11 +281,7 @@ export interface Employee {
   }[];
   
   // История получений
-  materialHistory: {
-    date: Date;
-    orderNumber: string;
-    items: { productName: string; quantity: number }[];
-  }[];
+  materialHistory: MaterialInvoice[];
 }
 
 export interface InventoryCategory {
@@ -322,6 +333,9 @@ export interface InventoryItem {
   // Статус
   status: 'in_stock' | 'low_stock' | 'out_of_stock' | 'reserved' | 'on_order' | 'blocked';
 
+  // Тип
+  type?: 'material' | 'product';
+
   // Особенности для мебели
   color?: string;
   materialType?: string; // дерево, металл, ткань и т.д.
@@ -332,6 +346,10 @@ export interface InventoryItem {
 
   // Изображение
   imageUrl?: string;
+
+  // Ссылка на заказ (для готовой продукции)
+  orderNumber?: string;
+  orderId?: string;
 
   createdAt?: Date;
   updatedAt?: Date;

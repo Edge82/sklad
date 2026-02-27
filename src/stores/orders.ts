@@ -22,6 +22,7 @@ export const useOrdersStore = defineStore('orders', () => {
           orderId: '1',
           productId: 'p1',
           productName: 'Шкаф купе "Люкс"',
+          quantity: 10,
           plannedQuantity: 10,
           actualQuantity: 5,
           remainingQuantity: 10,
@@ -39,6 +40,30 @@ export const useOrdersStore = defineStore('orders', () => {
   const totalOrders = computed(() => orders.value.length)
   const pendingOrders = computed(() => orders.value.filter(o => o.status === 'new' || o.status === 'in_progress').length)
   const readyOrders = computed(() => orders.value.filter(o => o.status === 'ready').length)
+
+  const getOrderProgress = (orderId: string, qrCodes: any[]) => {
+    const orderItems = qrCodes.filter(q => q.orderId === orderId)
+    const totalGenerated = orderItems.length
+    if (totalGenerated === 0) return 0
+    
+    const scannedCount = orderItems.filter(q => 
+      q.status === 'scanned' || q.status === 'shipped'
+    ).length
+    
+    return Math.min(Math.round((scannedCount / totalGenerated) * 100), 100)
+  }
+
+  const getOrderItemProgress = (orderId: string, productId: string, qrCodes: any[]) => {
+    const itemCodes = qrCodes.filter(q => q.orderId === orderId && q.productId === productId)
+    const totalGenerated = itemCodes.length
+    if (totalGenerated === 0) return 0
+    
+    const scannedCount = itemCodes.filter(q => 
+      q.status === 'scanned' || q.status === 'shipped'
+    ).length
+    
+    return Math.min(Math.round((scannedCount / totalGenerated) * 100), 100)
+  }
 
   function getOrderById(id: string) {
     return orders.value.find(o => o.id === id)
@@ -105,6 +130,8 @@ export const useOrdersStore = defineStore('orders', () => {
     addShipment,
     addOrder,
     updateOrder,
-    deleteOrder
+    deleteOrder,
+    getOrderProgress,
+    getOrderItemProgress
   }
 })

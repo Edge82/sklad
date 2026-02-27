@@ -131,7 +131,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, h } from 'vue'
+import { reactive, computed, h } from 'vue'
 import { useInventoryStore } from '@/stores/inventory'
 import type { DataTableColumns } from 'naive-ui'
 import {
@@ -151,7 +151,8 @@ import {
   NText,
   NGrid,
   NGi,
-  NTag
+  NTag,
+  useMessage
 } from 'naive-ui'
 import {
   RefreshOutline,
@@ -170,6 +171,7 @@ const emit = defineEmits<{
 }>()
 
 const inventoryStore = useInventoryStore()
+const message = useMessage()
 
 const showModal = computed({
   get: () => props.show,
@@ -382,18 +384,18 @@ const getTransactionTypeLabel = (type: string) => {
 
 // Обработчики
 const generateStockReport = () => {
-  window.$message?.success('Отчет по остаткам сформирован')
+  message.success('Отчет по остаткам сформирован')
 }
 
 const exportStockReport = () => {
-  window.$message?.success('Отчет экспортирован в Excel')
+  message.success('Отчет экспортирован в Excel')
 }
 
 const generateMovementReport = () => {
-  window.$message?.success('Отчет по движению сформирован')
+  message.success('Отчет по движению сформирован')
 }
 
 const generateValueReport = () => {
-  window.$message?.success('Отчет по стоимости обновлен')
+  message.success('Отчет по стоимости обновлен')
 }
 </script>

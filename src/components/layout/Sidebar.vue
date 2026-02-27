@@ -57,8 +57,20 @@ const menuOptions: MenuOption[] = [
   },
   {
     label: 'Склад',
-    key: '/inventory',
-    icon: renderIcon(CubeOutline)
+    key: 'inventory-group',
+    icon: renderIcon(CubeOutline),
+    children: [
+      {
+        label: 'Основная продукция',
+        key: '/inventory',
+        // icon: renderIcon(BusinessOutline)
+      },
+      {
+        label: 'Готовая продукция',
+        key: '/inventory/finished',
+        // icon: renderIcon(CubeOutline)
+      }
+    ]
   },
   {
     label: 'Заказы',

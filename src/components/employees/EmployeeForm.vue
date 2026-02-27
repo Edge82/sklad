@@ -110,6 +110,7 @@ import { ref, reactive, watch } from 'vue'
 import type { FormInst, FormRules } from 'naive-ui'
 import { useEmployeesStore } from '@/stores/employees'
 import { useMessage } from 'naive-ui'
+import type { Employee } from '@/types'
 import {
   NForm,
   NFormItem,
@@ -125,7 +126,6 @@ import {
   NUpload,
   NAvatar
 } from 'naive-ui'
-import type { UploadFileInfo } from 'naive-ui'
 
 const props = defineProps<{
   employeeId?: string | null
@@ -173,8 +173,8 @@ const formData = reactive({
   phone: '',
   position: '',
   department: '',
-  role: 'worker' as const,
-  status: 'active' as const,
+  role: 'worker' as Employee['role'],
+  status: 'active' as Employee['status'],
   salary: 50000,
   hireDate: new Date().getTime(),
   birthDate: null as number | null,

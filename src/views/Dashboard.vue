@@ -1,5 +1,5 @@
 <template>
-  <div class="p-6">
+  <div class="dashboard-page">
     <n-h1>Дашборд системы учета склада</n-h1>
     <n-text depth="3">Панель управления мебельным производством</n-text>
 

@@ -175,7 +175,8 @@ import {
   NIcon,
   NText,
   NStatistic,
-  NSpace
+  NSpace,
+  useMessage
 } from 'naive-ui'
 import type { FormInst, FormRules } from 'naive-ui'
 import {
@@ -191,6 +192,7 @@ import {
 
 const userStore = useUserStore()
 const formRef = ref<FormInst | null>(null)
+const message = useMessage()
 
 // Тип для формы (без служебных полей)
 type UserForm = Omit<User, 'id' | 'lastLogin' | 'createdAt' | 'avatar'>
@@ -258,14 +260,9 @@ const handleSave = () => {
   formRef.value?.validate((errors) => {
     if (!errors) {
       userStore.updateProfile(userForm)
-      // Используем window.$message который предоставляет n-message-provider
-      if (window.$message) {
-        window.$message.success('Профиль успешно обновлен')
-      }
+      message.success('Профиль успешно обновлен')
     } else {
-      if (window.$message) {
-        window.$message.error('Пожалуйста, исправьте ошибки в форме')
-      }
+      message.error('Пожалуйста, исправьте ошибки в форме')
     }
   })
 }

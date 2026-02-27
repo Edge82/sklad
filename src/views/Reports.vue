@@ -115,7 +115,8 @@ import {
   NStatistic,
   NResult,
   NDataTable,
-  NProgress
+  NProgress,
+  useMessage
 } from 'naive-ui'
 import {
   DownloadOutline,
@@ -123,9 +124,10 @@ import {
 } from '@vicons/ionicons5'
 
 const dateRange = ref<[number, number] | null>(null)
+const message = useMessage()
 
 const exportReport = () => {
-  window.$message?.success('Отчет формируется и будет скачан автоматически')
+  message.success('Отчет формируется и будет скачан автоматически')
 }
 
 const topMaterialsColumns = [

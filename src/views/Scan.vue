@@ -39,7 +39,7 @@
           <div class="flex justify-between items-center">
             <div>
               <n-text depth="3">{{ scan.time.toLocaleTimeString() }}</n-text>
-              <div class="font-bold">{{ scan.code }}</div>
+              <div><n-text strong>{{ scan.code }}</n-text></div>
             </div>
             <n-tag :type="scan.resultType">{{ scan.resultMessage }}</n-tag>
           </div>
@@ -54,6 +54,8 @@ import { ref } from 'vue'
 import { QrCodeOutline } from '@vicons/ionicons5'
 import { useQRCodesStore } from '@/stores/qrCodes'
 import { useUserStore } from '@/stores/user'
+import { useInventoryStore } from '@/stores/inventory'
+import { useMessage } from 'naive-ui'
 
 const scanMode = ref('receive')
 const lastScannedCode = ref('')
@@ -62,6 +64,13 @@ const scanHistory = ref<any[]>([])
 
 const qrStore = useQRCodesStore()
 const userStore = useUserStore()
+const inventoryStore = useInventoryStore()
+const message = useMessage()
+
+// Делаем qrStore доступным глобально для функции авто-создания в inventoryStore
+if (typeof window !== 'undefined') {
+  (window as any).qrCodesStore = qrStore
+}
 
 function handleScan() {
   const code = lastScannedCode.value.trim()
@@ -76,8 +85,35 @@ function handleScan() {
     setResult('Внимание', 'Этот код уже был отсканирован ранее', 'warning')
     addToHistory(code, 'Дубликат', 'warning')
   } else {
-    qrStore.updateQRCodeStatus(qr.id, scanMode.value === 'ship' ? 'shipped' : 'scanned', userStore.user?.name)
-    setResult('Успех', `Деталь ${qr.productName} принята`, 'success')
+    // Обновляем статус QR-кода
+    const oldStatus = qr.status
+    const newStatus = scanMode.value === 'ship' ? 'shipped' : 'scanned'
+    const workerName = userStore.user?.name || 'Кладовщик'
+    
+    qrStore.updateQRCodeStatus(qr.id, newStatus, workerName)
+    
+    // АВТОМАТИЗАЦИЯ СКЛАДА:
+    // Если мы в режиме "Приёмка" и сканируем QR-код продукции, 
+    // автоматически увеличиваем остаток этой продукции на складе готовой продукции.
+    if (scanMode.value === 'receive' && oldStatus !== 'scanned') {
+      const success = inventoryStore.receiveFromProduction(
+        qr.productId, 
+        1, 
+        qr.orderNumber, 
+        workerName
+      )
+      
+      if (success) {
+        setResult('Успех', `Изделие "${qr.productName}" принято на склад. Остаток увеличен.`, 'success')
+      } else {
+        setResult('Внимание', `Статус обновлен, но изделие "${qr.productName}" не найдено в справочнике. Остатки не изменились.`, 'warning')
+      }
+    } else if (scanMode.value === 'receive' && oldStatus === 'scanned') {
+      setResult('Внимание', 'Этот код уже был отсканирован ранее и принят на склад.', 'warning')
+    } else {
+      setResult('Успех', `Код обработан: ${scanMode.value === 'ship' ? 'Отгружено' : 'Принято'}`, 'success')
+    }
+
     addToHistory(code, 'Успех', 'success')
   }
 
@@ -106,7 +142,8 @@ function addToHistory(code: string, message: string, type: any) {
 }
 .scan-input-area {
   padding: 20px;
-  background: #f0f2f5;
+  background: #242428;
+  border: 1px solid #333;
   border-radius: 8px;
 }
 .w-full { width: 100%; }

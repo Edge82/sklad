@@ -137,6 +137,7 @@ const props = defineProps<{
   show: boolean
   type: 'incoming' | 'outgoing' | 'transfer' | 'adjustment' | 'reservation' | 'write_off'
   title: string
+  mode?: 'material' | 'product'
 }>()
 
 const emit = defineEmits<{
@@ -151,7 +152,7 @@ const loading = ref(false)
 const selectedItem = ref<InventoryItem | null>(null)
 
 const formData = reactive({
-  itemId: null as number | null,
+  itemId: null as string | null,
   quantity: 1,
   unitPrice: 0,
   documentNumber: '',
@@ -163,7 +164,15 @@ const formData = reactive({
 
 // Опции для селектов
 const itemOptions = computed(() => {
-  return inventoryStore.items.map(item => ({
+  let items = inventoryStore.items
+  
+  if (props.mode === 'product') {
+    items = items.filter(i => i.type === 'product')
+  } else {
+    items = items.filter(i => i.type !== 'product')
+  }
+
+  return items.map(item => ({
     label: `${item.name} (${item.sku}) - ${item.currentStock} ${item.unit}`,
     value: item.id,
     disabled: props.type === 'outgoing' && item.available <= 0

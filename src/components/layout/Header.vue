@@ -1,6 +1,6 @@
 <template>
-  <n-layout-header bordered class="px-6 py-4 flex justify-between items-center">
-    <n-breadcrumb>
+  <n-layout-header bordered class="px-6 flex justify-between items-center" style="height: 64px; flex-shrink: 0">
+    <n-breadcrumb class="overflow-hidden whitespace-nowrap">
       <n-breadcrumb-item @click="$router.push('/dashboard')">
         <n-icon>
           <HomeOutline />

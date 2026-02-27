@@ -1,5 +1,31 @@
 <template>
-  <div class="employees-page">
+  <div v-show="selectedInlineEmployee" class="employees-inline-details h-full flex flex-col p-4">
+    <div class="mb-6 flex justify-between items-center">
+      <div class="flex items-center gap-3">
+        <n-button quaternary circle @click="handleInlineBack">
+          <template #icon><n-icon size="24"><ArrowBackOutline /></n-icon></template>
+        </n-button>
+        <div>
+          <n-h1 class="m-0 text-2xl">
+            {{ detailsRef?.selectedInvoice ? 'Производственная накладная' : 'Производственная активность' }}
+          </n-h1>
+          <n-text depth="3">
+            {{ detailsRef?.selectedInvoice ? `Документ № ${detailsRef.selectedInvoice.orderNumber}` : `Просмотр накладных и инструментов: ${selectedInlineEmployee?.name}` }}
+          </n-text>
+        </div>
+      </div>
+    </div>
+    <div class="flex-grow overflow-hidden bg-[#101014] rounded-xl border border-gray-800">
+      <EmployeeDetails 
+        v-if="selectedInlineEmployee"
+        ref="detailsRef"
+        :employee="selectedInlineEmployee" 
+        mode="slim" 
+      />
+    </div>
+  </div>
+
+  <div v-show="!selectedInlineEmployee" class="employees-page">
     <!-- Заголовок и кнопки -->
     <div class="flex justify-between items-center mb-6">
       <div>
@@ -131,8 +157,17 @@
       <!-- Основное отображение сотрудников -->
       <n-gi :span="3">
         <n-card v-if="viewMode === 'list'" title="Список сотрудников">
-          <n-data-table :columns="employeeColumns" :data="filteredEmployees" :pagination="pagination"
-            :row-key="(row: Employee) => row.id" striped @update:sorter="handleSorterChange" />
+          <n-data-table 
+            :columns="employeeColumns" 
+            :data="filteredEmployees" 
+            :pagination="pagination"
+            :row-key="(row: Employee) => row.id" 
+            striped 
+            :row-props="(row: Employee) => ({
+              style: 'cursor: pointer',
+              onClick: () => viewEmployee(row.id, 'slim')
+            })"
+          />
         </n-card>
 
         <div v-else class="employee-grid">
@@ -162,7 +197,13 @@
                   <div class="grow min-w-0 pr-2">
                     <div class="flex justify-between items-start mb-2 mt-1">
                       <div class="min-w-0">
-                        <n-text strong class="text-lg truncate block leading-tight">{{ emp.name }}</n-text>
+                        <n-text 
+                          strong 
+                          class="text-lg truncate block leading-tight cursor-pointer hover:text-green-500 transition-colors"
+                          @click.stop="viewEmployee(emp.id, 'slim')"
+                        >
+                          {{ emp.name }}
+                        </n-text>
                         <n-text depth="3" class="text-xs uppercase font-medium">{{ emp.position }}</n-text>
                       </div>
                       <n-tag :type="employeesStore.getStatusColor(emp.status) as any" size="small" round>
@@ -182,7 +223,7 @@
                     </div>
 
                     <div class="flex justify-end gap-2 mt-4 pt-3">
-                      <n-button size="small" tertiary round @click.stop="viewEmployee(emp.id)">
+                      <n-button size="small" tertiary round @click.stop="viewEmployee(emp.id, 'full')">
                         Профиль
                       </n-button>
                       <n-button size="small" tertiary round type="warning" @click.stop="editEmployee(emp.id)">
@@ -210,7 +251,8 @@
     <!-- Модалка создания сотрудника -->
     <n-modal 
       v-model:show="showCreateModal" 
-      preset="card" 
+      preset="card"
+      :auto-focus="false"
       :title="selectedEmployeeId ? 'Редактировать сотрудника' : 'Добавить сотрудника'" 
       style="width: 800px"
       @update:show="(val: boolean) => !val && (selectedEmployeeId = null)"
@@ -219,11 +261,34 @@
     </n-modal>
 
     <!-- Модалка просмотра сотрудника -->
-    <n-modal v-model:show="showViewModal" preset="card" title="Карточка сотрудника" style="width: 800px">
+    <n-modal 
+      v-model:show="showViewModal" 
+      preset="card"
+      :auto-focus="false"
+      :class="viewDetailMode === 'full' ? '' : 'fullscreen-modal'"
+      :segmented="{
+        content: true,
+        footer: 'soft'
+      }"
+      :style="viewDetailMode === 'full' ? 'width: 900px' : 'width: 100vw; height: 100vh; position: fixed; left: 0; top: 0; margin: 0;'"
+      :content-style="viewDetailMode === 'full' ? 'padding: 0' : 'padding: 0; height: 100%;'"
+      :header-style="viewDetailMode === 'full' ? '' : 'padding: 12px 24px; background: #101014; border-bottom: 1px solid #333;'"
+    >
+      <template #header>
+        <div class="flex items-center gap-4">
+           <n-text strong class="text-xl">
+             {{ selectedEmployeeForView?.name }}
+             <span class="text-gray-500 font-normal ml-2">
+               — {{ viewDetailMode === 'full' ? 'Персональные данные' : 'Производственная активность' }}
+             </span>
+           </n-text>
+        </div>
+      </template>
       <EmployeeDetails 
-        v-if="selectedEmployee" 
-        :key="`view-${selectedEmployee.id}-${selectedEmployee.avatar?.length || 0}`"
-        :employee="selectedEmployee" 
+        v-if="selectedEmployeeForView" 
+        :key="`view-${selectedEmployeeForView.id}-${selectedEmployeeForView.avatar?.length || 0}-${viewDetailMode}`"
+        :employee="selectedEmployeeForView" 
+        :mode="viewDetailMode"
       />
     </n-modal>
   </div>
@@ -231,6 +296,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, computed, h } from 'vue'
+import { useRouter } from 'vue-router'
 import { useEmployeesStore } from '@/stores/employees'
 import type { Employee } from '@/types'
 import type { DataTableColumns, SelectOption } from 'naive-ui'
@@ -248,9 +314,6 @@ import {
   NModal,
   NTag,
   NTooltip,
-  NList,
-  NListItem,
-  NThing,
   NAvatar,
   NBadge,
   NPagination,
@@ -267,11 +330,11 @@ import {
   EyeOutline,
   PencilOutline,
   TrashOutline,
-  ChevronForwardOutline,
   MailOutline,
   CallOutline,
   ListOutline,
-  AppsOutline
+  AppsOutline,
+  ArrowBackOutline
 } from '@vicons/ionicons5'
 import EmployeeForm from '@/components/employees/EmployeeForm.vue'
 import EmployeeDetails from '@/components/employees/EmployeeDetails.vue'
@@ -280,13 +343,19 @@ import { useDialog, useMessage } from 'naive-ui'
 const employeesStore = useEmployeesStore()
 const dialog = useDialog()
 const message = useMessage()
+
+const selectedInlineEmployee = ref<Employee | null>(null)
+const detailsRef = ref<any>(null)
 const showCreateModal = ref(false)
 const showViewModal = ref(false)
 const selectedEmployeeIdForView = ref<string | null>(null)
-const selectedEmployee = computed(() => {
+const viewDetailMode = ref<'full' | 'slim'>('full')
+
+const selectedEmployeeForView = computed(() => {
   if (!selectedEmployeeIdForView.value) return null
   return (employeesStore.employees.find(emp => emp.id === selectedEmployeeIdForView.value)) || null
 })
+
 const selectedEmployeeId = ref<string | null>(null)
 const viewMode = ref<'list' | 'grid'>('list')
 
@@ -372,44 +441,53 @@ const paginatedEmployees = computed(() => {
   return filteredEmployees.value.slice(start, end)
 })
 
-const statusStats = computed(() => {
-  const stats = [
-    { type: 'active' as const, label: 'Активен', count: 0 },
-    { type: 'inactive' as const, label: 'Неактивен', count: 0 },
-    { type: 'vacation' as const, label: 'Отпуск', count: 0 },
-    { type: 'sick' as const, label: 'Больничный', count: 0 }
-  ]
+// const statusStats = computed(() => {
+//   const stats = [
+//     { type: 'active' as const, label: 'Активен', count: 0 },
+//     { type: 'inactive' as const, label: 'Неактивен', count: 0 },
+//     { type: 'vacation' as const, label: 'Отпуск', count: 0 },
+//     { type: 'sick' as const, label: 'Больничный', count: 0 }
+//   ]
 
-  employeesStore.employees.forEach(emp => {
-    const stat = stats.find(s => s.type === emp.status)
-    if (stat) stat.count++
-  })
+//   employeesStore.employees.forEach(emp => {
+//     const stat = stats.find(s => s.type === emp.status)
+//     if (stat) stat.count++
+//   })
 
-  return stats
-})
+//   return stats
+// })
 
 const employeeColumns: DataTableColumns<Employee> = [
   {
     title: 'Сотрудник',
     key: 'name',
     width: 250,
-    render: (row: Employee) => h(NFlex, { align: 'center', wrap: false, size: 12 }, {
+    render: (row: Employee) => h(NFlex, { 
+      align: 'center', 
+      wrap: false, 
+      size: 12,
+      class: 'cursor-pointer hover:bg-white/5 p-1 -m-1 rounded transition-all duration-200 group',
+      onClick: () => viewEmployee(row.id)
+    }, {
       default: () => [
         // Используем ту же логику что и в плитках, которая работает
         (row.avatar || row.photo) ? h(NAvatar, {
           round: true,
-          size: 40, // Чуть больше чем small для наглядности
+          size: 40,
           src: row.avatar || row.photo,
           key: `list-photo-${row.id}-${(row.avatar || row.photo)?.length || 0}`,
-          class: 'shadow-sm border border-gray-700'
+          class: 'shadow-sm border border-gray-700 group-hover:border-green-500 transition-colors'
         }) : h(NAvatar, {
           round: true,
           size: 40,
-          key: `list-text-${row.id}`
+          key: `list-text-${row.id}`,
+          class: 'group-hover:bg-green-600 transition-colors'
         }, { default: () => row.name.charAt(0) }),
         h('div', { class: 'min-w-0 flex-grow' }, [
-          h('div', { class: 'font-medium truncate' }, row.name),
-          h('div', { class: 'text-[11px] text-gray-500 uppercase leading-tight' }, row.position)
+          h('div', { 
+            class: 'font-bold truncate group-hover:text-green-500 transition-colors'
+          }, row.name),
+          h('div', { class: 'text-[11px] text-gray-500 uppercase leading-tight group-hover:text-gray-300' }, row.position)
         ])
       ]
     })
@@ -467,16 +545,22 @@ const employeeColumns: DataTableColumns<Employee> = [
           size: 'small',
           type: 'info',
           quaternary: true,
-          onClick: () => viewEmployee(row.id)
+          onClick: (e) => {
+            e.stopPropagation()
+            viewEmployee(row.id, 'full')
+          }
         }, { icon: () => h(NIcon, null, { default: () => h(EyeOutline) }) }),
-        default: () => 'Просмотр'
+        default: () => 'Просмотр полной анкеты'
       }),
       h(NTooltip, null, {
         trigger: () => h(NButton, {
           size: 'small',
           type: 'warning',
           quaternary: true,
-          onClick: () => editEmployee(row.id)
+          onClick: (e) => {
+            e.stopPropagation()
+            editEmployee(row.id)
+          }
         }, { icon: () => h(NIcon, null, { default: () => h(PencilOutline) }) }),
         default: () => 'Редактировать'
       }),
@@ -485,17 +569,16 @@ const employeeColumns: DataTableColumns<Employee> = [
           size: 'small',
           type: 'error',
           quaternary: true,
-          onClick: () => deleteEmployee(row.id)
+          onClick: (e) => {
+            e.stopPropagation()
+            deleteEmployee(row.id)
+          }
         }, { icon: () => h(NIcon, null, { default: () => h(TrashOutline) }) }),
         default: () => 'Удалить'
       })
     ])
   }
 ]
-
-const formatDate = (date: Date) => {
-  return new Intl.DateTimeFormat('ru-RU').format(date)
-}
 
 const formatCurrency = (amount: number) => {
   return new Intl.NumberFormat('ru-RU', {
@@ -505,16 +588,6 @@ const formatCurrency = (amount: number) => {
   }).format(amount)
 }
 
-const getStatusColorClass = (status: Employee['status']) => {
-  const colorMap: Record<Employee['status'], string> = {
-    'active': 'green-500',
-    'inactive': 'gray-500',
-    'vacation': 'yellow-500',
-    'sick': 'red-500'
-  }
-  return colorMap[status] || 'gray-500'
-}
-
 const resetFilters = () => {
   searchQuery.value = ''
   filters.department = null
@@ -522,9 +595,25 @@ const resetFilters = () => {
   filters.role = null
 }
 
-const viewEmployee = (id: string) => {
-  selectedEmployeeIdForView.value = id
-  showViewModal.value = true
+const handleInlineBack = () => {
+  if (detailsRef.value?.selectedInvoice) {
+    detailsRef.value.selectedInvoice = null
+  } else {
+    selectedInlineEmployee.value = null
+  }
+}
+
+const viewEmployee = (id: string, mode: 'full' | 'slim' = 'slim') => {
+  const emp = employeesStore.employees.find(e => e.id === id)
+  if (!emp) return
+
+  if (mode === 'slim') {
+    selectedInlineEmployee.value = emp
+  } else {
+    selectedEmployeeIdForView.value = id
+    viewDetailMode.value = mode
+    showViewModal.value = true
+  }
 }
 
 const editEmployee = (id: string) => {
@@ -545,13 +634,6 @@ const deleteEmployee = (id: string) => {
   })
 }
 
-const viewDepartment = (id: string) => {
-  const dept = employeesStore.departments.find(d => String(d.id) === String(id))
-  if (dept) {
-    message.info(`Просмотр отдела: ${dept.name}`)
-  }
-}
-
 const exportData = () => {
   message.success('Данные экспортированы')
 }
@@ -566,10 +648,6 @@ const handleEmployeeSubmit = (employeeData: any) => {
   }
   showCreateModal.value = false
   selectedEmployeeId.value = null
-}
-
-const handleSorterChange = (sorter: any) => {
-  // Logic for server-side sorting can be added here
 }
 </script>
 
@@ -596,5 +674,6 @@ const handleSorterChange = (sorter: any) => {
   -webkit-line-clamp: 1;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  line-clamp: 1;
 }
 </style>

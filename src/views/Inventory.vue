@@ -3,7 +3,7 @@
     <!-- Заголовок и кнопки -->
     <div class="flex justify-between items-center mb-6">
       <div>
-        <n-h1>Склад</n-h1>
+        <n-h1>{{ pageTitle }}</n-h1>
         <n-text depth="3">Управление материалами и запасами склада</n-text>
       </div>
       <div class="flex gap-3">
@@ -15,7 +15,7 @@
           </template>
           Экспорт
         </n-button>
-        <n-button @click="showReportModal = true" type="info">
+        <n-button v-if="mode !== 'product'" @click="showReportModal = true" type="info">
           <template #icon>
             <n-icon>
               <AnalyticsOutline />
@@ -23,7 +23,7 @@
           </template>
           Отчеты
         </n-button>
-        <n-button @click="showReceiptModal = true" type="warning">
+        <n-button v-if="mode !== 'product'" @click="showReceiptModal = true" type="warning">
           <template #icon>
             <n-icon>
               <AddCircleOutline />
@@ -31,7 +31,7 @@
           </template>
           Приход
         </n-button>
-        <n-button @click="showIssueModal = true" type="error">
+        <n-button v-if="mode !== 'product'" @click="showIssueModal = true" type="error">
           <template #icon>
             <n-icon>
               <RemoveCircleOutline />
@@ -45,19 +45,19 @@
               <AddOutline />
             </n-icon>
           </template>
-          Новый материал
+          {{ mode === 'product' ? 'Новое изделие' : 'Новый материал' }}
         </n-button>
       </div>
     </div>
 
     <!-- Статистика -->
     <n-grid :cols="6" :x-gap="16" :y-gap="16" class="mb-6">
-      <n-gi>
+      <n-gi v-if="props.mode === 'product'">
         <n-card>
           <div class="flex justify-between items-center">
             <div>
-              <n-text depth="3">Всего позиций</n-text>
-              <n-h3 class="m-0">{{ inventoryStore.totalItems }}</n-h3>
+              <n-text depth="3">Всего заказов</n-text>
+              <n-h3 class="m-0">{{ ordersStore.totalOrders }}</n-h3>
             </div>
             <n-icon size="32" color="#2080f0">
               <CubeOutline />
@@ -65,12 +65,39 @@
           </div>
         </n-card>
       </n-gi>
-      <n-gi>
+      <n-gi v-else>
+        <n-card>
+          <div class="flex justify-between items-center">
+            <div>
+              <n-text depth="3">Всего позиций</n-text>
+              <n-h3 class="m-0">{{ filteredItems.length }}</n-h3>
+            </div>
+            <n-icon size="32" color="#2080f0">
+              <CubeOutline />
+            </n-icon>
+          </div>
+        </n-card>
+      </n-gi>
+
+      <n-gi v-if="props.mode === 'product'">
+        <n-card>
+          <div class="flex justify-between items-center">
+            <div>
+              <n-text depth="3">Выполнены</n-text>
+              <n-h3 class="m-0">{{ ordersStore.readyOrders }}</n-h3>
+            </div>
+            <n-icon size="32" color="#18a058">
+              <CheckmarkDoneOutline />
+            </n-icon>
+          </div>
+        </n-card>
+      </n-gi>
+      <n-gi v-else>
         <n-card>
           <div class="flex justify-between items-center">
             <div>
               <n-text depth="3">Стоимость запасов</n-text>
-              <n-h3 class="m-0">{{ formatCurrency(inventoryStore.totalValue) }}</n-h3>
+              <n-h3 class="m-0">{{ formatCurrency(filteredTotalValue) }}</n-h3>
             </div>
             <n-icon size="32" color="#18a058">
               <CashOutline />
@@ -78,12 +105,26 @@
           </div>
         </n-card>
       </n-gi>
-      <n-gi>
+
+      <n-gi v-if="props.mode === 'product'">
+        <n-card>
+          <div class="flex justify-between items-center">
+            <div>
+              <n-text depth="3">В работе</n-text>
+              <n-h3 class="m-0">{{ ordersStore.pendingOrders }}</n-h3>
+            </div>
+            <n-icon size="32" color="#f0a020">
+              <TimeOutline />
+            </n-icon>
+          </div>
+        </n-card>
+      </n-gi>
+      <n-gi v-else>
         <n-card>
           <div class="flex justify-between items-center">
             <div>
               <n-text depth="3">Мало осталось</n-text>
-              <n-h3 class="m-0">{{ inventoryStore.lowStockItems }}</n-h3>
+              <n-h3 class="m-0">{{ filteredLowStockCount }}</n-h3>
             </div>
             <n-icon size="32" color="#f0a020">
               <WarningOutline />
@@ -91,12 +132,13 @@
           </div>
         </n-card>
       </n-gi>
-      <n-gi>
+
+      <n-gi v-if="props.mode !== 'product'">
         <n-card>
           <div class="flex justify-between items-center">
             <div>
               <n-text depth="3">Отсутствует</n-text>
-              <n-h3 class="m-0">{{ inventoryStore.outOfStockItems }}</n-h3>
+              <n-h3 class="m-0">{{ filteredOutOfStockCount }}</n-h3>
             </div>
             <n-icon size="32" color="#d03050">
               <CloseCircleOutline />
@@ -104,12 +146,12 @@
           </div>
         </n-card>
       </n-gi>
-      <n-gi>
+      <n-gi v-if="props.mode !== 'product'">
         <n-card>
           <div class="flex justify-between items-center">
             <div>
               <n-text depth="3">Категории</n-text>
-              <n-h3 class="m-0">{{ inventoryStore.categories.length }}</n-h3>
+              <n-h3 class="m-0">{{ categoryOptions.length }}</n-h3>
             </div>
             <n-icon size="32" color="#626aef">
               <AppsOutline />
@@ -117,7 +159,7 @@
           </div>
         </n-card>
       </n-gi>
-      <n-gi>
+      <n-gi v-if="props.mode !== 'product'">
         <n-card>
           <div class="flex justify-between items-center">
             <div>
@@ -135,11 +177,11 @@
     <!-- Фильтры и поиск -->
     <n-card class="mb-6">
       <div class="flex flex-wrap gap-4">
-        <n-select v-model:value="filters.category" placeholder="Категория" :options="categoryOptions" clearable
+        <n-select v-if="props.mode !== 'product'" v-model:value="filters.category" placeholder="Категория" :options="categoryOptions" clearable
           style="width: 200px" />
-        <n-select v-model:value="filters.status" placeholder="Статус" :options="statusOptions" clearable
+        <n-select v-if="props.mode !== 'product'" v-model:value="filters.status" placeholder="Статус" :options="statusOptions" clearable
           style="width: 200px" />
-        <n-select v-model:value="filters.supplier" placeholder="Поставщик" :options="supplierOptions" clearable
+        <n-select v-if="props.mode !== 'product'" v-model:value="filters.supplier" placeholder="Поставщик" :options="supplierOptions" clearable
           style="width: 200px" />
         <n-input v-model:value="searchQuery" placeholder="Поиск по названию, артикулу или SKU" clearable
           style="width: 300px">
@@ -150,6 +192,9 @@
           </template>
         </n-input>
         <n-button @click="resetFilters">Сбросить</n-button>
+        <n-button v-if="props.mode === 'product'" type="primary" secondary @click="isGrouped = !isGrouped">
+          {{ isGrouped ? 'Разгруппировать' : 'Группировать по заказу' }}
+        </n-button>
         <n-button type="primary" @click="showAdvancedFilters = !showAdvancedFilters">
           Расширенные фильтры
         </n-button>
@@ -192,8 +237,8 @@
       </n-collapse-transition>
     </n-card>
 
-    <!-- Быстрые действия -->
-    <n-card title="Быстрые действия" class="mb-6">
+    <!-- Быстрые действия (только для материалов) -->
+    <n-card v-if="props.mode !== 'product'" title="Быстрые действия" class="mb-6">
       <n-space>
         <n-button @click="viewLowStock" type="warning">
           <template #icon>
@@ -230,19 +275,22 @@
       </n-space>
     </n-card>
 
-    <!-- Таблица материалов -->
+    <!-- Таблица -->
     <n-card>
       <div class="flex justify-between items-center mb-4">
-        <n-h3 class="m-0">Материалы и запасы</n-h3>
+        <n-h3 class="m-0">{{ props.mode === 'product' ? 'Изделия и запасы' : 'Материалы и запасы' }}</n-h3>
         <div class="flex items-center gap-2">
           <n-text>Показывать:</n-text>
           <n-select v-model:value="itemsPerPage" :options="pageSizeOptions" style="width: 100px" />
         </div>
       </div>
 
-      <n-data-table :columns="columns" :data="filteredItems" :pagination="pagination"
-        :row-key="(row: InventoryItem) => row.id" striped @update:sorter="handleSorterChange"
-        :row-props="rowProps" />
+      <n-data-table :columns="columns" :data="tableData" :pagination="pagination"
+        :row-key="(row: any) => row.id" striped @update:sorter="handleSorterChange"
+        :row-props="rowProps"
+        :default-expand-all="isGrouped"
+        :key="isGrouped ? 'grouped' : 'ungrouped'"
+      />
     </n-card>
 
     <!-- Последние операции -->
@@ -285,17 +333,28 @@
     <InventoryItemModal 
       v-model:show="showCreateModal" 
       :item-id="selectedItemId"
+      :mode="props.mode"
       @submit="handleItemSubmit" 
       @update:show="(val) => !val && (selectedItemId = null)"
     />
 
     <InventoryReportModal v-model:show="showReportModal" />
 
-    <InventoryTransactionModal v-model:show="showReceiptModal" type="incoming" title="Приход материалов"
-      @submit="handleTransactionSubmit" />
+    <InventoryTransactionModal 
+      v-model:show="showReceiptModal" 
+      type="incoming" 
+      :title="props.mode === 'product' ? 'Приход изделий' : 'Приход материалов'"
+      :mode="props.mode"
+      @submit="handleTransactionSubmit" 
+    />
 
-    <InventoryTransactionModal v-model:show="showIssueModal" type="outgoing" title="Расход материалов"
-      @submit="handleTransactionSubmit" />
+    <InventoryTransactionModal 
+      v-model:show="showIssueModal" 
+      type="outgoing" 
+      :title="props.mode === 'product' ? 'Расход изделий' : 'Расход материалов'"
+      :mode="props.mode"
+      @submit="handleTransactionSubmit" 
+    />
 
     <n-modal v-model:show="showDetailsModal" preset="card" title="Детали материала" style="width: 1000px">
       <InventoryItemDetails 
@@ -318,6 +377,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, h } from 'vue'
 import { useInventoryStore } from '@/stores/inventory'
+import { useOrdersStore } from '@/stores/orders'
 import type { InventoryItem, InventoryTransaction } from '@/types'
 import type { DataTableColumns, SelectOption } from 'naive-ui'
 import {
@@ -351,6 +411,7 @@ import {
   CubeOutline,
   CashOutline,
   WarningOutline,
+  TimeOutline,
   CloseCircleOutline,
   AppsOutline,
   BusinessOutline,
@@ -374,9 +435,19 @@ import InventoryItemDetails from '@/components/inventory/InventoryItemDetails.vu
 import QRPrintModal from '@/components/common/QRPrintModal.vue'
 import { useDialog, useMessage } from 'naive-ui'
 
+const props = defineProps<{
+  mode?: 'material' | 'product'
+}>()
+
 const inventoryStore = useInventoryStore()
+const ordersStore = useOrdersStore()
 const dialog = useDialog()
 const message = useMessage()
+
+// Заголовок страницы
+const pageTitle = computed(() => {
+  return props.mode === 'product' ? 'Готовая продукция' : 'Основная продукция (Склад материалов)'
+})
 
 // Модальные окна
 const showCreateModal = ref(false)
@@ -387,6 +458,7 @@ const showDetailsModal = ref(false)
 const showPrintModal = ref(false)
 const isEditMode = ref(false)
 const selectedItemId = ref<string | null>(null)
+const isGrouped = ref(false)
 
 const printData = reactive({
   title: '',
@@ -435,7 +507,11 @@ const pagination = computed(() => ({
 
 // Опции фильтров
 const categoryOptions = computed<SelectOption[]>(() => {
-  return inventoryStore.categories.map(cat => ({
+  const categories = props.mode === 'product' 
+    ? inventoryStore.categories.filter(c => c.id === '99') 
+    : inventoryStore.categories.filter(c => c.id !== '99')
+    
+  return categories.map(cat => ({
     label: cat.name,
     value: cat.name
   }))
@@ -460,6 +536,14 @@ const supplierOptions = computed<SelectOption[]>(() => {
 // Фильтрованные элементы
 const filteredItems = computed(() => {
   let result = inventoryStore.items
+
+  // Фильтр по типу (материал или готовая продукция)
+  if (props.mode === 'product') {
+    result = result.filter(item => item.type === 'product')
+  } else {
+    // По умолчанию или 'material'
+    result = result.filter(item => item.type !== 'product')
+  }
 
   // Поиск
   if (searchQuery.value) {
@@ -507,75 +591,176 @@ const filteredItems = computed(() => {
   return result
 })
 
+const filteredTotalValue = computed(() => {
+  return filteredItems.value.reduce((sum, item) => sum + (item.currentStock * item.averagePrice), 0)
+})
+
+const filteredLowStockCount = computed(() => {
+  return filteredItems.value.filter(item => item.status === 'low_stock').length
+})
+
+const filteredOutOfStockCount = computed(() => {
+  return filteredItems.value.filter(item => item.status === 'out_of_stock').length
+})
+
+const tableData = computed(() => {
+  if (!isGrouped.value || props.mode !== 'product') return filteredItems.value
+  
+  const groups: Record<string, InventoryItem[]> = {}
+  const itemsWithoutOrder: InventoryItem[] = []
+  
+  filteredItems.value.forEach(item => {
+    if (item.orderNumber) {
+      if (!groups[item.orderNumber]) groups[item.orderNumber] = []
+      groups[item.orderNumber].push(item)
+    } else {
+      itemsWithoutOrder.push(item)
+    }
+  })
+  
+  const result: any[] = []
+  
+  // Группы с заказами
+  Object.keys(groups).forEach(orderNo => {
+    const groupItems = groups[orderNo]
+    const totalQty = groupItems.reduce((s, i) => s + i.currentStock, 0)
+    const totalVal = groupItems.reduce((s, i) => s + i.totalValue, 0)
+
+    result.push({
+      id: `group-${orderNo}`,
+      name: `ЗАКАЗ: ${orderNo}`,
+      sku: `Позиций: ${groupItems.length}`,
+      currentStock: totalQty,
+      totalValue: totalVal,
+      isGroup: true,
+      children: groupItems
+    })
+  })
+  
+  // Группа без заказов (если есть)
+  if (itemsWithoutOrder.length > 0) {
+    const totalQty = itemsWithoutOrder.reduce((s, i) => s + i.currentStock, 0)
+    const totalVal = itemsWithoutOrder.reduce((s, i) => s + i.totalValue, 0)
+
+    result.push({
+      id: 'group-none',
+      name: 'БЕЗ ЗАКАЗА',
+      sku: `Позиций: ${itemsWithoutOrder.length}`,
+      currentStock: totalQty,
+      totalValue: totalVal,
+      isGroup: true,
+      children: itemsWithoutOrder
+    })
+  }
+  
+  return result
+})
+
 // Колонки таблицы
-const columns: DataTableColumns<InventoryItem> = [
+const columns: DataTableColumns<any> = [
   {
-    title: 'Материал',
+    title: props.mode === 'product' ? 'Изделие' : 'Материал',
     key: 'name',
     width: 250,
-    render: (row) => h('div', { class: 'flex items-center gap-3' }, [
-      h('div', { class: 'w-8 h-8 bg-gray-800 rounded flex items-center justify-center' },
-        h(NIcon, { size: '16' }, () => getCategoryIcon(row.categoryId))
-      ),
-      h('div', [
-        h('div', { class: 'font-medium' }, row.name),
-        h('div', { class: 'text-xs text-gray-500' }, row.sku)
+    render: (row) => {
+      if (row.isGroup) {
+        return h('div', { class: 'flex items-center gap-2 font-bold text-blue-400 uppercase tracking-wider' }, [
+          h(NIcon, { size: '20' }, () => h(BusinessOutline)),
+          h('span', row.name)
+        ])
+      }
+      return h('div', { 
+        class: 'flex items-center gap-3',
+        style: isGrouped.value ? 'padding-left: 32px; border-left: 2px solid rgba(32, 128, 240, 0.3); margin-left: -12px;' : ''
+      }, [
+        h('div', { class: 'w-8 h-8 bg-gray-800 rounded flex items-center justify-center shrink-0' },
+          h(NIcon, { size: '16' }, () => getCategoryIcon(row.categoryId))
+        ),
+        h('div', [
+          h('div', { class: 'font-medium' }, row.name),
+          h('div', { class: 'text-xs text-gray-400' }, row.sku)
+        ])
       ])
-    ])
+    }
   },
-  {
-    title: 'Категория',
-    key: 'category',
-    width: 120,
-    sorter: (a, b) => a.category.localeCompare(b.category)
-  },
+  ...(props.mode === 'product' ? [{
+    title: 'Заказ',
+    key: 'orderNumber',
+    width: 130,
+    render: (row: any) => {
+      if (row.isGroup) return null
+      return h('div', { class: 'flex items-center gap-1 font-bold' }, [
+        h(NIcon, { color: '#18a058' }, () => h(BusinessOutline)),
+        h('span', { class: 'text-green-500' }, row.orderNumber || '-')
+      ])
+    }
+  }] : []),
   {
     title: 'Остаток',
     key: 'stock',
     width: 150,
-    render: (row) => h('div', [
-      h('div', { class: 'font-medium' }, [
-        h('span', { class: row.currentStock <= row.minStock ? 'text-yellow-500' : '' },
-          `${row.currentStock} ${row.unit}`
-        ),
-        row.reserved > 0 && h('span', { class: 'text-gray-500 ml-2' }, `(${row.reserved} резерв)`)
-      ]),
-      h('div', { class: 'text-xs text-gray-500' },
-        `Доступно: ${row.available} ${row.unit}`
-      )
-    ])
+    render: (row) => {
+      if (row.isGroup) {
+        return h('div', { class: 'font-bold' }, `Итог: ${row.currentStock} шт.`)
+      }
+      return h('div', [
+        h('div', { class: 'font-medium' }, [
+          h('span', { class: row.currentStock <= row.minStock ? 'text-yellow-500' : '' },
+            `${row.currentStock} ${row.unit}`
+          ),
+          row.reserved > 0 && h('span', { class: 'text-gray-500 ml-2' }, `(${row.reserved} резерв)`)
+        ]),
+        h('div', { class: 'text-xs text-gray-500' },
+          `Доступно: ${row.available} ${row.unit}`
+        )
+      ])
+    }
   },
   {
     title: 'Статус',
     key: 'status',
     width: 120,
-    render: (row) => h(NTag, {
-      type: inventoryStore.getStatusColor(row.status) as any,
-      size: 'small',
-      bordered: false
-    }, { default: () => inventoryStore.getStatusLabel(row.status) })
+    render: (row) => {
+      if (row.isGroup) return null
+      return h(NTag, {
+        type: inventoryStore.getStatusColor(row.status) as any,
+        size: 'small',
+        bordered: false
+      }, { default: () => inventoryStore.getStatusLabel(row.status) })
+    }
   },
   {
     title: 'Место хранения',
     key: 'location',
     width: 120,
-    render: (row) => h('div', { class: 'flex items-center gap-1' }, [
-      h(NIcon, { size: '14' }, () => h(LocationOutline)),
-      h('span', row.location)
-    ])
+    render: (row) => {
+      if (row.isGroup) return null
+      return h('div', { class: 'flex items-center gap-1' }, [
+        h(NIcon, { size: '14' }, () => h(LocationOutline)),
+        h('span', row.location)
+      ])
+    }
   },
   {
     title: 'Цена',
     key: 'price',
     width: 100,
-    render: (row) => formatCurrency(row.averagePrice),
+    render: (row) => {
+      if (row.isGroup) return null
+      return formatCurrency(row.averagePrice)
+    },
     sorter: (a, b) => a.averagePrice - b.averagePrice
   },
   {
     title: 'Стоимость',
     key: 'totalValue',
     width: 120,
-    render: (row) => formatCurrency(row.totalValue),
+    render: (row) => {
+      if (row.isGroup) {
+        return h('div', { class: 'font-bold text-green-500' }, formatCurrency(row.totalValue))
+      }
+      return formatCurrency(row.totalValue)
+    },
     sorter: (a, b) => a.totalValue - b.totalValue
   },
   {
@@ -583,26 +768,29 @@ const columns: DataTableColumns<InventoryItem> = [
     key: 'actions',
     width: 100,
     fixed: 'right',
-    render: (row) => h('div', { class: 'flex gap-2' }, [
-      h(NButton, {
-        size: 'small',
-        type: 'info',
-        quaternary: true,
-        onClick: (e) => {
-          e.stopPropagation()
-          handlePrintQR(row)
-        }
-      }, { icon: () => h(NIcon, null, { default: () => h(QrCodeOutline) }) }),
-      h(NButton, {
-        size: 'small',
-        type: 'error',
-        quaternary: true,
-        onClick: (e) => {
-          e.stopPropagation()
-          deleteItem(row.id)
-        }
-      }, { icon: () => h(NIcon, null, { default: () => h(TrashOutline) }) })
-    ])
+    render: (row) => {
+      if (row.isGroup) return null
+      return h('div', { class: 'flex gap-2' }, [
+        h(NButton, {
+          size: 'small',
+          type: 'info',
+          quaternary: true,
+          onClick: (e) => {
+            e.stopPropagation()
+            handlePrintQR(row)
+          }
+        }, { icon: () => h(NIcon, null, { default: () => h(QrCodeOutline) }) }),
+        h(NButton, {
+          size: 'small',
+          type: 'error',
+          quaternary: true,
+          onClick: (e) => {
+            e.stopPropagation()
+            deleteItem(row.id)
+          }
+        }, { icon: () => h(NIcon, null, { default: () => h(TrashOutline) }) })
+      ])
+    }
   }
 ]
 
@@ -736,25 +924,27 @@ const editItem = (id: string) => {
 }
 
 const deleteItem = (id: string) => {
+  const itemLabel = props.mode === 'product' ? 'изделие' : 'материал'
   dialog.warning({
-    title: 'Удаление материала',
-    content: 'Вы уверены, что хотите удалить этот материал? Это действие нельзя будет отменить.',
+    title: props.mode === 'product' ? 'Удаление изделия' : 'Удаление материала',
+    content: `Вы уверены, что хотите удалить это ${itemLabel}? Это действие нельзя будет отменить.`,
     positiveText: 'Удалить',
     negativeText: 'Отмена',
     onPositiveClick: () => {
       inventoryStore.deleteItem(id)
-      message.success('Материал удален')
+      message.success(`${props.mode === 'product' ? 'Изделие' : 'Материал'} удален`)
     }
   })
 }
 
 const handleItemSubmit = (itemData: any) => {
+  const itemLabel = props.mode === 'product' ? 'изделие' : 'материал'
   if (selectedItemId.value) {
     inventoryStore.updateItem(selectedItemId.value, itemData)
-    message.success('Материал успешно обновлен')
+    message.success(`${props.mode === 'product' ? 'Изделие' : 'Материал'} успешно обновлено`)
   } else {
     inventoryStore.addItem(itemData)
-    message.success('Материал успешно добавлен')
+    message.success(`${props.mode === 'product' ? 'Изделие' : 'Материал'} успешно добавлено`)
   }
   selectedItemId.value = null
 }
@@ -768,7 +958,13 @@ const handleTransactionSubmit = (transactionData: any) => {
 const handleSorterChange = (sorter: any) => {
 }
 
-const rowProps = (row: InventoryItem) => {
+const rowProps = (row: any) => {
+  if (row.isGroup) {
+    return {
+      style: 'background: rgba(32, 128, 240, 0.08); font-weight: bold; cursor: default;',
+      class: 'group-header-row'
+    }
+  }
   return {
     style: 'cursor: pointer;',
     onClick: () => {
@@ -782,5 +978,13 @@ const rowProps = (row: InventoryItem) => {
 .inventory-page {
   max-width: 1600px;
   margin: 0 auto;
+}
+
+:deep(.group-header-row) td {
+  border-bottom: 2px solid rgba(32, 128, 240, 0.2);
+}
+
+:deep(.n-data-table-tr--striped) {
+  background-color: rgba(255, 255, 255, 0.02);
 }
 </style>

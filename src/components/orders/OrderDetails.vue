@@ -73,9 +73,11 @@
             <th>№</th>
             <th>Наименование</th>
             <th>Количество</th>
+            <th>QR Коды</th>
             <th>Цена за ед.</th>
             <th>Материалы</th>
             <th>Сумма</th>
+            <th class="text-right">Управление</th>
           </tr>
         </thead>
         <tbody>
@@ -83,19 +85,51 @@
             <td>{{ index + 1 }}</td>
             <td>{{ item.productName || item.itemName }}</td>
             <td>{{ item.quantity }}</td>
+            <td>
+              <div class="flex flex-col gap-1" style="min-width: 140px">
+                <div class="flex justify-end items-center text-[10px] px-1">
+                   <n-text strong :type="getScannedCount(item) === getQRCount(item) && getQRCount(item) > 0 ? 'success' : 'default'">
+                     Готово: {{ getScannedCount(item) }} / {{ getQRCount(item) }}
+                   </n-text>
+                </div>
+                <n-progress
+                  type="line"
+                  :percentage="getOrderItemProgress(item)"
+                  :status="getQRStatusType(item) as any"
+                  indicator-placement="inside"
+                  :height="16"
+                  :border-radius="8"
+                />
+              </div>
+            </td>
             <td>{{ formatCurrency(item.unitPrice) }}</td>
             <td>{{ item.materialUsed || '-' }}</td>
             <td>{{ formatCurrency(item.totalPrice) }}</td>
+            <td class="text-right">
+              <n-button quaternary circle size="small" type="primary" @click="openManageModal(item)">
+                <template #icon>
+                  <n-icon><QrCodeOutline /></n-icon>
+                </template>
+              </n-button>
+            </td>
           </tr>
         </tbody>
         <tfoot>
           <tr>
-            <td colspan="5" class="text-right font-bold">Итого:</td>
-            <td class="font-bold text-lg">{{ formatCurrency(order.totalAmount) }}</td>
+            <td colspan="7" class="text-right font-bold">Итого:</td>
+            <td class="font-bold text-lg text-right">{{ formatCurrency(order.totalAmount) }}</td>
           </tr>
         </tfoot>
       </n-table>
     </n-card>
+
+    <ManageQRModal
+      v-if="selectedItem"
+      v-model:show="showManageModal"
+      :order-id="order.id"
+      :product-id="selectedItem.productId"
+      :item-name="selectedItem.productName || selectedItem.itemName || ''"
+    />
 
     <!-- Примечания и действия -->
     <n-grid :cols="2" :x-gap="16">
@@ -173,8 +207,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
-import type { Order } from '@/types'
+import { computed, ref } from 'vue'
+import type { Order, OrderItem } from '@/types'
 import {
   NCard,
   NH2,
@@ -188,19 +222,61 @@ import {
   NSpace,
   NList,
   NListItem,
-  NThing
+  NThing,
+  useMessage,
+  NProgress
 } from 'naive-ui'
 import {
   PrintOutline,
   SyncOutline,
   NotificationsOutline,
   CreateOutline,
-  TimeOutline
+  TimeOutline,
+  QrCodeOutline
 } from '@vicons/ionicons5'
+import { useQRCodesStore } from '@/stores/qrCodes'
+import { useOrdersStore } from '@/stores/orders'
+import ManageQRModal from './ManageQRModal.vue'
 
 const props = defineProps<{
   order: Order
 }>()
+
+const qrStore = useQRCodesStore()
+const ordersStore = useOrdersStore()
+const message = useMessage()
+
+const showManageModal = ref(false)
+const selectedItem = ref<OrderItem | null>(null)
+
+const openManageModal = (item: OrderItem) => {
+  selectedItem.value = item
+  showManageModal.value = true
+}
+
+const getQRCount = (item: OrderItem) => {
+  return qrStore.qrCodes.filter(q => q.orderId === props.order.id && q.productId === item.productId).length
+}
+
+const getScannedCount = (item: OrderItem) => {
+  return qrStore.qrCodes.filter(q => 
+    q.orderId === props.order.id && 
+    q.productId === item.productId && 
+    (q.status === 'scanned' || q.status === 'shipped')
+  ).length
+}
+
+const getOrderItemProgress = (item: OrderItem) => {
+  return ordersStore.getOrderItemProgress(props.order.id, item.productId, qrStore.qrCodes)
+}
+
+const getQRStatusType = (item: OrderItem) => {
+  const percentage = getOrderItemProgress(item)
+  if (percentage === 0) return 'default'
+  if (percentage < 100) return 'warning'
+  if (percentage === 100) return 'success'
+  return 'error'
+}
 
 const isOverdue = computed(() => {
   if (!props.order.deadline) return false
@@ -291,15 +367,15 @@ const getPriorityColor = (priority: Order['priority']) => {
 }
 
 const printOrder = () => {
-  window.$message?.info('Печать заказа')
+  message.info('Печать заказа')
 }
 
 const changeStatus = () => {
-  window.$message?.info('Изменение статуса')
+  message.info('Изменение статуса')
 }
 
 const sendNotification = () => {
-  window.$message?.success('Уведомление отправлено клиенту')
+  message.success('Уведомление отправлено клиенту')
 }
 </script>
 

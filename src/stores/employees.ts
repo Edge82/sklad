@@ -25,7 +25,26 @@ export const useEmployeesStore = defineStore('employees', () => {
       userId: 'user-1',
       currentTools: [],
       currentOrders: [],
-      materialHistory: []
+      materialHistory: [
+        {
+          id: 'inv-101',
+          date: new Date('2024-01-20'),
+          orderNumber: 'ORD-2024-001',
+          items: [
+            { productName: 'МДФ Лист 16мм', quantity: 2, unit: 'шт.', article: 'MDF-16-WHT', scannedAt: new Date('2024-01-20T10:15:00') },
+            { productName: 'Кромка дуб 2мм', quantity: 15, unit: 'м.п.', article: 'EDG-OAK-02', scannedAt: new Date('2024-01-20T10:18:00') }
+          ]
+        },
+        {
+          id: 'inv-102',
+          date: new Date('2024-01-21'),
+          orderNumber: 'ORD-2024-002',
+          items: [
+             { productName: 'Саморезы 3.5x16', quantity: 200, unit: 'шт.', article: 'SCR-3516', scannedAt: new Date('2024-01-21T14:30:00') },
+             { productName: 'Петля Blum 110', quantity: 8, unit: 'шт.', article: 'HNG-BLM-110', scannedAt: new Date('2024-01-21T14:35:00') }
+          ]
+        }
+      ]
     },
     {
       id: '2',
@@ -46,7 +65,17 @@ export const useEmployeesStore = defineStore('employees', () => {
       userId: 'user-2',
       currentTools: [],
       currentOrders: [],
-      materialHistory: []
+      materialHistory: [
+        {
+          id: 'inv-201',
+          date: new Date('2024-01-15'),
+          orderNumber: 'ORD-2024-005',
+          items: [
+            { productName: 'Петля Blum 110', quantity: 12, unit: 'шт.', article: 'HNG-BLM-110', scannedAt: new Date('2024-01-15T09:00:00') },
+            { productName: 'Ручка мебельная 128мм', quantity: 6, unit: 'шт.', article: 'HND-128-SLV', scannedAt: new Date('2024-01-15T09:05:00') }
+          ]
+        }
+      ]
     },
     {
       id: '3',
@@ -67,7 +96,17 @@ export const useEmployeesStore = defineStore('employees', () => {
       userId: 'user-3',
       currentTools: [],
       currentOrders: [],
-      materialHistory: []
+      materialHistory: [
+        {
+          id: 'inv-301',
+          date: new Date('2024-01-18'),
+          orderNumber: 'ORD-2024-010',
+          items: [
+            { productName: 'Клей столярный Titebond', quantity: 1, unit: 'л.', article: 'GLU-TTB-01', scannedAt: new Date('2024-01-18T11:20:00') },
+            { productName: 'Шкант 8x30', quantity: 1000, unit: 'шт.', article: 'DWL-830', scannedAt: new Date('2024-01-18T11:25:00') }
+          ]
+        }
+      ]
     },
     {
       id: '4',

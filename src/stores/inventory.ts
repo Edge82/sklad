@@ -12,7 +12,8 @@ export const useInventoryStore = defineStore('inventory', () => {
     { id: '5', name: 'Ткани и наполнители', icon: 'bed-outline', description: 'Ткани, поролон, синтепон' },
     { id: '6', name: 'Крепеж', icon: 'hammer-outline', description: 'Саморезы, гвозди, болты' },
     { id: '7', name: 'Упаковочные материалы', icon: 'cube-outline', description: 'Пленка, картон, скотч' },
-    { id: '8', name: 'Электроника', icon: 'flash-outline', description: 'Светильники, провода' }
+    { id: '8', name: 'Электроника', icon: 'flash-outline', description: 'Светильники, провода' },
+    { id: '99', name: 'Готовая продукция', icon: 'checkmark-done-outline', description: 'Произведенная мебель, готовая к отгрузке' }
   ])
 
   // Поставщики
@@ -360,7 +361,99 @@ export const useInventoryStore = defineStore('inventory', () => {
       lastReceived: new Date('2024-01-05'),
       lastIssued: new Date('2024-01-20'),
       createdAt: new Date('2023-08-05'),
-      updatedAt: new Date('2024-01-20')
+      updatedAt: new Date('2024-01-20'),
+      type: 'material'
+    },
+    {
+      id: 'prod-1',
+      name: 'Кухонный гарнитур "Сканди"',
+      sku: 'PRD-KCH-001',
+      barcode: '990000000001',
+      category: 'Готовая продукция',
+      categoryId: '99',
+      description: 'Готовый кухонный гарнитур, фасад белый матовый',
+      unit: 'комплект',
+      currentStock: 2,
+      minStock: 0,
+      maxStock: 5,
+      reserved: 1,
+      available: 1,
+      location: 'FG-01-01',
+      purchasePrice: 45000,
+      averagePrice: 45000,
+      lastPurchasePrice: 45000,
+      totalValue: 90000,
+      mainSupplier: 'Собственное производство',
+      alternativeSuppliers: [],
+      deliveryTime: 14,
+      minOrderQuantity: 1,
+      totalConsumed: 12,
+      popularity: 10,
+      status: 'in_stock',
+      type: 'product',
+      createdAt: new Date('2024-01-15'),
+      updatedAt: new Date('2024-01-15')
+    },
+    {
+      id: 'prod-2',
+      name: 'Шкаф-купе "Лофт"',
+      sku: 'PRD-WRD-002',
+      barcode: '990000000002',
+      category: 'Готовая продукция',
+      categoryId: '99',
+      description: 'Шкаф-купе с зеркальными вставками',
+      unit: 'шт',
+      currentStock: 5,
+      minStock: 1,
+      maxStock: 10,
+      reserved: 2,
+      available: 3,
+      location: 'FG-01-02',
+      purchasePrice: 28000,
+      averagePrice: 28000,
+      lastPurchasePrice: 28000,
+      totalValue: 140000,
+      mainSupplier: 'Собственное производство',
+      alternativeSuppliers: [],
+      deliveryTime: 10,
+      minOrderQuantity: 1,
+      totalConsumed: 8,
+      popularity: 9,
+      status: 'in_stock',
+      type: 'product',
+      createdAt: new Date('2024-01-18'),
+      updatedAt: new Date('2024-01-18')
+    },
+    {
+      id: 'p1',
+      name: 'Шкаф купе "Люкс"',
+      sku: 'PRD-WRD-LUX-001',
+      barcode: '990000000003',
+      category: 'Готовая продукция',
+      categoryId: '99',
+      description: 'Шкаф купе премиум класса',
+      unit: 'шт',
+      currentStock: 10,
+      minStock: 0,
+      maxStock: 20,
+      reserved: 0,
+      available: 10,
+      location: 'FG-01-03',
+      purchasePrice: 45000,
+      averagePrice: 45000,
+      lastPurchasePrice: 45000,
+      totalValue: 450000,
+      mainSupplier: 'Собственное производство',
+      alternativeSuppliers: [],
+      deliveryTime: 14,
+      minOrderQuantity: 1,
+      totalConsumed: 0,
+      popularity: 10,
+      status: 'in_stock',
+      type: 'product',
+      orderNumber: 'ORD-2024-001',
+      createdAt: new Date('2024-01-15'),
+      updatedAt: new Date('2024-01-15')
     }
   ])
 
@@ -410,6 +503,21 @@ export const useInventoryStore = defineStore('inventory', () => {
       reason: 'Шкаф-купе №23',
       createdBy: 'Алексей Волков',
       createdAt: new Date('2024-01-22T09:15:00')
+    },
+    {
+      id: 'txn-101',
+      itemId: 'p1',
+      type: 'incoming',
+      quantity: 10,
+      unitPrice: 45000,
+      totalPrice: 450000,
+      documentNumber: 'ORD-2024-001',
+      documentType: 'production',
+      sourceLocation: 'Цех производства',
+      destinationLocation: 'FG-01-03',
+      reason: 'Приход из производства по заказу ORD-2024-001 (Полная партия 10 шт.)',
+      createdBy: 'Иван Петров',
+      createdAt: new Date('2024-01-22T10:30:00')
     }
   ])
 
@@ -496,9 +604,13 @@ export const useInventoryStore = defineStore('inventory', () => {
       item.currentStock = totalNewStock
       item.lastPurchasePrice = newPrice
       item.lastReceived = new Date()
+      // Обновляем общую стоимость (totalValue)
+      item.totalValue = item.currentStock * item.averagePrice
     } else if (type === 'outgoing' || type === 'write_off') {
       item.currentStock -= quantity
       item.lastIssued = new Date()
+      // Обновляем общую стоимость
+      item.totalValue = item.currentStock * item.averagePrice
     } else if (type === 'reservation') {
       item.reserved += quantity
     }
@@ -672,6 +784,87 @@ export const useInventoryStore = defineStore('inventory', () => {
     }
   }
 
+  // Метод для автоматического прихода готовой продукции из производства
+  const receiveFromProduction = (productId: string, quantity: number, orderNumber: string, workerName: string) => {
+    // Ищем товар в справочнике готовой продукции по ID или Артикулу (SKU)
+    let item = items.value.find(i => i.id === productId || i.sku === productId)
+    
+    // Если по ID не нашли, пробуем найти по точному имени (иногда в QR записывается имя)
+    if (!item) {
+      item = items.value.find(i => i.type === 'product' && i.name === productId)
+    }
+
+    // Дополнительная проверка по productName из QR (если productId - это ID, а нам нужно имя)
+    // Но в базовой логике Scan.vue передает именно productId из объекта QR
+
+    if (item) {
+      if (!item.orderNumber) {
+        item.orderNumber = orderNumber
+      }
+      updateStock(item.id, quantity, 'incoming', {
+        documentNumber: orderNumber,
+        documentType: 'production',
+        reason: `Приход из производства по заказу ${orderNumber}`,
+        createdBy: workerName,
+        sourceLocation: 'Цех производства',
+        destinationLocation: item.location
+      })
+      return true
+    } else {
+      // АВТО-СОЗДАНИЕ: Если товара нет в справочнике, создаем его автоматически
+      // Это происходит, когда в заказе указано новое изделие, которого раньше не было на складе
+      const newItemId = productId || `PRD-${Math.random().toString(36).substr(2, 5).toUpperCase()}`
+      
+      const qrStore = (window as any).qrCodesStore // Пытаемся получить имя из QR если доступно
+      const qrData = qrStore?.qrCodes?.find((q: any) => q.productId === productId)
+      const productName = qrData?.productName || productId || 'Новое изделие'
+
+      const newItem: InventoryItem = {
+        id: newItemId,
+        name: productName,
+        sku: productId.startsWith('PRD-') ? productId : `SKU-${productId.toUpperCase()}`,
+        category: 'Готовая продукция',
+        categoryId: '99',
+        unit: 'шт',
+        currentStock: 0,
+        minStock: 0,
+        maxStock: 100,
+        reserved: 0,
+        available: 0,
+        location: 'FG-NEW',
+        purchasePrice: 0,
+        averagePrice: 0,
+        lastPurchasePrice: 0,
+        totalValue: 0,
+        mainSupplier: 'Собственное производство',
+        alternativeSuppliers: [],
+        deliveryTime: 0,
+        minOrderQuantity: 1,
+        totalConsumed: 0,
+        popularity: 5,
+        status: 'in_stock',
+        type: 'product',
+        orderNumber: orderNumber,
+        createdAt: new Date(),
+        updatedAt: new Date()
+      }
+
+      items.value.push(newItem)
+      
+      // Теперь вызываем обновление остатка для уже созданного товара
+      updateStock(newItem.id, quantity, 'incoming', {
+        documentNumber: orderNumber,
+        documentType: 'production',
+        reason: `Автоматическое создание и приход по заказу ${orderNumber}`,
+        createdBy: workerName,
+        sourceLocation: 'Цех производства',
+        destinationLocation: 'FG-NEW'
+      })
+      
+      return true
+    }
+  }
+
   return {
     // Данные
     categories,
@@ -698,6 +891,7 @@ export const useInventoryStore = defineStore('inventory', () => {
     getStatusLabel,
     getStatusColor,
     getTransactionsByItem,
-    generateReport
+    generateReport,
+    receiveFromProduction
   }
 })

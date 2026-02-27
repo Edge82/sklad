@@ -152,7 +152,8 @@ import {
   NTabs,
   NTabPane,
   NGrid,
-  NGi
+  NGi,
+  useMessage
 } from 'naive-ui'
 
 const props = defineProps<{
@@ -166,6 +167,7 @@ const emit = defineEmits<{
 
 const formRef = ref<FormInst | null>(null)
 const loading = ref(false)
+const message = useMessage()
 
 const title = computed(() => 'Новый материал')
 
@@ -293,7 +295,7 @@ const handleSubmit = () => {
         })
       }, 1000)
     } else {
-      window.$message?.error('Пожалуйста, исправьте ошибки в форме')
+      message.error('Пожалуйста, исправьте ошибки в форме')
     }
   })
 }

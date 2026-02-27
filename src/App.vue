@@ -21,6 +21,8 @@ import Layout from '@/components/layout/Layout.vue'
 const userStore = useUserStore()
 const theme = darkTheme
 
+import '@/assets/main.css'
+
 // Инициализация демо-пользователя
 userStore.initDemoUser()
 </script>
@@ -34,6 +36,7 @@ userStore.initDemoUser()
 
 #app {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
 }
 </style>

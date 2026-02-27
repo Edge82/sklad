@@ -1,11 +1,24 @@
 <template>
   <div class="orders-page">
     <div class="flex justify-between items-center mb-6">
-      <div>
-        <n-h1>Заказы</n-h1>
-        <n-text depth="3">Управление заказами клиентов и WMS</n-text>
+      <div class="flex items-center gap-4">
+        <n-button v-if="viewMode !== 'list'" circle @click="goBack" type="primary" secondary>
+          <template #icon><n-icon><ArrowBackOutline /></n-icon></template>
+        </n-button>
+        <div>
+          <n-h1 class="!mb-0">
+             <span v-if="viewMode === 'list'">Заказы</span>
+             <span v-else-if="viewMode === 'invoices'">Реестр накладных заказа {{ selectedOrderForInvoices?.orderNumber }}</span>
+             <span v-else-if="viewMode === 'details'">Накладная {{ selectedInvoiceDetail?.id }}</span>
+          </n-h1>
+          <n-text depth="3">
+             <span v-if="viewMode === 'list'">Управление заказами клиентов и WMS</span>
+             <span v-else-if="viewMode === 'invoices'">Сводный список всех отпусков материалов по данному заказу</span>
+             <span v-else-if="viewMode === 'details'">Детальный состав списания от сотрудника: {{ selectedInvoiceDetail?.employeeName }}</span>
+          </n-text>
+        </div>
       </div>
-      <div style="gap: 8px; display: flex; margin: 8px;">
+      <div v-if="viewMode === 'list'" style="gap: 8px; display: flex; margin: 8px;">
         <n-button type="primary" @click="showCreateModal = true">
           <template #icon><n-icon><AddCircleOutline /></n-icon></template>
           Новый заказ
@@ -13,19 +26,55 @@
       </div>
     </div>
 
-    <!-- Статистика -->
-    <n-grid :cols="4" :x-gap="16" :y-gap="16" class="mb-6">
-      <n-gi>
-        <n-card><n-statistic label="Всего заказов" :value="ordersStore.totalOrders" /></n-card>
-      </n-gi>
-      <n-gi>
-        <n-card><n-statistic label="В производстве" :value="ordersStore.pendingOrders" /></n-card>
-      </n-gi>
-    </n-grid>
+    <!-- Режим списка заказов -->
+    <div v-show="viewMode === 'list'">
+      <n-grid :cols="4" :x-gap="16" :y-gap="16" class="mb-6">
+        <n-gi>
+          <n-card><n-statistic label="Всего заказов" :value="ordersStore.totalOrders" /></n-card>
+        </n-gi>
+        <n-gi>
+          <n-card><n-statistic label="В производстве" :value="ordersStore.pendingOrders" /></n-card>
+        </n-gi>
+      </n-grid>
 
-    <n-card>
-      <n-data-table :columns="columns" :data="ordersStore.orders" />
-    </n-card>
+      <n-card border-variant="dark">
+        <n-data-table 
+          :columns="columns" 
+          :data="ordersStore.orders" 
+          :row-props="(row: any) => ({
+             style: 'cursor: pointer',
+             onClick: () => handleRowClick(row)
+          })"
+        />
+      </n-card>
+    </div>
+
+    <!-- Режим списка накладных конкретного заказа -->
+    <div v-show="viewMode === 'invoices'">
+       <n-card border-variant="dark">
+          <n-data-table 
+             :columns="invoiceRegistryColumns" 
+             :data="orderInvoices" 
+             :row-props="(row: any) => ({
+                style: 'cursor: pointer',
+                onClick: () => handleInvoiceRowClick(row)
+             })"
+          />
+       </n-card>
+    </div>
+
+    <!-- Режим детального просмотра конкретной накладной -->
+    <div v-show="viewMode === 'details'">
+       <n-card border-variant="dark" content-style="padding: 0;">
+          <EmployeeProductionDocument 
+            v-if="viewMode === 'details' && selectedInvoiceDetail"
+            :employee="{ id: selectedInvoiceDetail.employeeId, name: selectedInvoiceDetail.employeeName, position: selectedInvoiceDetail.employeePosition, department: 'Производство' } as any"
+            :tools="[]"
+            :scannedItems="[]"
+            :materials="[selectedInvoiceDetail]"
+          />
+       </n-card>
+    </div>
 
     <QRGeneratorModal
       v-if="selectedOrderForQR"
@@ -40,6 +89,7 @@
     <n-modal
       v-model:show="showCreateModal"
       preset="card"
+      :auto-focus="false"
       :title="selectedOrderForEdit ? 'Редактировать заказ' : 'Новый заказ'"
       style="width: 800px"
     >
@@ -54,6 +104,7 @@
     <n-modal
       v-model:show="showDetailsModal"
       preset="card"
+      :auto-focus="false"
       title="Детали заказа"
       style="width: 900px"
     >
@@ -63,23 +114,128 @@
 </template>
 
 <script setup lang="ts">
-import { ref, h, watch } from 'vue'
+import { ref, h, watch, computed } from 'vue'
 import { useOrdersStore } from '@/stores/orders'
-import { NButton, NIcon, NTag, NSpace, NModal, useMessage, useDialog } from 'naive-ui'
-import { AddCircleOutline, QrCodeOutline, EyeOutline, CreateOutline, TrashOutline } from '@vicons/ionicons5'
+import { useEmployeesStore } from '@/stores/employees'
+import { useQRCodesStore } from '@/stores/qrCodes'
+import { NButton, NIcon, NTag, NSpace, NModal, useMessage, useDialog, NH1, NText, NGrid, NGi, NCard, NStatistic, NDataTable, NProgress } from 'naive-ui'
+import {
+  AddCircleOutline,
+  QrCodeOutline,
+  EyeOutline,
+  CreateOutline,
+  TrashOutline,
+  DocumentTextOutline,
+  ArrowBackOutline
+} from '@vicons/ionicons5'
 import QRGeneratorModal from '@/components/qr-generator/QRGeneratorModal.vue'
 import OrderForm from '@/components/orders/OrderForm.vue'
 import OrderDetails from '@/components/orders/OrderDetails.vue'
+import EmployeeProductionDocument from '@/components/employees/EmployeeProductionDocument.vue'
 
 const ordersStore = useOrdersStore()
+const employeesStore = useEmployeesStore()
+const qrCodesStore = useQRCodesStore()
 const message = useMessage()
 const dialog = useDialog()
 const showCreateModal = ref(false)
 const showQRModal = ref(false)
 const showDetailsModal = ref(false)
+
 const selectedOrderForQR = ref<any>(null)
 const selectedOrderForDetails = ref<any>(null)
 const selectedOrderForEdit = ref<any>(null)
+const selectedOrderForInvoices = ref<any>(null)
+const selectedInvoiceDetail = ref<any>(null)
+
+// Навигация: 'list' (список заказов), 'invoices' (список накладных заказа), 'details' (просмотр накладной)
+const viewMode = ref<'list' | 'invoices' | 'details'>('list')
+
+const handleRowClick = (row: any) => {
+  handleViewInvoices(row)
+}
+
+const handleViewInvoices = (row: any) => {
+  selectedOrderForInvoices.value = row
+  viewMode.value = 'invoices'
+}
+
+const handleInvoiceRowClick = (row: any) => {
+  selectedInvoiceDetail.value = row
+  viewMode.value = 'details'
+}
+
+// Собираем все накладные по всем сотрудникам для выбранного заказа
+const orderInvoices = computed(() => {
+  if (!selectedOrderForInvoices.value) return []
+  
+  const orderNumber = selectedOrderForInvoices.value.orderNumber
+  const allInvoices: any[] = []
+  
+  employeesStore.employees.forEach(emp => {
+    if (emp.materialHistory) {
+      emp.materialHistory.forEach(inv => {
+        if (inv.orderNumber === orderNumber) {
+          allInvoices.push({
+            ...inv,
+            employeeName: emp.name,
+            employeeId: emp.id,
+            employeePosition: emp.position
+          })
+        }
+      })
+    }
+  })
+  
+  return allInvoices.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+})
+
+// Настройка колонок для реестра накладных внутри заказа
+const invoiceRegistryColumns = [
+  {
+    title: 'ID Накладной',
+    key: 'id',
+    render: (row: any) => h('div', { class: 'font-mono font-bold text-green-500' }, row.id)
+  },
+  {
+    title: 'Дата и время',
+    key: 'date',
+    render: (row: any) => h('div', formatDate(row.date))
+  },
+  {
+    title: 'Сотрудник',
+    key: 'employeeName',
+    render: (row: any) => h('div', [
+      h('div', { class: 'font-bold' }, row.employeeName),
+      h('div', { class: 'text-[10px] text-gray-500 uppercase' }, row.employeePosition)
+    ])
+  },
+  {
+    title: 'Позиций ТМЦ',
+    key: 'itemsCount',
+    render: (row: any) => h(NTag, { type: 'success', quaternary: true }, { default: () => `${row.items?.length || 0} шт.` })
+  }
+]
+
+const formatDate = (date: Date | string) => {
+  return new Intl.DateTimeFormat('ru-RU', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  }).format(new Date(date))
+}
+
+const goBack = () => {
+  if (viewMode.value === 'details') {
+    viewMode.value = 'invoices'
+    selectedInvoiceDetail.value = null
+  } else if (viewMode.value === 'invoices') {
+    viewMode.value = 'list'
+    selectedOrderForInvoices.value = null
+  }
+}
 
 watch(showCreateModal, (val) => {
   if (!val) selectedOrderForEdit.value = null
@@ -110,8 +266,47 @@ const handleDeleteOrder = (order: any) => {
 }
 
 const columns = [
-  { title: 'Номер', key: 'orderNumber' },
-  { title: 'Клиент', key: 'customerName' },
+  { 
+    title: 'Номер', 
+    key: 'orderNumber',
+    width: 140,
+    render(row: any) {
+      return h('span', {
+        style: 'font-weight: 800; font-family: monospace; font-size: 14px; color: var(--n-primary-color);'
+      }, row.orderNumber)
+    }
+  },
+  { title: 'Клиент', key: 'customerName', width: 200 },
+  {
+    title: 'Готовность (склад)',
+    key: 'qrProgress',
+    width: 220,
+    render(row: any) {
+      const percentage = ordersStore.getOrderProgress(row.id, qrCodesStore.qrCodes)
+      const expectedTotal = row.items?.reduce((sum: number, item: any) => sum + (item.quantity || item.plannedQuantity || 0), 0) || 0
+      const orderCodes = qrCodesStore.qrCodes.filter(q => q.orderId === row.id)
+      const scannedCount = orderCodes.filter(q => q.status === 'scanned' || q.status === 'shipped').length
+      const generatedCount = orderCodes.length
+      
+      let status: 'default' | 'info' | 'success' | 'warning' | 'error' = 'info'
+      if (percentage >= 100) status = 'success'
+      else if (percentage > 0) status = 'warning'
+
+      return h('div', { style: 'width: 100%' }, [
+        h('div', { class: 'flex justify-end items-center mb-1 px-1' }, [
+          h(NText, { strong: true, style: 'font-size: 10px', type: status === 'success' ? 'success' : 'default' }, { default: () => `Готово: ${scannedCount}/${generatedCount}` })
+        ]),
+        h(NProgress, {
+          type: 'line',
+          percentage,
+          indicatorPlacement: 'inside',
+          status,
+          processing: percentage > 0 && percentage < 100,
+          railColor: generatedCount > scannedCount ? 'rgba(240, 160, 32, 0.2)' : undefined
+        })
+      ])
+    }
+  },
   { 
     title: 'Статус', 
     key: 'status',
@@ -127,7 +322,8 @@ const columns = [
         default: () => [
           h(NButton, {
             size: 'small',
-            onClick: () => {
+            onClick: (e) => {
+              e.stopPropagation()
               selectedOrderForQR.value = row
               showQRModal.value = true
             }
@@ -135,7 +331,8 @@ const columns = [
           h(NButton, { 
             size: 'small', 
             quaternary: true,
-            onClick: () => {
+            onClick: (e) => {
+              e.stopPropagation()
               selectedOrderForDetails.value = row
               showDetailsModal.value = true
             }
@@ -143,7 +340,8 @@ const columns = [
           h(NButton, { 
             size: 'small', 
             quaternary: true,
-            onClick: () => {
+            onClick: (e) => {
+              e.stopPropagation()
               selectedOrderForEdit.value = row
               showCreateModal.value = true
             }
@@ -152,7 +350,10 @@ const columns = [
             size: 'small', 
             quaternary: true,
             type: 'error',
-            onClick: () => handleDeleteOrder(row)
+            onClick: (e) => {
+              e.stopPropagation()
+              handleDeleteOrder(row)
+            }
           }, { icon: () => h(NIcon, null, { default: () => h(TrashOutline) }) })
         ]
       })

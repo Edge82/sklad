@@ -1,5 +1,5 @@
 <template>
-  <n-modal :show="show" @update:show="$emit('close')" preset="card" style="width: 600px" title="Генерация QR-кодов">
+  <n-modal :show="show" @update:show="$emit('close')" preset="card" style="width: 600px" title="Генерация QR-кодов" :auto-focus="false">
     <n-form :model="form" label-placement="left" label-width="120">
       <n-form-item label="Позиция">
         <n-select v-model:value="form.productId" :options="productOptions" placeholder="Выберите позицию" />
