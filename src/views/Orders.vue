@@ -29,69 +29,67 @@
     <!-- Режим списка заказов -->
     <div v-show="viewMode === 'list'">
       <!-- Статистика -->
-      <n-grid :cols="5" :x-gap="16" :y-gap="16" class="mb-6">
+      <n-grid :cols="5" :x-gap="16" :y-gap="16" class="mb-6 items-stretch">
         <n-gi>
-          <n-card class="cursor-pointer hover:border-blue-500 transition-colors" @click="resetFilters">
-            <div class="flex justify-between items-center">
-              <div>
-                <n-text depth="3">Всего заказов</n-text>
-                <n-h3 class="m-0">{{ totalOrdersCount }}</n-h3>
-              </div>
-              <n-icon size="32" color="#2080f0">
+          <n-card class="cursor-pointer hover:shadow-md transition-colors h-full flex flex-col justify-center" size="small" @click="resetFilters">
+            <div class="flex items-center gap-3">
+              <n-icon size="24" color="#2080f0">
                 <CubeOutline />
               </n-icon>
+              <div>
+                <n-text depth="3">Всего заказов</n-text>
+                <n-h2 class="m-0 line-height-1">{{ totalOrdersCount }}</n-h2>
+              </div>
             </div>
           </n-card>
         </n-gi>
         <n-gi>
-          <n-card class="cursor-pointer hover:border-yellow-500 transition-colors" @click="filters.status = 'new'">
-            <div class="flex justify-between items-center">
-              <div>
-                <n-text depth="3">Новые</n-text>
-                <n-h3 class="m-0">{{ newOrdersCount }}</n-h3>
-              </div>
-              <n-icon size="32" color="#f0a020">
+          <n-card class="cursor-pointer hover:shadow-md transition-colors h-full flex flex-col justify-center" size="small" @click="filters.status = 'new'">
+            <div class="flex items-center gap-3">
+              <n-icon size="24" color="#f0a020">
                 <AppsOutline />
               </n-icon>
+              <div>
+                <n-text depth="3">Новые</n-text>
+                <n-h2 class="m-0 line-height-1">{{ newOrdersCount }}</n-h2>
+              </div>
             </div>
           </n-card>
         </n-gi>
         <n-gi>
-          <n-card class="cursor-pointer hover:border-orange-500 transition-colors" @click="filters.status = 'in_progress'">
-            <div class="flex justify-between items-center">
-              <div>
-                <n-text depth="3">В производстве</n-text>
-                <n-h3 class="m-0">{{ inProgressOrdersCount }}</n-h3>
-              </div>
-              <n-icon size="32" color="#f0a020">
+          <n-card class="cursor-pointer hover:shadow-md transition-colors h-full flex flex-col justify-center" size="small" @click="filters.status = 'in_progress'">
+            <div class="flex items-center gap-3">
+              <n-icon size="24" color="#f0a020">
                 <TimeOutline />
               </n-icon>
+              <div>
+                <n-text depth="3">В производстве</n-text>
+                <n-h2 class="m-0 line-height-1">{{ inProgressOrdersCount }}</n-h2>
+              </div>
             </div>
           </n-card>
         </n-gi>
         <n-gi>
-          <n-card class="cursor-pointer hover:border-green-500 transition-colors" @click="filters.status = 'ready'">
-            <div class="flex justify-between items-center">
-              <div>
-                <n-text depth="3">Готовы к выдаче</n-text>
-                <n-h3 class="m-0">{{ readyOrdersCount }}</n-h3>
-              </div>
-              <n-icon size="32" color="#18a058">
+          <n-card class="cursor-pointer hover:shadow-md transition-colors h-full flex flex-col justify-center" size="small" @click="filters.status = 'ready'">
+            <div class="flex items-center gap-3">
+              <n-icon size="24" color="#18a058">
                 <CheckmarkDoneOutline />
               </n-icon>
+              <div>
+                <n-text depth="3">Готовы к выдаче</n-text>
+                <n-h2 class="m-0 line-height-1">{{ readyOrdersCount }}</n-h2>
+              </div>
             </div>
           </n-card>
         </n-gi>
         <n-gi>
-          <n-card border-variant="dark" class="revenue-card">
-            <div class="flex justify-between items-center">
+          <n-card border-variant="dark" class="revenue-card h-full flex flex-col justify-center" size="small">
+            <div class="flex items-center gap-3">
+              <n-icon size="24" color="#18a058" :component="CashOutline" />
               <div>
-                <n-text depth="3" class="revenue-label">Выручка в работе</n-text>
-                <n-h3 class="m-0 revenue-value">{{ formatCurrency(revenueInWork) }}</n-h3>
+                <n-text depth="3" class="revenue-label block mb-1">Выручка в работе</n-text>
+                <n-h2 class="m-0 line-height-1 revenue-value" style="font-size: 22px;">{{ formatCurrency(revenueInWork) }}</n-h2>
               </div>
-              <n-icon size="32" color="#18a058">
-                <CashOutline />
-              </n-icon>
             </div>
           </n-card>
         </n-gi>
@@ -214,7 +212,6 @@ import {
   NCard, 
   NDataTable, 
   NProgress,
-  NH3,
   NInput,
   NSelect
 } from 'naive-ui'
@@ -550,6 +547,12 @@ const columns = [
   text-transform: uppercase;
   letter-spacing: 0.05em;
   font-size: 10px;
+  line-height: 1;
+  margin-bottom: 4px;
+}
+
+.line-height-1 {
+  line-height: 1;
 }
 
 .revenue-value {

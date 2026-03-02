@@ -53,56 +53,91 @@
     </div>
 
     <!-- Статистика -->
-    <n-grid :cols="4" :x-gap="16" :y-gap="16" class="mb-6">
+    <n-grid :cols="5" :x-gap="16" :y-gap="16" class="mb-6 items-stretch">
       <n-gi>
-        <n-card>
-          <div class="flex justify-between items-center">
-            <div>
-              <n-text depth="3">Всего сотрудников</n-text>
-              <n-h3 class="m-0">{{ employeesStore.totalEmployees }}</n-h3>
-            </div>
-            <n-icon size="32" color="#2080f0">
+        <n-card
+          class="cursor-pointer transition-colors hover:shadow-md h-full flex flex-col justify-center"
+          style="cursor: pointer;"
+          :class="[!filters.status && !filters.role && !filters.department ? 'border-blue-500 shadow-sm' : 'hover:border-blue-500']"
+          size="small"
+          @click="resetFilters"
+        >
+          <div class="flex items-center gap-3">
+            <n-icon size="24" color="#2080f0">
               <PeopleOutline />
             </n-icon>
+            <div>
+              <n-text depth="3">Всего сотр.</n-text>
+              <n-h2 class="m-0 line-height-1">{{ employeesStore.totalEmployees }}</n-h2>
+            </div>
           </div>
         </n-card>
       </n-gi>
       <n-gi>
-        <n-card>
-          <div class="flex justify-between items-center">
-            <div>
-              <n-text depth="3">Активных</n-text>
-              <n-h3 class="m-0">{{ employeesStore.activeEmployees }}</n-h3>
-            </div>
-            <n-icon size="32" color="#18a058">
+        <n-card
+          class="cursor-pointer transition-colors hover:shadow-md h-full flex flex-col justify-center"
+          style="cursor: pointer;"
+          :class="[filters.status === 'active' ? 'border-green-500 shadow-sm' : 'hover:border-green-500']"
+          size="small"
+          @click="() => { resetFilters(); filters.status = 'active'; }"
+        >
+          <div class="flex items-center gap-3">
+            <n-icon size="24" color="#18a058">
               <CheckmarkCircleOutline />
             </n-icon>
+            <div>
+              <n-text depth="3">Активных</n-text>
+              <n-h2 class="m-0 line-height-1">{{ employeesStore.activeEmployees }}</n-h2>
+            </div>
           </div>
         </n-card>
       </n-gi>
       <n-gi>
-        <n-card>
-          <div class="flex justify-between items-center">
-            <div>
-              <n-text depth="3">ФОТ в месяц</n-text>
-              <n-h3 class="m-0">{{ formatCurrency(employeesStore.totalSalary) }}</n-h3>
-            </div>
-            <n-icon size="32" color="#d03050">
-              <CashOutline />
+        <n-card
+          class="cursor-pointer transition-colors hover:shadow-md h-full flex flex-col justify-center"
+          style="cursor: pointer;"
+          :class="[filters.role === 'worker' ? 'border-blue-400 shadow-sm' : 'hover:border-blue-400']"
+          size="small"
+          @click="() => { resetFilters(); filters.role = 'worker'; }"
+        >
+          <div class="flex items-center gap-3">
+            <n-icon size="24" color="#70c0e8">
+              <BuildOutline />
             </n-icon>
+            <div>
+              <n-text depth="3">Рабочих</n-text>
+              <n-h2 class="m-0 line-height-1">{{ employeesStore.employees.filter(e => e.role === 'worker').length }}</n-h2>
+            </div>
           </div>
         </n-card>
       </n-gi>
       <n-gi>
-        <n-card>
-          <div class="flex justify-between items-center">
-            <div>
-              <n-text depth="3">Отделов</n-text>
-              <n-h3 class="m-0">{{ employeesStore.departments.length }}</n-h3>
-            </div>
-            <n-icon size="32" color="#f0a020">
-              <BusinessOutline />
+        <n-card
+          class="cursor-pointer transition-colors hover:shadow-md h-full flex flex-col justify-center"
+          style="cursor: pointer;"
+          :class="[filters.status === 'vacation' ? 'border-yellow-500 shadow-sm' : 'hover:border-yellow-500']"
+          size="small"
+          @click="() => { resetFilters(); filters.status = 'vacation'; }"
+        >
+          <div class="flex items-center gap-3">
+            <n-icon size="24" color="#f0a020">
+              <TimeOutline />
             </n-icon>
+            <div>
+              <n-text depth="3">В отпуске</n-text>
+              <n-h2 class="m-0 line-height-1">{{ employeesStore.employees.filter(e => e.status === 'vacation').length }}</n-h2>
+            </div>
+          </div>
+        </n-card>
+      </n-gi>
+      <n-gi>
+        <n-card border-variant="dark" class="revenue-card h-full flex flex-col justify-center" size="small">
+          <div class="flex items-center gap-3">
+            <n-icon size="24" color="#18a058" :component="CashOutline" />
+            <div>
+              <n-text depth="3" class="revenue-label block mb-1">ФОТ в месяц</n-text>
+              <n-h2 class="m-0 line-height-1 revenue-value" style="font-size: 22px;">{{ formatCurrency(employeesStore.totalSalary) }}</n-h2>
+            </div>
           </div>
         </n-card>
       </n-gi>
@@ -322,7 +357,6 @@ import {
   PeopleOutline,
   CheckmarkCircleOutline,
   CashOutline,
-  BusinessOutline,
   PersonAddOutline,
   DownloadOutline,
   SearchOutline,
@@ -333,7 +367,9 @@ import {
   CallOutline,
   ListOutline,
   AppsOutline,
-  ArrowBackOutline
+  ArrowBackOutline,
+  BuildOutline,
+  TimeOutline
 } from '@vicons/ionicons5'
 import EmployeeForm from '@/components/employees/EmployeeForm.vue'
 import EmployeeDetails from '@/components/employees/EmployeeDetails.vue'
@@ -674,5 +710,25 @@ const handleEmployeeSubmit = (employeeData: Partial<Employee>) => {
   -webkit-box-orient: vertical;
   overflow: hidden;
   line-clamp: 1;
+}
+
+.revenue-card {
+  background: rgba(24, 160, 88, 0.1) !important;
+  border: 1px solid rgba(24, 160, 88, 0.3) !important;
+}
+
+.revenue-label {
+  color: #18a058 !important;
+  font-weight: bold;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 10px;
+  line-height: 1;
+  margin-bottom: 4px;
+}
+
+.revenue-value {
+  color: #18a058 !important;
+  font-weight: 900 !important;
 }
 </style>

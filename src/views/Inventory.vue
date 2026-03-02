@@ -625,8 +625,13 @@ const filteredItems = computed(() => {
   }
 
   // Фильтр по статусу (если это не наш специальный статус)
-  if (filters.status && !['ready_to_ship', 'awaiting_shipment', 'in_work'].includes(filters.status)) {
+  if (filters.status && !['ready_to_ship', 'awaiting_shipment', 'in_work', 'reserved'].includes(filters.status)) {
     result = result.filter(item => item.status === filters.status)
+  }
+
+  // Фильтр по резерву
+  if (filters.status === 'reserved') {
+    result = result.filter(item => item.reserved > 0)
   }
 
   // Расширенные фильтры

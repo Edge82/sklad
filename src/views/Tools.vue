@@ -8,33 +8,115 @@
       <n-button type="primary" @click="handleAddTool">Добавить инструмент</n-button>
     </div>
 
-    <n-grid :cols="4" :x-gap="16" :y-gap="16" class="mb-6">
+    <n-grid :cols="5" :x-gap="16" :y-gap="16" class="mb-6 items-stretch">
       <n-gi>
-        <n-card title="На складе" size="small">
-          <n-h2>{{ toolsStore.inStockTools.length }}</n-h2>
+        <n-card
+          class="cursor-pointer transition-shadow hover:shadow-md h-full flex flex-col justify-center"
+          :class="{ 'border-primary': filters.status === 'all' }"
+          size="small"
+          @click="filters.status = 'all'"
+        >
+          <div class="flex items-center gap-3">
+            <n-icon size="24" color="#18a058">
+              <HammerOutline />
+            </n-icon>
+            <div>
+              <n-text depth="3">Всего ед.</n-text>
+              <n-h2 class="m-0 line-height-1">{{ toolsStore.tools.length }}</n-h2>
+            </div>
+          </div>
         </n-card>
       </n-gi>
       <n-gi>
-        <n-card title="Выдано" size="small">
-          <n-h2>{{ toolsStore.issuedTools.length }}</n-h2>
+        <n-card
+          class="cursor-pointer transition-shadow hover:shadow-md h-full flex flex-col justify-center"
+          :class="{ 'border-primary': filters.status === 'in_stock' }"
+          size="small"
+          @click="filters.status = 'in_stock'"
+        >
+          <div class="flex items-center gap-3">
+            <n-icon size="24" color="#18a058">
+              <CheckmarkCircleOutline />
+            </n-icon>
+            <div>
+              <n-text depth="3">В наличии</n-text>
+              <n-h2 class="m-0 line-height-1">{{ toolsStore.inStockTools.length }}</n-h2>
+            </div>
+          </div>
         </n-card>
       </n-gi>
       <n-gi>
-        <n-card title="В ремонте" size="small">
-          <n-h2>{{ toolsStore.repairTools.length }}</n-h2>
+        <n-card
+          class="cursor-pointer transition-shadow hover:shadow-md h-full flex flex-col justify-center"
+          :class="{ 'border-primary': filters.status === 'issued' }"
+          size="small"
+          @click="filters.status = 'issued'"
+        >
+          <div class="flex items-center gap-3">
+            <n-icon size="24" color="#2080f0">
+              <ConstructOutline />
+            </n-icon>
+            <div>
+              <n-text depth="3">Выдано</n-text>
+              <n-h2 class="m-0 line-height-1">{{ toolsStore.issuedTools.length }}</n-h2>
+            </div>
+          </div>
         </n-card>
       </n-gi>
       <n-gi>
-        <n-card title="Списано" size="small">
-          <n-h2>0</n-h2>
+        <n-card
+          class="cursor-pointer transition-shadow hover:shadow-md h-full flex flex-col justify-center"
+          :class="{ 'border-primary': filters.status === 'repair' }"
+          size="small"
+          @click="filters.status = 'repair'"
+        >
+          <div class="flex items-center gap-3">
+            <n-icon size="24" color="#f0a020">
+              <BuildOutline />
+            </n-icon>
+            <div>
+              <n-text depth="3">В ремонте</n-text>
+              <n-h2 class="m-0 line-height-1">{{ toolsStore.repairTools.length }}</n-h2>
+            </div>
+          </div>
+        </n-card>
+      </n-gi>
+      <n-gi>
+        <n-card border-variant="dark" class="revenue-card h-full flex flex-col justify-center" size="small">
+          <div class="flex items-center gap-3">
+            <n-icon size="24" color="#18a058" :component="CashOutline" />
+            <div>
+              <n-text depth="3" class="revenue-label block mb-1">Стоимость инстр.</n-text>
+              <n-h2 class="m-0 line-height-1 revenue-value" style="font-size: 22px;">{{ formatCurrency(totalToolsCost) }}</n-h2>
+            </div>
+          </div>
         </n-card>
       </n-gi>
     </n-grid>
 
     <n-card>
+      <div class="flex justify-between items-center mb-4">
+        <n-space align="center">
+          <n-input
+            v-model:value="filters.search"
+            placeholder="Поиск инструмента..."
+            clearable
+          >
+            <template #prefix>
+              <n-icon>
+                <SearchOutline />
+              </n-icon>
+            </template>
+          </n-input>
+          <n-tag v-if="filters.status !== 'all'" closable @close="filters.status = 'all'">
+            Статус: {{ getStatusLabel(filters.status) }}
+          </n-tag>
+        </n-space>
+      </div>
+
       <n-tabs type="line">
         <n-tab-pane name="list" tab="Список инструментов">
-          <n-data-table :columns="columns" :data="toolsStore.tools" />
+          <n-data-table :columns="columns" :data="filteredTools" />
         </n-tab-pane>
         <n-tab-pane name="movement" tab="Выдача/Возврат">
           <!-- TODO: Movement logic -->
@@ -61,10 +143,37 @@
 </template>
 
 <script setup lang="ts">
-import { ref, h, reactive } from 'vue'
-import { NTag, NButton, NSpace, NIcon, useDialog, useMessage, type DataTableColumns } from 'naive-ui'
+import { ref, h, reactive, computed } from 'vue'
+import {
+  NTag,
+  NButton,
+  NSpace,
+  NIcon,
+  useDialog,
+  useMessage,
+  NH2,
+  NText,
+  NGrid,
+  NGi,
+  NCard,
+  NTabs,
+  NTabPane,
+  NDataTable,
+  NInput,
+  type DataTableColumns
+} from 'naive-ui'
 import { useToolsStore } from '@/stores/tools'
-import { PencilOutline, TrashOutline, QrCodeOutline } from '@vicons/ionicons5'
+import {
+  PencilOutline,
+  TrashOutline,
+  QrCodeOutline,
+  CashOutline,
+  BuildOutline,
+  HammerOutline,
+  ConstructOutline,
+  CheckmarkCircleOutline,
+  SearchOutline
+} from '@vicons/ionicons5'
 import ToolModal from '@/components/tools/ToolModal.vue'
 import QRPrintModal from '@/components/common/QRPrintModal.vue'
 import type { Tool } from '@/types'
@@ -72,6 +181,43 @@ import type { Tool } from '@/types'
 const toolsStore = useToolsStore()
 const dialog = useDialog()
 const message = useMessage()
+
+// Фильтры
+const filters = reactive({
+  search: '',
+  status: 'all' as 'all' | 'in_stock' | 'issued' | 'repair'
+})
+
+const filteredTools = computed(() => {
+  return toolsStore.tools.filter(tool => {
+    const matchesSearch = tool.name.toLowerCase().includes(filters.search.toLowerCase()) ||
+                        tool.inventoryNumber.toLowerCase().includes(filters.search.toLowerCase())
+    
+    if (filters.status === 'all') return matchesSearch
+    return matchesSearch && tool.status === filters.status
+  })
+})
+
+const getStatusLabel = (status: string) => {
+  switch (status) {
+    case 'in_stock': return 'В наличии'
+    case 'issued': return 'Выдано'
+    case 'repair': return 'В ремонте'
+    default: return 'Все'
+  }
+}
+
+const formatCurrency = (amount: number) => {
+  return new Intl.NumberFormat('ru-RU', {
+    style: 'currency',
+    currency: 'RUB',
+    minimumFractionDigits: 0
+  }).format(amount)
+}
+
+const totalToolsCost = computed(() => {
+  return toolsStore.tools.reduce((sum, tool) => sum + (tool.price || 0), 0)
+})
 
 const showModal = ref(false)
 const selectedToolId = ref<string | null>(null)
@@ -124,11 +270,12 @@ const handleToolSubmit = (toolData: Partial<Tool>) => {
 }
 
 const columns: DataTableColumns<Tool> = [
-  { title: 'Инв. №', key: 'inventoryNumber' },
+  { title: 'Инв. №', key: 'inventoryNumber', width: 120 },
   { title: 'Наименование', key: 'name' },
   { 
     title: 'Тип', 
     key: 'type',
+    width: 120,
     render(row) {
       const typeMap: Record<string, string> = {
         'power_tool': 'Электро',
@@ -140,9 +287,18 @@ const columns: DataTableColumns<Tool> = [
       return typeMap[row.type] || row.type
     }
   },
+  {
+    title: 'Цена',
+    key: 'price',
+    width: 120,
+    render(row) {
+      return row.price ? formatCurrency(row.price) : '-'
+    }
+  },
   { 
     title: 'Статус', 
     key: 'status',
+    width: 120,
     render(row) {
       const statusMap: Record<string, { label: string, type: 'success' | 'info' | 'warning' | 'error' | 'default' }> = {
         'in_stock': { label: 'На складе', type: 'success' },
@@ -184,3 +340,38 @@ const columns: DataTableColumns<Tool> = [
   }
 ]
 </script>
+
+<style scoped>
+.tools-page {
+  max-width: 1600px;
+  margin: 0 auto;
+}
+
+.cursor-pointer {
+  cursor: pointer;
+}
+
+.revenue-card {
+  background: rgba(24, 160, 88, 0.1) !important;
+  border: 1px solid rgba(24, 160, 88, 0.3) !important;
+}
+
+.revenue-label {
+  color: #18a058 !important;
+  font-weight: bold;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 10px;
+  line-height: 1;
+  margin-bottom: 4px;
+}
+
+.line-height-1 {
+  line-height: 1;
+}
+
+.revenue-value {
+  color: #18a058 !important;
+  font-weight: 900 !important;
+}
+</style>

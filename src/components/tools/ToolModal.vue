@@ -44,6 +44,14 @@
           </n-form-item>
         </n-gi>
 
+        <n-gi>
+          <n-form-item label="Стоимость" path="price">
+            <n-input-number v-model:value="formData.price" :min="0" placeholder="0" style="width: 100%">
+              <template #suffix>₽</template>
+            </n-input-number>
+          </n-form-item>
+        </n-gi>
+
         <n-gi v-if="formData.status === 'issued'" :span="2">
           <n-form-item label="Кому выдан" path="issuedTo" required>
             <n-select 
@@ -79,6 +87,7 @@ import {
   NForm,
   NFormItem,
   NInput,
+  NInputNumber,
   NSelect,
   NGrid,
   NGi,
@@ -124,6 +133,7 @@ const formData = reactive({
   manufacturer: '',
   status: 'in_stock' as Tool['status'],
   location: '',
+  price: undefined as number | undefined,
   qrCode: '',
   issuedTo: undefined as string | undefined,
   issuedToName: undefined as string | undefined,
@@ -189,6 +199,7 @@ watch(() => props.show, (newShow) => {
         manufacturer: '',
         status: 'in_stock',
         location: '',
+        price: undefined,
         qrCode: 'TOOL-' + Math.random().toString(36).substr(2, 9).toUpperCase(),
         issuedTo: undefined,
         issuedToName: undefined,

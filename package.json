@@ -17,7 +17,11 @@
     "format": "prettier --write src/"
   },
   "dependencies": {
+    "@fontsource/inter": "^5.2.8",
+    "@fontsource/roboto-mono": "^5.2.8",
     "@vicons/ionicons5": "^0.13.0",
+    "jspdf": "^4.2.0",
+    "jspdf-autotable": "^5.0.7",
     "naive-ui": "^2.43.2",
     "pinia": "^3.0.3",
     "vue": "^3.5.22",

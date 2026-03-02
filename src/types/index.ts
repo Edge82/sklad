@@ -184,6 +184,9 @@ export interface Tool {
   
   // Местоположение
   location?: string;               // Адрес ячейки
+  
+  // Стоимость
+  price?: number;                  // Цена приобретения
 }
 
 // Поломка/ремонт
