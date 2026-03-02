@@ -16,7 +16,7 @@
           </div>
         </div>
       </div>
-      <div class="flex-grow overflow-hidden">
+      <div class="grow overflow-hidden">
         <EmployeeDetails ref="detailsRef" :employee="employee" />
       </div>
     </div>

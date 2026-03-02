@@ -163,7 +163,7 @@ const rules: FormRules = {
     message: 'Выберите сотрудника', 
     renderMessage: () => formData.status === 'issued' ? 'Выберите сотрудника' : '',
     trigger: ['blur', 'change'],
-    validator: (rule, value) => {
+    validator: (_, value) => {
       if (formData.status === 'issued' && !value) {
         return new Error('Выберите сотрудника')
       }

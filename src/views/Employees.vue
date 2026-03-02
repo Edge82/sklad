@@ -15,7 +15,7 @@
         </div>
       </div>
     </div>
-    <div class="flex-grow overflow-hidden bg-[#101014] rounded-xl border border-gray-800">
+    <div class="grow overflow-hidden bg-[#101014] rounded-xl border border-gray-800">
       <EmployeeDetails 
         v-if="selectedInlineEmployee"
         ref="detailsRef"
@@ -482,7 +482,7 @@ const employeeColumns: DataTableColumns<Employee> = [
           key: `list-text-${row.id}`,
           class: 'group-hover:bg-green-600 transition-colors'
         }, { default: () => row.name.charAt(0) }),
-        h('div', { class: 'min-w-0 flex-grow' }, [
+        h('div', { class: 'min-w-0 grow' }, [
           h('div', { 
             class: 'font-bold truncate group-hover:text-green-500 transition-colors'
           }, row.name),

@@ -6,7 +6,7 @@
           <template #icon><n-icon><ArrowBackOutline /></n-icon></template>
         </n-button>
         <div>
-          <n-h1 class="!mb-0">
+          <n-h1 class="mb-0!">
              <span v-if="viewMode === 'list'">Заказы</span>
              <span v-else-if="viewMode === 'invoices'">Реестр накладных заказа {{ selectedOrderForInvoices?.orderNumber }}</span>
              <span v-else-if="viewMode === 'details'">Накладная {{ selectedInvoiceDetail?.id }}</span>
@@ -28,19 +28,100 @@
 
     <!-- Режим списка заказов -->
     <div v-show="viewMode === 'list'">
-      <n-grid :cols="4" :x-gap="16" :y-gap="16" class="mb-6">
+      <!-- Статистика -->
+      <n-grid :cols="5" :x-gap="16" :y-gap="16" class="mb-6">
         <n-gi>
-          <n-card><n-statistic label="Всего заказов" :value="ordersStore.totalOrders" /></n-card>
+          <n-card class="cursor-pointer hover:border-blue-500 transition-colors" @click="resetFilters">
+            <div class="flex justify-between items-center">
+              <div>
+                <n-text depth="3">Всего заказов</n-text>
+                <n-h3 class="m-0">{{ totalOrdersCount }}</n-h3>
+              </div>
+              <n-icon size="32" color="#2080f0">
+                <CubeOutline />
+              </n-icon>
+            </div>
+          </n-card>
         </n-gi>
         <n-gi>
-          <n-card><n-statistic label="В производстве" :value="ordersStore.pendingOrders" /></n-card>
+          <n-card class="cursor-pointer hover:border-yellow-500 transition-colors" @click="filters.status = 'new'">
+            <div class="flex justify-between items-center">
+              <div>
+                <n-text depth="3">Новые</n-text>
+                <n-h3 class="m-0">{{ newOrdersCount }}</n-h3>
+              </div>
+              <n-icon size="32" color="#f0a020">
+                <AppsOutline />
+              </n-icon>
+            </div>
+          </n-card>
+        </n-gi>
+        <n-gi>
+          <n-card class="cursor-pointer hover:border-orange-500 transition-colors" @click="filters.status = 'in_progress'">
+            <div class="flex justify-between items-center">
+              <div>
+                <n-text depth="3">В производстве</n-text>
+                <n-h3 class="m-0">{{ inProgressOrdersCount }}</n-h3>
+              </div>
+              <n-icon size="32" color="#f0a020">
+                <TimeOutline />
+              </n-icon>
+            </div>
+          </n-card>
+        </n-gi>
+        <n-gi>
+          <n-card class="cursor-pointer hover:border-green-500 transition-colors" @click="filters.status = 'ready'">
+            <div class="flex justify-between items-center">
+              <div>
+                <n-text depth="3">Готовы к выдаче</n-text>
+                <n-h3 class="m-0">{{ readyOrdersCount }}</n-h3>
+              </div>
+              <n-icon size="32" color="#18a058">
+                <CheckmarkDoneOutline />
+              </n-icon>
+            </div>
+          </n-card>
+        </n-gi>
+        <n-gi>
+          <n-card border-variant="dark" class="revenue-card">
+            <div class="flex justify-between items-center">
+              <div>
+                <n-text depth="3" class="revenue-label">Выручка в работе</n-text>
+                <n-h3 class="m-0 revenue-value">{{ formatCurrency(revenueInWork) }}</n-h3>
+              </div>
+              <n-icon size="32" color="#18a058">
+                <CashOutline />
+              </n-icon>
+            </div>
+          </n-card>
         </n-gi>
       </n-grid>
+
+      <!-- Фильтры -->
+      <n-card class="mb-6">
+        <div class="flex flex-wrap gap-4">
+          <n-input v-model:value="searchQuery" placeholder="Поиск по номеру заказа или клиенту" clearable
+            style="width: 300px">
+            <template #prefix>
+              <n-icon>
+                <SearchOutline />
+              </n-icon>
+            </template>
+          </n-input>
+          <n-select v-model:value="filters.status" placeholder="Статус" :options="[
+            { label: 'Новый', value: 'new' },
+            { label: 'В работе', value: 'in_progress' },
+            { label: 'Готов', value: 'ready' },
+            { label: 'Отгружен', value: 'shipped' }
+          ]" clearable style="width: 200px" />
+          <n-button @click="resetFilters">Сбросить</n-button>
+        </div>
+      </n-card>
 
       <n-card border-variant="dark">
         <n-data-table 
           :columns="columns" 
-          :data="ordersStore.orders" 
+          :data="filteredOrders" 
           :row-props="(row: Order) => ({
              style: 'cursor: pointer',
              onClick: () => handleRowClick(row)
@@ -113,19 +194,43 @@
 </template>
 
 <script setup lang="ts">
-import { ref, h, watch, computed } from 'vue'
+import { ref, h, watch, computed, reactive } from 'vue'
 import { useOrdersStore } from '@/stores/orders'
 import { useEmployeesStore } from '@/stores/employees'
 import { useQRCodesStore } from '@/stores/qrCodes'
 import type { Order } from '@/types'
-import { NButton, NIcon, NTag, NSpace, NModal, useMessage, useDialog, NH1, NText, NGrid, NGi, NCard, NStatistic, NDataTable, NProgress } from 'naive-ui'
+import { 
+  NButton, 
+  NIcon, 
+  NTag, 
+  NSpace, 
+  NModal, 
+  useMessage, 
+  useDialog, 
+  NH1, 
+  NText, 
+  NGrid, 
+  NGi, 
+  NCard, 
+  NDataTable, 
+  NProgress,
+  NH3,
+  NInput,
+  NSelect
+} from 'naive-ui'
 import {
   AddCircleOutline,
   QrCodeOutline,
   EyeOutline,
   CreateOutline,
   TrashOutline,
-  ArrowBackOutline
+  ArrowBackOutline,
+  SearchOutline,
+  CubeOutline,
+  TimeOutline,
+  CheckmarkDoneOutline,
+  CashOutline,
+  AppsOutline
 } from '@vicons/ionicons5'
 import QRGeneratorModal from '@/components/qr-generator/QRGeneratorModal.vue'
 import OrderForm from '@/components/orders/OrderForm.vue'
@@ -165,6 +270,54 @@ const selectedInvoiceDetail = ref<InvoiceRow | null>(null)
 
 // Навигация: 'list' (список заказов), 'invoices' (список накладных заказа), 'details' (просмотр накладной)
 const viewMode = ref<'list' | 'invoices' | 'details'>('list')
+
+// Фильтры
+const searchQuery = ref('')
+const filters = reactive({
+  status: null as string | null
+})
+
+const resetFilters = () => {
+  searchQuery.value = ''
+  filters.status = null
+}
+
+// Статистика
+const totalOrdersCount = computed(() => ordersStore.orders.length)
+const newOrdersCount = computed(() => ordersStore.orders.filter(o => o.status === 'new').length)
+const inProgressOrdersCount = computed(() => ordersStore.orders.filter(o => o.status === 'in_progress').length)
+const readyOrdersCount = computed(() => ordersStore.orders.filter(o => o.status === 'ready').length)
+const revenueInWork = computed(() => {
+  return ordersStore.orders
+    .filter(o => o.status !== 'shipped' && o.status !== 'completed')
+    .reduce((sum, o) => sum + (o.totalAmount || 0), 0)
+})
+
+const filteredOrders = computed(() => {
+  let result = [...ordersStore.orders]
+
+  if (filters.status) {
+    result = result.filter(o => o.status === filters.status)
+  }
+
+  if (searchQuery.value) {
+    const query = searchQuery.value.toLowerCase()
+    result = result.filter(o => 
+      o.orderNumber.toLowerCase().includes(query) ||
+      o.customerName.toLowerCase().includes(query)
+    )
+  }
+
+  return result
+})
+
+const formatCurrency = (amount: number) => {
+  return new Intl.NumberFormat('ru-RU', {
+    style: 'currency',
+    currency: 'RUB',
+    minimumFractionDigits: 0
+  }).format(amount)
+}
 
 const handleRowClick = (row: Order) => {
   handleViewInvoices(row)
@@ -375,3 +528,32 @@ const columns = [
   }
 ]
 </script>
+
+<style scoped>
+.orders-page {
+  max-width: 1600px;
+  margin: 0 auto;
+}
+
+.cursor-pointer {
+  cursor: pointer;
+}
+
+.revenue-card {
+  background: rgba(24, 160, 88, 0.1) !important;
+  border: 1px solid rgba(24, 160, 88, 0.3) !important;
+}
+
+.revenue-label {
+  color: #18a058 !important;
+  font-weight: bold;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 10px;
+}
+
+.revenue-value {
+  color: #18a058 !important;
+  font-weight: 900 !important;
+}
+</style>

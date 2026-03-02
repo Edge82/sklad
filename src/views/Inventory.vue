@@ -53,24 +53,24 @@
     <!-- Статистика -->
     <n-grid :cols="6" :x-gap="16" :y-gap="16" class="mb-6">
       <n-gi v-if="props.mode === 'product'">
-        <n-card>
+        <n-card class="cursor-pointer hover:border-blue-500 transition-colors" @click="resetFilters">
           <div class="flex justify-between items-center">
             <div>
-              <n-text depth="3">Всего заказов</n-text>
-              <n-h3 class="m-0">{{ ordersStore.totalOrders }}</n-h3>
+              <n-text depth="3">Готовность склада</n-text>
+              <n-h3 class="m-0">{{ averageReadiness }}%</n-h3>
             </div>
-            <n-icon size="32" color="#2080f0">
-              <CubeOutline />
+            <n-icon size="32" color="#626aef">
+              <AnalyticsOutline />
             </n-icon>
           </div>
         </n-card>
       </n-gi>
       <n-gi v-else>
-        <n-card>
+        <n-card class="cursor-pointer hover:border-blue-500 transition-colors" @click="resetFilters">
           <div class="flex justify-between items-center">
             <div>
               <n-text depth="3">Всего позиций</n-text>
-              <n-h3 class="m-0">{{ filteredItems.length }}</n-h3>
+              <n-h3 class="m-0">{{ baseItemsForStats.length }}</n-h3>
             </div>
             <n-icon size="32" color="#2080f0">
               <CubeOutline />
@@ -80,34 +80,7 @@
       </n-gi>
 
       <n-gi v-if="props.mode === 'product'">
-        <n-card>
-          <div class="flex justify-between items-center">
-            <div>
-              <n-text depth="3">Выполнены</n-text>
-              <n-h3 class="m-0">{{ ordersStore.readyOrders }}</n-h3>
-            </div>
-            <n-icon size="32" color="#18a058">
-              <CheckmarkDoneOutline />
-            </n-icon>
-          </div>
-        </n-card>
-      </n-gi>
-      <n-gi v-else>
-        <n-card>
-          <div class="flex justify-between items-center">
-            <div>
-              <n-text depth="3">Стоимость запасов</n-text>
-              <n-h3 class="m-0">{{ formatCurrency(filteredTotalValue) }}</n-h3>
-            </div>
-            <n-icon size="32" color="#18a058">
-              <CashOutline />
-            </n-icon>
-          </div>
-        </n-card>
-      </n-gi>
-
-      <n-gi v-if="props.mode === 'product'">
-        <n-card>
+        <n-card class="cursor-pointer hover:border-orange-500 transition-colors" @click="filters.status = 'in_work'">
           <div class="flex justify-between items-center">
             <div>
               <n-text depth="3">В работе</n-text>
@@ -120,7 +93,7 @@
         </n-card>
       </n-gi>
       <n-gi v-else>
-        <n-card>
+        <n-card class="cursor-pointer hover:border-orange-500 transition-colors" @click="filters.status = 'low_stock'">
           <div class="flex justify-between items-center">
             <div>
               <n-text depth="3">Мало осталось</n-text>
@@ -133,8 +106,21 @@
         </n-card>
       </n-gi>
 
+      <n-gi v-if="props.mode === 'product'">
+        <n-card class="cursor-pointer hover:border-green-500 transition-colors" @click="filters.status = 'ready_to_ship'">
+          <div class="flex justify-between items-center">
+            <div>
+              <n-text depth="3">Готовы к отгрузке</n-text>
+              <n-h3 class="m-0">{{ readyToShipToday }}</n-h3>
+            </div>
+            <n-icon size="32" color="#18a058">
+              <DownloadOutline />
+            </n-icon>
+          </div>
+        </n-card>
+      </n-gi>
       <n-gi v-if="props.mode !== 'product'">
-        <n-card>
+        <n-card class="cursor-pointer hover:border-red-500 transition-colors" @click="filters.status = 'out_of_stock'">
           <div class="flex justify-between items-center">
             <div>
               <n-text depth="3">Отсутствует</n-text>
@@ -146,28 +132,81 @@
           </div>
         </n-card>
       </n-gi>
-      <n-gi v-if="props.mode !== 'product'">
-        <n-card>
+
+      <n-gi v-if="props.mode === 'product'">
+        <n-card class="cursor-pointer hover:border-blue-500 transition-colors" @click="filters.status = 'awaiting_shipment'">
           <div class="flex justify-between items-center">
             <div>
-              <n-text depth="3">Категории</n-text>
-              <n-h3 class="m-0">{{ categoryOptions.length }}</n-h3>
+              <n-text depth="3">Ожидают выдачи</n-text>
+              <n-h3 class="m-0">{{ awaitingShipment }}</n-h3>
             </div>
-            <n-icon size="32" color="#626aef">
-              <AppsOutline />
+            <n-icon size="32" color="#2080f0" class="opacity-80">
+              <CubeOutline />
             </n-icon>
           </div>
         </n-card>
       </n-gi>
       <n-gi v-if="props.mode !== 'product'">
-        <n-card>
+        <n-card class="cursor-pointer hover:border-purple-500 transition-colors" @click="filters.status = 'reserved'">
           <div class="flex justify-between items-center">
             <div>
-              <n-text depth="3">Поставщики</n-text>
-              <n-h3 class="m-0">{{ inventoryStore.suppliers.length }}</n-h3>
+              <n-text depth="3">Зарезервировано</n-text>
+              <n-h3 class="m-0">{{ filteredReservedCount }}</n-h3>
             </div>
-            <n-icon size="32" color="#f0a020">
+            <n-icon size="32" color="#626aef" class="opacity-80">
+              <AppsOutline />
+            </n-icon>
+          </div>
+        </n-card>
+      </n-gi>
+      <n-gi v-if="props.mode === 'product'">
+        <n-card class="cursor-pointer hover:border-orange-500 transition-colors" @click="resetFilters">
+          <div class="flex justify-between items-center">
+            <div>
+              <n-text depth="3">Всего изделий</n-text>
+              <n-h3 class="m-0">{{ baseItemsForStats.length }}</n-h3>
+            </div>
+            <n-icon size="32" color="#f0a020" class="opacity-80">
               <BusinessOutline />
+            </n-icon>
+          </div>
+        </n-card>
+      </n-gi>
+      <n-gi v-if="props.mode === 'product'">
+        <n-card border-variant="dark" class="revenue-card">
+          <div class="flex justify-between items-center">
+            <div>
+              <n-text depth="3" class="revenue-label text-[10px]">Стоимость продукции</n-text>
+              <n-h3 class="m-0 revenue-value">{{ formatCurrency(filteredTotalValue) }}</n-h3>
+            </div>
+            <n-icon size="32" color="#18a058">
+              <CashOutline />
+            </n-icon>
+          </div>
+        </n-card>
+      </n-gi>
+      <n-gi v-if="props.mode !== 'product'">
+        <n-card class="cursor-pointer hover:border-green-500 transition-colors" @click="filters.status = 'on_order'">
+          <div class="flex justify-between items-center">
+            <div>
+              <n-text depth="3">В пути (SKU)</n-text>
+              <n-h3 class="m-0">{{ filteredOnOrderCount }}</n-h3>
+            </div>
+            <n-icon size="32" color="#18a058" class="opacity-80">
+              <SwapHorizontalOutline />
+            </n-icon>
+          </div>
+        </n-card>
+      </n-gi>
+      <n-gi v-if="props.mode !== 'product'">
+        <n-card border-variant="dark" class="revenue-card">
+          <div class="flex justify-between items-center">
+            <div>
+              <n-text depth="3" class="revenue-label text-[10px]">Стоимость запасов</n-text>
+              <n-h3 class="m-0 revenue-value">{{ formatCurrency(filteredTotalValue) }}</n-h3>
+            </div>
+            <n-icon size="32" color="#18a058">
+              <CashOutline />
             </n-icon>
           </div>
         </n-card>
@@ -181,8 +220,6 @@
           style="width: 200px" />
         <n-select v-if="props.mode !== 'product'" v-model:value="filters.status" placeholder="Статус" :options="statusOptions" clearable
           style="width: 200px" />
-        <n-select v-if="props.mode !== 'product'" v-model:value="filters.supplier" placeholder="Поставщик" :options="supplierOptions" clearable
-          style="width: 200px" />
         <n-input v-model:value="searchQuery" placeholder="Поиск по названию, артикулу или SKU" clearable
           style="width: 300px">
           <template #prefix>
@@ -195,13 +232,13 @@
         <n-button v-if="props.mode === 'product'" type="primary" secondary @click="isGrouped = !isGrouped">
           {{ isGrouped ? 'Разгруппировать' : 'Группировать по заказу' }}
         </n-button>
-        <n-button type="primary" @click="showAdvancedFilters = !showAdvancedFilters">
+        <n-button v-if="props.mode !== 'product'" type="primary" @click="showAdvancedFilters = !showAdvancedFilters">
           Расширенные фильтры
         </n-button>
       </div>
 
       <!-- Расширенные фильтры -->
-      <n-collapse-transition :show="showAdvancedFilters">
+      <n-collapse-transition v-if="props.mode !== 'product'" :show="showAdvancedFilters">
         <div class="mt-4 pt-4 border-t border-gray-800">
           <n-grid :cols="4" :x-gap="12">
             <n-gi>
@@ -522,23 +559,53 @@ const statusOptions: SelectOption[] = [
   { label: 'Заблокировано', value: 'blocked' }
 ]
 
-const supplierOptions = computed<SelectOption[]>(() => {
-  return inventoryStore.suppliers.map(sup => ({
-    label: sup.name,
-    value: sup.name
-  }))
+// Базовые элементы для расчета статистики (фильтруются только по модулю: Материалы или Продукция)
+const baseItemsForStats = computed(() => {
+  const result = inventoryStore.items
+  if (props.mode === 'product') {
+    return result.filter(item => item.type === 'product')
+  }
+  return result.filter(item => item.type !== 'product')
 })
 
-// Фильтрованные элементы
+// Фильтрованные элементы для таблицы
 const filteredItems = computed(() => {
-  let result = inventoryStore.items
+  let result = [...baseItemsForStats.value]
 
-  // Фильтр по типу (материал или готовая продукция)
-  if (props.mode === 'product') {
-    result = result.filter(item => item.type === 'product')
-  } else {
-    // По умолчанию или 'material'
-    result = result.filter(item => item.type !== 'product')
+  // Специфический фильтр для карточки "Готовы к отгрузке"
+  if (props.mode === 'product' && filters.status === 'ready_to_ship') {
+    const readyOrderNumbers = ordersStore.orders
+      .filter(o => o.status === 'ready')
+      .map(o => o.orderNumber)
+    
+    result = result.filter(item => 
+      item.orderNumber && 
+      readyOrderNumbers.includes(item.orderNumber) &&
+      item.currentStock > 0
+    )
+  }
+
+  // Специфический фильтр для карточки "Ожидают выдачи"
+  if (props.mode === 'product' && filters.status === 'awaiting_shipment') {
+    const readyOrderNumbers = ordersStore.orders
+      .filter(o => o.status === 'ready')
+      .map(o => o.orderNumber)
+    
+    result = result.filter(item => 
+      item.currentStock > 0 && 
+      (!item.orderNumber || !readyOrderNumbers.includes(item.orderNumber))
+    )
+  }
+
+  // Специфический фильтр для карточки "В работе"
+  if (props.mode === 'product' && filters.status === 'in_work') {
+    const pendingOrderNumbers = ordersStore.orders
+      .filter(o => o.status === 'new' || o.status === 'in_progress')
+      .map(o => o.orderNumber)
+    
+    result = result.filter(item => 
+      item.orderNumber && pendingOrderNumbers.includes(item.orderNumber)
+    )
   }
 
   // Поиск
@@ -557,14 +624,9 @@ const filteredItems = computed(() => {
     result = result.filter(item => item.category === filters.category)
   }
 
-  // Фильтр по статусу
-  if (filters.status) {
+  // Фильтр по статусу (если это не наш специальный статус)
+  if (filters.status && !['ready_to_ship', 'awaiting_shipment', 'in_work'].includes(filters.status)) {
     result = result.filter(item => item.status === filters.status)
-  }
-
-  // Фильтр по поставщику
-  if (filters.supplier) {
-    result = result.filter(item => item.mainSupplier === filters.supplier)
   }
 
   // Расширенные фильтры
@@ -588,15 +650,60 @@ const filteredItems = computed(() => {
 })
 
 const filteredTotalValue = computed(() => {
-  return filteredItems.value.reduce((sum, item) => sum + (item.currentStock * item.averagePrice), 0)
+  return baseItemsForStats.value.reduce((sum, item) => sum + (item.currentStock * item.averagePrice), 0)
 })
 
 const filteredLowStockCount = computed(() => {
-  return filteredItems.value.filter(item => item.status === 'low_stock').length
+  return baseItemsForStats.value.filter(item => item.status === 'low_stock').length
 })
 
 const filteredOutOfStockCount = computed(() => {
-  return filteredItems.value.filter(item => item.status === 'out_of_stock').length
+  return baseItemsForStats.value.filter(item => item.status === 'out_of_stock').length
+})
+
+const filteredReservedCount = computed(() => {
+  return baseItemsForStats.value.reduce((sum, item) => sum + (item.reserved || 0), 0)
+})
+
+const filteredOnOrderCount = computed(() => {
+  return baseItemsForStats.value.filter(item => item.status === 'on_order').length
+})
+
+const averageReadiness = computed(() => {
+  const items = baseItemsForStats.value.filter(item => item.type === 'product')
+  if (items.length === 0) return 0
+  const ready = items.filter(item => item.status === 'in_stock').length
+  return Math.round((ready / items.length) * 100)
+})
+
+const readyToShipToday = computed(() => {
+  // Находим все номера заказов со статусом "Готов"
+  const readyOrderNumbers = ordersStore.orders
+    .filter(o => o.status === 'ready')
+    .map(o => o.orderNumber)
+
+  // Считаем количество уникальных изделий на складе, которые относятся к этим заказам
+  return baseItemsForStats.value.filter(item => 
+    item.type === 'product' && 
+    item.orderNumber && 
+    readyOrderNumbers.includes(item.orderNumber) &&
+    item.currentStock > 0
+  ).length
+})
+
+const awaitingShipment = computed(() => {
+  // Номера готовых заказов
+  const readyOrderNumbers = ordersStore.orders
+    .filter(o => o.status === 'ready')
+    .map(o => o.orderNumber)
+
+  // Изделия, которые готовы (в наличии), но их заказ еще НЕ в статусе "Готов" 
+  // (то есть они ждут, пока остальные позиции заказа доделаются)
+  return baseItemsForStats.value.filter(item => 
+    item.type === 'product' && 
+    item.currentStock > 0 && 
+    (!item.orderNumber || !readyOrderNumbers.includes(item.orderNumber))
+  ).length
 })
 
 type InventoryTableRow = (InventoryItem & { isGroup?: boolean; available?: number; isLowStock?: boolean }) | {
@@ -991,6 +1098,27 @@ const rowProps = (row: InventoryTableRow) => {
 .inventory-page {
   max-width: 1600px;
   margin: 0 auto;
+}
+
+.cursor-pointer {
+  cursor: pointer;
+}
+
+.revenue-card {
+  background: rgba(24, 160, 88, 0.1) !important;
+  border: 1px solid rgba(24, 160, 88, 0.3) !important;
+}
+
+.revenue-label {
+  color: #18a058 !important;
+  font-weight: bold;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.revenue-value {
+  color: #18a058 !important;
+  font-weight: 900 !important;
 }
 
 :deep(.group-header-row) td {

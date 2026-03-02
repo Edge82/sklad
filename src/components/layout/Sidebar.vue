@@ -25,7 +25,6 @@ import {
   NMenu
 } from 'naive-ui'
 import {
-  HomeOutline,
   CubeOutline,
   PeopleOutline,
   AnalyticsOutline,
@@ -48,11 +47,6 @@ function renderIcon(icon: Component) {
 }
 
 const menuOptions: MenuOption[] = [
-  {
-    label: 'Дашборд',
-    key: '/dashboard',
-    icon: renderIcon(HomeOutline)
-  },
   {
     label: 'Склад',
     key: 'inventory-group',
