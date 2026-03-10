@@ -655,7 +655,7 @@ const filteredItems = computed(() => {
 })
 
 const filteredTotalValue = computed(() => {
-  return baseItemsForStats.value.reduce((sum, item) => sum + (item.currentStock * item.averagePrice), 0)
+  return filteredItems.value.reduce((sum, item) => sum + (Number(item.currentStock) * Number(item.averagePrice || 0)), 0)
 })
 
 const filteredLowStockCount = computed(() => {

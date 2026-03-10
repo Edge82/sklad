@@ -30,18 +30,21 @@ export const useEmployeesStore = defineStore('employees', () => {
           id: 'inv-101',
           date: new Date('2024-01-20'),
           orderNumber: 'ORD-2024-001',
+          destination: 'Производство',
+          totalAmount: 9000,
           items: [
-            { productName: 'МДФ Лист 16мм', quantity: 2, unit: 'шт.', article: 'MDF-16-WHT', scannedAt: new Date('2024-01-20T10:15:00') },
-            { productName: 'Кромка дуб 2мм', quantity: 15, unit: 'м.п.', article: 'EDG-OAK-02', scannedAt: new Date('2024-01-20T10:18:00') }
+            { productName: 'МДФ ламинированный 16мм', quantity: 2, unit: 'лист', article: 'MDF-LAM-16-001', price: 2800, scannedAt: new Date('2024-01-20T10:15:00') },
+            { productName: 'Дубовая доска 40мм', quantity: 1, unit: 'шт', article: 'WOOD-DUB-40-001', price: 2500, scannedAt: new Date('2024-01-20T10:18:00') }
           ]
         },
         {
           id: 'inv-102',
           date: new Date('2024-01-21'),
           orderNumber: 'ORD-2024-002',
+          destination: 'Производство',
+          totalAmount: 1200,
           items: [
-             { productName: 'Саморезы 3.5x16', quantity: 200, unit: 'шт.', article: 'SCR-3516', scannedAt: new Date('2024-01-21T14:30:00') },
-             { productName: 'Петля Blum 110', quantity: 8, unit: 'шт.', article: 'HNG-BLM-110', scannedAt: new Date('2024-01-21T14:35:00') }
+             { productName: 'Петли скрытые Blum', quantity: 8, unit: 'шт', article: 'HARD-BLM-001', price: 150, scannedAt: new Date('2024-01-21T14:30:00') }
           ]
         }
       ]
@@ -70,9 +73,11 @@ export const useEmployeesStore = defineStore('employees', () => {
           id: 'inv-201',
           date: new Date('2024-01-15'),
           orderNumber: 'ORD-2024-005',
+          destination: 'Клиент',
+          totalAmount: 12000,
           items: [
-            { productName: 'Петля Blum 110', quantity: 12, unit: 'шт.', article: 'HNG-BLM-110', scannedAt: new Date('2024-01-15T09:00:00') },
-            { productName: 'Ручка мебельная 128мм', quantity: 6, unit: 'шт.', article: 'HND-128-SLV', scannedAt: new Date('2024-01-15T09:05:00') }
+            { productName: 'Петли скрытые Blum', quantity: 12, unit: 'шт', article: 'HARD-BLM-001', price: 150, scannedAt: new Date('2024-01-15T09:00:00') },
+            { productName: 'МДФ ламинированный 16мм', quantity: 4, unit: 'лист', article: 'MDF-LAM-16-001', price: 2800, scannedAt: new Date('2024-01-15T09:05:00') }
           ]
         }
       ]
@@ -101,9 +106,10 @@ export const useEmployeesStore = defineStore('employees', () => {
           id: 'inv-301',
           date: new Date('2024-01-18'),
           orderNumber: 'ORD-2024-010',
+          destination: 'Производство',
+          totalAmount: 2800,
           items: [
-            { productName: 'Клей столярный Titebond', quantity: 1, unit: 'л.', article: 'GLU-TTB-01', scannedAt: new Date('2024-01-18T11:20:00') },
-            { productName: 'Шкант 8x30', quantity: 1000, unit: 'шт.', article: 'DWL-830', scannedAt: new Date('2024-01-18T11:25:00') }
+            { productName: 'Лак акриловый матовый', quantity: 1, unit: 'банка', article: 'FIN-ACR-001', price: 2800, scannedAt: new Date('2024-01-18T11:20:00') }
           ]
         }
       ]
@@ -352,6 +358,20 @@ export const useEmployeesStore = defineStore('employees', () => {
     return colorMap[status] || 'default'
   }
 
+  const addMaterialHistory = (employeeId: string, historyItem: any) => {
+    const employee = employees.value.find(emp => emp.id === employeeId || emp.userId === employeeId)
+    if (employee) {
+      if (!employee.materialHistory) {
+        employee.materialHistory = []
+      }
+      employee.materialHistory.unshift({
+        id: Math.random().toString(36).substr(2, 9),
+        date: new Date(),
+        ...historyItem
+      })
+    }
+  }
+
   return {
     employees,
     departments,
@@ -366,6 +386,7 @@ export const useEmployeesStore = defineStore('employees', () => {
     deleteEmployee,
     getRoleLabel,
     getStatusLabel,
-    getStatusColor
+    getStatusColor,
+    addMaterialHistory
   }
 })

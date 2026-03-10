@@ -187,7 +187,29 @@ watch(() => props.show, (newShow) => {
     if (props.toolId) {
       const tool = toolsStore.getToolById(props.toolId)
       if (tool) {
-        Object.assign(formData, { ...tool })
+        // Очищаем форму от старых данных перед заполнением
+        Object.keys(formData).forEach(key => {
+          (formData as any)[key] = undefined
+        })
+        
+        // Устанавливаем значения по умолчанию
+        const defaults = {
+          inventoryNumber: '',
+          serialNumber: '',
+          type: 'hand_tool',
+          model: '',
+          manufacturer: '',
+          status: 'in_stock',
+          location: '',
+          price: undefined,
+          qrCode: '',
+          issuedTo: undefined,
+          issuedToName: undefined,
+          issuedAt: undefined
+        }
+        
+        // Сначала применяем значения из инструмента, перекрывая ими дефолты
+        Object.assign(formData, defaults, tool)
       }
     } else {
       Object.assign(formData, {

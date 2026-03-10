@@ -216,7 +216,7 @@ const formatCurrency = (amount: number) => {
 }
 
 const totalToolsCost = computed(() => {
-  return toolsStore.tools.reduce((sum, tool) => sum + (tool.price || 0), 0)
+  return filteredTools.value.reduce((sum, tool) => sum + (Number(tool.price) || 0), 0)
 })
 
 const showModal = ref(false)
@@ -316,23 +316,23 @@ const columns: DataTableColumns<Tool> = [
     key: 'actions',
     width: 150,
     render(row) {
-      return h(NSpace, null, {
+      return h(NSpace, { wrap: false }, {
         default: () => [
           h(NButton, {
             size: 'small',
             quaternary: true,
-            onClick: () => handlePrintQR(row)
+            onClick: (e) => { e.stopPropagation(); handlePrintQR(row) }
           }, { icon: () => h(NIcon, null, { default: () => h(QrCodeOutline) }) }),
           h(NButton, {
             size: 'small',
             quaternary: true,
-            onClick: () => handleEditTool(row.id)
+            onClick: (e) => { e.stopPropagation(); handleEditTool(row.id) }
           }, { icon: () => h(NIcon, null, { default: () => h(PencilOutline) }) }),
           h(NButton, {
             size: 'small',
             quaternary: true,
             type: 'error',
-            onClick: () => handleDeleteTool(row.id)
+            onClick: (e) => { e.stopPropagation(); handleDeleteTool(row.id) }
           }, { icon: () => h(NIcon, null, { default: () => h(TrashOutline) }) })
         ]
       })

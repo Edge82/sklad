@@ -85,9 +85,9 @@ const menuOptions: MenuOption[] = [
     icon: renderIcon(PeopleOutline)
   },
   {
-    label: 'Отгрузка',
+    label: 'Движение материалов',
     key: '/shipment',
-    icon: renderIcon(CarOutline)
+    icon: renderIcon(SyncOutline)
   },
   {
     label: 'Интеграция 1С',

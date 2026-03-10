@@ -310,8 +310,16 @@ const criticalDetailedColumns = [
 
 const toolsDetailedColumns = [
   { title: 'Инструмент', key: 'name' },
-  { title: 'Сотрудник', key: 'currentUser' },
-  { title: 'Срок (дней)', key: 'days', render: () => Math.floor(Math.random() * 5 + 1) }
+  { title: 'Сотрудник', key: 'issuedToName' },
+  { 
+    title: 'Срок (дней)', 
+    key: 'issuedAt', 
+    render: (row: any) => {
+      if (!row.issuedAt) return '-'
+      const diff = Date.now() - new Date(row.issuedAt).getTime()
+      return Math.floor(diff / (1000 * 60 * 60 * 24))
+    }
+  }
 ]
 
 const turnoverDetailedColumns = [

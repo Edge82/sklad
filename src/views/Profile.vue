@@ -56,6 +56,36 @@
             </n-gi>
           </n-grid>
         </n-card>
+
+        <!-- История накладных -->
+        <n-card title="Мои последние накладные" class="mt-4">
+          <n-empty v-if="myInvoices.length === 0" description="Вы еще не создавали накладных" />
+          <n-collapse v-else>
+            <n-collapse-item 
+              v-for="invoice in myInvoices" 
+              :key="invoice.id" 
+              :title="`Накладная от ${new Date(invoice.date).toLocaleDateString()} — Заказ: ${invoice.orderNumber}`"
+              :name="invoice.id"
+            >
+              <n-table size="small" :single-line="false">
+                <thead>
+                  <tr>
+                    <th>Наименование</th>
+                    <th>Артикул</th>
+                    <th>Кол-во</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="(item, idx) in invoice.items" :key="idx">
+                    <td>{{ item.productName }}</td>
+                    <td><n-text depth="3">{{ item.article }}</n-text></td>
+                    <td>{{ item.quantity }} {{ item.unit }}</td>
+                  </tr>
+                </tbody>
+              </n-table>
+            </n-collapse-item>
+          </n-collapse>
+        </n-card>
       </n-gi>
 
       <!-- Боковая панель -->
@@ -154,8 +184,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, computed } from 'vue'
 import { useUserStore } from '@/stores/user'
+import { useEmployeesStore } from '@/stores/employees'
 import type { User } from '@/types'
 import {
   NGrid,
@@ -176,6 +207,10 @@ import {
   NText,
   NStatistic,
   NSpace,
+  NEmpty,
+  NCollapse,
+  NCollapseItem,
+  NTable,
   useMessage
 } from 'naive-ui'
 import type { FormInst, FormRules } from 'naive-ui'
@@ -191,8 +226,15 @@ import {
 } from '@vicons/ionicons5'
 
 const userStore = useUserStore()
+const employeesStore = useEmployeesStore()
 const formRef = ref<FormInst | null>(null)
 const message = useMessage()
+
+// Получаем историю накладных текущего пользователя
+const myInvoices = computed(() => {
+  const employee = employeesStore.employees.find(e => e.userId === userStore.user?.id)
+  return employee?.materialHistory || []
+})
 
 // Тип для формы (без служебных полей)
 type UserForm = Omit<User, 'id' | 'lastLogin' | 'createdAt' | 'avatar'>

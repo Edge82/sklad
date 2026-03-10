@@ -285,9 +285,9 @@ const newOrdersCount = computed(() => ordersStore.orders.filter(o => o.status ==
 const inProgressOrdersCount = computed(() => ordersStore.orders.filter(o => o.status === 'in_progress').length)
 const readyOrdersCount = computed(() => ordersStore.orders.filter(o => o.status === 'ready').length)
 const revenueInWork = computed(() => {
-  return ordersStore.orders
+  return filteredOrders.value
     .filter(o => o.status !== 'shipped' && o.status !== 'completed')
-    .reduce((sum, o) => sum + (o.totalAmount || 0), 0)
+    .reduce((sum, o) => sum + (Number(o.totalAmount) || 0), 0)
 })
 
 const filteredOrders = computed(() => {

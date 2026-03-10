@@ -232,6 +232,8 @@ export interface MaterialInvoice {
   id: string;
   date: Date;
   orderNumber: string;
+  destination?: string;
+  totalAmount?: number;
   items: MaterialInvoiceItem[];
 }
 
@@ -240,6 +242,7 @@ export interface MaterialInvoiceItem {
   quantity: number;
   unit: string;
   article?: string;
+  price?: number;
   scannedAt?: Date;
 }
 

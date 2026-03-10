@@ -136,7 +136,7 @@
             <n-icon size="24" color="#18a058" :component="CashOutline" />
             <div>
               <n-text depth="3" class="revenue-label block mb-1">ФОТ в месяц</n-text>
-              <n-h2 class="m-0 line-height-1 revenue-value" style="font-size: 22px;">{{ formatCurrency(employeesStore.totalSalary) }}</n-h2>
+              <n-h2 class="m-0 line-height-1 revenue-value" style="font-size: 22px;">{{ formatCurrency(filteredTotalSalary) }}</n-h2>
             </div>
           </div>
         </n-card>
@@ -467,6 +467,11 @@ const filteredEmployees = computed(() => {
   }
 
   return result
+})
+
+// Новое вычисляемое свойство для ФОТ отфильтрованных сотрудников
+const filteredTotalSalary = computed(() => {
+  return filteredEmployees.value.reduce((sum, emp) => sum + (Number(emp.salary) || 0), 0)
 })
 
 const paginatedEmployees = computed(() => {
