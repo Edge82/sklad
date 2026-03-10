@@ -12,8 +12,8 @@ export const useQRCodesStore = defineStore('qrCodes', () => {
       productId: 'p1',
       productName: 'Шкаф купе "Люкс"',
       label: {
-        line1: 'Заказ: ORD-2024-001',
-        line2: 'Деталь: Боковая панель',
+        order: 'Заказ: ORD-2024-001',
+        info: 'Деталь: Боковая панель',
       },
       status: 'generated' as QRCodeStatus,
       isActive: true,
@@ -29,8 +29,8 @@ export const useQRCodesStore = defineStore('qrCodes', () => {
       productId: 'p1',
       productName: 'Шкаф купе "Люкс"',
       label: {
-        line1: 'Заказ: ORD-2024-001',
-        line2: 'Деталь: Полка внутренняя',
+        order: 'Заказ: ORD-2024-001',
+        info: 'Деталь: Полка внутренняя',
       },
       status: 'generated' as QRCodeStatus,
       isActive: true,
@@ -46,8 +46,8 @@ export const useQRCodesStore = defineStore('qrCodes', () => {
       productId: 'p1',
       productName: 'Шкаф купе "Люкс"',
       label: {
-        line1: 'Заказ: ORD-2024-001',
-        line2: `Деталь: Комплект №${i + 3}`,
+        order: 'Заказ: ORD-2024-001',
+        info: `Деталь: Комплект №${i + 3}`,
       },
       status: 'generated' as QRCodeStatus,
       isActive: true,
@@ -76,8 +76,8 @@ export const useQRCodesStore = defineStore('qrCodes', () => {
         productId: params.productId,
         productName: params.productName,
         label: {
-          line1: `Заказ: ${params.orderNumber}`,
-          line2: `Деталь: ${params.productName}`,
+          order: `Заказ: ${params.orderNumber}`,
+          info: `Деталь: ${params.productName}`,
         },
         status: 'generated',
         isActive: true,

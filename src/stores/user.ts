@@ -35,13 +35,36 @@ export const useUserStore = defineStore('user', () => {
   const isManager = computed(() => user.value?.role === 'manager')
   const isStorekeeper = computed(() => user.value?.role === 'storekeeper')
   const isWorker = computed(() => user.value?.role === 'worker')
+  const isAdminOrManager = computed(() => ['director', 'manager'].includes(user.value?.role || ''))
+  const isWarehouseStaff = computed(() => ['director', 'manager', 'storekeeper'].includes(user.value?.role || ''))
 
-  const setUser = (userData: User) => {
-    user.value = userData
+  const login = async (email: string, role: User['role']) => {
+    // В будущем тут будет API запрос
+    user.value = {
+      id: role === 'worker' ? 'user-3' : Math.random().toString(36).substring(2, 9),
+      email,
+      name: email.split('@')[0] || 'Пользователь',
+      role,
+      department: 'Производство',
+      isActive: true,
+      permissions: role === 'director' ? ['all'] : [],
+      phone: '+7 (900) 000-00-00',
+      avatar: '',
+      createdAt: new Date()
+    }
+    localStorage.setItem('user', JSON.stringify(user.value))
   }
 
   const logout = () => {
     user.value = null
+    localStorage.removeItem('user')
+  }
+
+  const checkAuth = () => {
+    const savedUser = localStorage.getItem('user')
+    if (savedUser) {
+      user.value = JSON.parse(savedUser)
+    }
   }
 
   const initDemoUser = () => {
@@ -59,6 +82,10 @@ export const useUserStore = defineStore('user', () => {
     }
   }
 
+  const setUser = (userData: User) => {
+    user.value = userData
+  }
+
   const updateProfile = (updates: Partial<User>) => {
     if (user.value) {
       user.value = { ...user.value, ...updates }
@@ -73,9 +100,13 @@ export const useUserStore = defineStore('user', () => {
     isManager,
     isStorekeeper,
     isWorker,
+    isAdminOrManager,
+    isWarehouseStaff,
     setUser,
     logout,
     initDemoUser,
-    updateProfile
+    updateProfile,
+    login,
+    checkAuth
   }
 })

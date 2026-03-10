@@ -1,8 +1,10 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { Order, OrderStatus, OrderShipment, QRCode } from '@/types'
+import { useUserStore } from '@/stores/user'
 
 export const useOrdersStore = defineStore('orders', () => {
+  const userStore = useUserStore()
   const orders = ref<Order[]>([
     {
       id: '1',

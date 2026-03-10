@@ -127,6 +127,7 @@
       v-if="selectedItem"
       v-model:show="showManageModal"
       :order-id="order.id"
+      :order-number="order.orderNumber"
       :product-id="selectedItem.productId"
       :item-name="selectedItem.productName || selectedItem.itemName || ''"
     />

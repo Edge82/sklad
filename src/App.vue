@@ -23,8 +23,8 @@ const theme = darkTheme
 
 import '@/assets/main.css'
 
-// Инициализация демо-пользователя
-userStore.initDemoUser()
+// Проверка сохраненной сессии
+userStore.checkAuth()
 </script>
 
 <style>

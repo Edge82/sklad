@@ -2,7 +2,7 @@ export interface User {
   id: string;
   email: string;
   name: string;
-  role: 'director' | 'manager' | 'storekeeper' | 'worker' | 'accountant';
+  role: 'director' | 'manager' | 'storekeeper' | 'worker';
   department?: string;
   isActive: boolean;
   lastLogin?: Date;
@@ -91,8 +91,8 @@ export interface QRCode {
   
   // Надписи для печати
   label: {
-    line1: string;                // "Заказ: ORD-001"
-    line2: string;                // "Деталь: ..."
+    order: string;                // "Заказ: ORD-001"
+    info: string;                 // "Деталь: ..."
     line3?: string;               // Доп. информация
   };
   

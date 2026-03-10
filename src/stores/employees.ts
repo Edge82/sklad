@@ -1,8 +1,10 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { Employee, Department } from '@/types'
+import { useUserStore } from '@/stores/user'
 
 export const useEmployeesStore = defineStore('employees', () => {
+  const userStore = useUserStore()
   const employees = ref<Employee[]>([
     {
       id: '1',
@@ -233,20 +235,36 @@ export const useEmployeesStore = defineStore('employees', () => {
   ])
 
   // Computed
-  const totalEmployees = computed(() => employees.value.length)
-  const activeEmployees = computed(() => employees.value.filter(e => e.status === 'active').length)
-  const totalSalary = computed(() => employees.value.reduce((sum, emp) => sum + emp.salary, 0))
+  const allEmployees = computed(() => {
+    // Внутренняя переменная для отслеживания изменений в employees.value
+    console.log('Recalculating allEmployees, current employees count:', employees.value.length)
+    if (userStore.isWorker) {
+      return employees.value.filter(emp => emp.userId === userStore.user?.id)
+    }
+    return employees.value
+  })
+
+  // Вынесенная логика поиска "себя" для более надежной работы
+  const currentEmployee = computed(() => {
+    const userId = userStore.user?.id
+    if (!userId) return null
+    return employees.value.find(emp => emp.userId === userId)
+  })
+
+  const totalEmployees = computed(() => allEmployees.value.length)
+  const activeEmployees = computed(() => allEmployees.value.filter(e => e.status === 'active').length)
+  const totalSalary = computed(() => allEmployees.value.reduce((sum, emp) => sum + (emp.salary || 0), 0))
 
   const departmentStats = computed(() => {
     const stats: Record<string, { count: number, totalSalary: number }> = {}
 
-    employees.value.forEach(emp => {
+    allEmployees.value.forEach(emp => {
       if (!stats[emp.department]) {
         stats[emp.department] = { count: 0, totalSalary: 0 }
       }
       const deptStat = stats[emp.department]!
       deptStat.count++
-      deptStat.totalSalary += emp.salary
+      deptStat.totalSalary += (emp.salary || 0)
     })
 
     return stats
@@ -358,17 +376,21 @@ export const useEmployeesStore = defineStore('employees', () => {
     return colorMap[status] || 'default'
   }
 
-  const addMaterialHistory = (employeeId: string, historyItem: any) => {
-    const employee = employees.value.find(emp => emp.id === employeeId || emp.userId === employeeId)
+  const addMaterialHistory = (userId: string, historyItem: any) => {
+    const employee = employees.value.find(emp => emp.userId === userId || emp.id === userId)
     if (employee) {
       if (!employee.materialHistory) {
         employee.materialHistory = []
       }
       employee.materialHistory.unshift({
-        id: Math.random().toString(36).substr(2, 9),
+        id: Math.random().toString(36).substring(2, 9),
         date: new Date(),
         ...historyItem
       })
+      // Принудительно обновляем массив для реактивности
+      employees.value = [...employees.value]
+    } else {
+      console.warn('Employee not found for history update:', userId)
     }
   }
 

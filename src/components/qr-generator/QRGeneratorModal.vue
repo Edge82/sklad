@@ -9,8 +9,8 @@
       </n-form-item>
       <n-divider>Предпросмотр надписи</n-divider>
       <div class="qr-preview-box">
-        <div class="preview-line">{{ form.labelLine1 || 'Заказ: ' + orderNumber }}</div>
-        <div class="preview-line">{{ form.labelLine2 || 'Деталь: ' + (selectedProductName || '...') }}</div>
+        <div class="preview-line">{{ form.labelOrder || 'Заказ: ' + orderNumber }}</div>
+        <div class="preview-line">{{ form.labelInfo || 'Деталь: ' + (selectedProductName || '...') }}</div>
       </div>
     </n-form>
     <template #footer>
@@ -42,8 +42,8 @@ const userStore = useUserStore()
 const form = ref({
   productId: null,
   count: 1,
-  labelLine1: '',
-  labelLine2: ''
+  labelOrder: '',
+  labelInfo: ''
 })
 
 const productOptions = computed(() => 

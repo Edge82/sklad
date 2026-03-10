@@ -25,12 +25,12 @@
               </n-gi>
               <n-gi>
                 <n-form-item label="Отдел" path="department">
-                  <n-input v-model:value="userForm.department" placeholder="Отдел" />
+                  <n-input v-model:value="userForm.department" placeholder="Отдел" :disabled="userStore.isWorker" />
                 </n-form-item>
               </n-gi>
-              <n-gi>
+            <n-gi>
                 <n-form-item label="Должность" path="role">
-                  <n-select v-model:value="userForm.role" :options="roleOptions" placeholder="Выберите должность" />
+                  <n-select v-model:value="userForm.role" :options="roleOptions" placeholder="Выберите должность" disabled />
                 </n-form-item>
               </n-gi>
             </n-grid>
@@ -168,7 +168,7 @@
               </template>
               Просмотр заказов
             </n-button>
-            <n-button block @click="$router.push('/reports')">
+            <n-button v-if="userStore.isAdminOrManager" block @click="$router.push('/reports')">
               <template #icon>
                 <n-icon>
                   <AnalyticsOutline />
@@ -233,6 +233,9 @@ const message = useMessage()
 // Получаем историю накладных текущего пользователя
 const myInvoices = computed(() => {
   const employee = employeesStore.employees.find(e => e.userId === userStore.user?.id)
+  console.log('Current User ID:', userStore.user?.id)
+  console.log('Found Employee:', employee?.name)
+  console.log('History length:', employee?.materialHistory?.length)
   return employee?.materialHistory || []
 })
 
@@ -249,16 +252,24 @@ const userForm = reactive<UserForm>({
   permissions: []
 })
 
-const stats = reactive({
-  todayActions: 15,
-  weekActions: 89,
-  totalActions: 1247
+const stats = computed(() => {
+  const history = myInvoices.value
+  const now = new Date()
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+  const weekAgo = todayStart - 7 * 24 * 60 * 60 * 1000
+
+  return {
+    todayActions: history.filter(h => new Date(h.date).getTime() >= todayStart).length,
+    weekActions: history.filter(h => new Date(h.date).getTime() >= weekAgo).length,
+    totalActions: history.length
+  }
 })
 
 const roleOptions = [
-  { label: 'Администратор', value: 'admin' },
+  { label: 'Директор', value: 'director' },
   { label: 'Менеджер', value: 'manager' },
-  { label: 'Сотрудник', value: 'worker' }
+  { label: 'Кладовщик', value: 'storekeeper' },
+  { label: 'Рабочий', value: 'worker' }
 ]
 
 const rules: FormRules = {
@@ -277,25 +288,29 @@ const rules: FormRules = {
 
 const getRoleTagType = (role?: string) => {
   switch (role) {
-    case 'admin': return 'error'
+    case 'director': return 'error'
     case 'manager': return 'warning'
-    case 'worker': return 'info'
+    case 'storekeeper': return 'info'
+    case 'worker': return 'success'
     default: return 'default'
   }
 }
 
 const getRoleLabel = (role?: string) => {
   switch (role) {
-    case 'admin': return 'Администратор'
+    case 'director': return 'Директор'
     case 'manager': return 'Менеджер'
-    case 'worker': return 'Сотрудник'
+    case 'storekeeper': return 'Кладовщик'
+    case 'worker': return 'Рабочий'
     default: return 'Пользователь'
   }
 }
 
-const formatDate = (date?: Date) => {
+const formatDate = (date?: Date | string) => {
   if (!date) return ''
-  return new Intl.DateTimeFormat('ru-RU').format(date)
+  const d = typeof date === 'string' ? new Date(date) : date
+  if (isNaN(d.getTime())) return ''
+  return new Intl.DateTimeFormat('ru-RU').format(d)
 }
 
 const handleSave = () => {

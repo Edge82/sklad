@@ -6,14 +6,23 @@
         <n-text depth="3" class="text-center block">Склад мебельного производства</n-text>
       </template>
 
-      <n-form>
-        <n-form-item label="Email">
-          <n-input placeholder="Введите ваш email" />
+      <n-form :model="formModel">
+        <n-form-item label="Email" path="email">
+          <n-input v-model:value="formModel.email" placeholder="Введите ваш email" />
         </n-form-item>
-        <n-form-item label="Пароль">
-          <n-input type="password" placeholder="Введите пароль" />
+        <n-form-item label="Роль (для демо)" path="role">
+          <n-select 
+            v-model:value="formModel.role" 
+            :options="roleOptions" 
+            placeholder="Выберите роль для теста" 
+          />
         </n-form-item>
-        <n-button type="primary" block @click="handleLogin">
+        <n-button 
+          type="primary" 
+          block 
+          :loading="loading"
+          @click="handleLogin"
+        >
           Войти
         </n-button>
       </n-form>
@@ -22,19 +31,40 @@
 </template>
 
 <script setup lang="ts">
+import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
-import { NH2, NText, NCard, NForm, NFormItem, NInput, NButton } from 'naive-ui'
+import { NH2, NText, NCard, NForm, NFormItem, NInput, NButton, NSelect } from 'naive-ui'
 
 const router = useRouter()
 const userStore = useUserStore()
+const loading = ref(false)
 
-const handleLogin = () => {
-  // Для демо просто создаем пользователя
-  userStore.initDemoUser()
+const formModel = ref({
+  email: 'admin@warehouse.com',
+  role: 'director' as 'director' | 'manager' | 'storekeeper' | 'worker'
+})
 
-  // Переход на страницу заказов
-  router.push('/orders')
+const roleOptions = [
+  { label: 'Директор', value: 'director' },
+  { label: 'Менеджер', value: 'manager' },
+  { label: 'Кладовщик', value: 'storekeeper' },
+  { label: 'Рабочий', value: 'worker' }
+]
+
+const handleLogin = async () => {
+  loading.value = true
+  try {
+    // Имитируем задержку сети
+    await new Promise(resolve => setTimeout(resolve, 800))
+    
+    await userStore.login(formModel.value.email, formModel.value.role)
+    
+    // Переход на главную
+    router.push('/')
+  } finally {
+    loading.value = false
+  }
 }
 </script>
 

@@ -1,8 +1,10 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { OrderShipment } from '@/types'
+import { useUserStore } from '@/stores/user'
 
 export const useShipmentsStore = defineStore('shipments', () => {
+  const userStore = useUserStore()
   const shipments = ref<OrderShipment[]>([
     {
       id: '1',
@@ -20,7 +22,13 @@ export const useShipmentsStore = defineStore('shipments', () => {
     }
   ])
 
-  const getAllShipments = computed(() => shipments.value)
+  const getAllShipments = computed(() => {
+    if (userStore.isWorker) {
+      // Для рабочего фильтруем по ID пользователя или имени (в демо-данных используется имя)
+      return shipments.value.filter(s => s.createdBy === userStore.user?.name || s.createdBy === userStore.user?.id)
+    }
+    return shipments.value
+  })
 
   function addShipment(shipment: Omit<OrderShipment, 'id' | 'createdAt' | 'shipmentNumber'>) {
     const id = Math.random().toString(36).substring(2, 9)

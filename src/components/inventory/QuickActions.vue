@@ -31,7 +31,7 @@
           Печать этикеток
         </n-button>
       </n-gi>
-      <n-gi>
+      <n-gi v-if="!userStore.isWorker">
         <n-button block @click="emit('report')" type="success">
           <template #icon>
             <n-icon>
@@ -88,6 +88,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useInventoryStore } from '@/stores/inventory'
+import { useUserStore } from '@/stores/user'
 import {
   NCard,
   NGrid,
@@ -107,6 +108,7 @@ import {
 } from '@vicons/ionicons5'
 
 const inventoryStore = useInventoryStore()
+const userStore = useUserStore()
 
 defineProps<{
   showLowStock?: boolean

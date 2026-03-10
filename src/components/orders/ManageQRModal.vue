@@ -23,24 +23,25 @@
         <thead>
           <tr>
             <th>Код</th>
+            <th>Заказ</th>
+            <th>Информация</th>
             <th>Статус</th>
-            <th>Дата генерации</th>
-            <th>Кем создан</th>
-            <th class="text-right">Действия</th>
+            <th>Дата</th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="code in codes" :key="code.id">
             <td>
-              <n-text code>{{ code.code }}</n-text>
+              <n-text code>{{ code.code.substring(0, 8) }}...</n-text>
             </td>
+            <td>{{ code.label.order }}</td>
+            <td>{{ code.label.info }}</td>
             <td>
               <n-tag :type="getStatusType(code.status)" size="small">
                 {{ getStatusLabel(code.status) }}
               </n-tag>
             </td>
             <td>{{ formatDate(code.generatedAt) }}</td>
-            <td>{{ code.generatedBy }}</td>
             <td class="text-right">
               <n-space justify="end">
                 <n-button quaternary size="tiny" type="primary" @click="handlePrint(code)">
@@ -68,7 +69,7 @@
             </td>
           </tr>
           <tr v-if="codes.length === 0">
-            <td colspan="5" class="text-center py-4">
+            <td colspan="6" class="text-center py-4">
               <n-text depth="3">Коды еще не сгенерированы</n-text>
             </td>
           </tr>
@@ -86,11 +87,11 @@
       @positiveClick="saveEdit"
     >
       <n-form :model="editForm">
-        <n-form-item label="Строка 1 (Обычно информация о заказе)">
-          <n-input v-model:value="editForm.line1" placeholder="Введите текст" />
+        <n-form-item label="Заказ">
+          <n-input v-model:value="editForm.order" placeholder="Введите информацию о заказе" />
         </n-form-item>
-        <n-form-item label="Строка 2 (Обычно название детали)">
-          <n-input v-model:value="editForm.line2" placeholder="Введите текст" />
+        <n-form-item label="Информация">
+          <n-input v-model:value="editForm.info" placeholder="Введите информацию о детали" />
         </n-form-item>
       </n-form>
     </n-modal>
@@ -128,6 +129,7 @@ const props = defineProps<{
   orderId: string
   productId: string
   itemName: string
+  orderNumber?: string
 }>()
 
 defineEmits(['update:show'])
@@ -143,8 +145,8 @@ const codes = computed(() => {
 const showEditModal = ref(false)
 const editingCode = ref<QRCode | null>(null)
 const editForm = reactive({
-  line1: '',
-  line2: ''
+  order: '',
+  info: ''
 })
 
 const getStatusType = (status: string) => {
@@ -178,14 +180,6 @@ const formatDate = (date: string | Date | number | undefined) => {
   }).format(new Date(date))
 }
 
-const handlePrint = (code: QRCode) => {
-  message.info(`Печать кода: ${code.code}`)
-}
-
-const handlePrintAll = () => {
-  message.info(`Отправлено на печать: ${codes.value.length} шт.`)
-}
-
 const handleRemove = (code: QRCode) => {
   dialog.warning({
     title: 'Удаление кода',
@@ -199,18 +193,26 @@ const handleRemove = (code: QRCode) => {
   })
 }
 
+const handlePrint = (code: QRCode) => {
+  message.info(`Печать кода: ${code.code}`)
+}
+
+const handlePrintAll = () => {
+  message.info(`Отправлено на печать: ${codes.value.length} шт.`)
+}
+
 const handleEdit = (code: QRCode) => {
   editingCode.value = code
-  editForm.line1 = code.label?.line1 || ''
-  editForm.line2 = code.label?.line2 || ''
+  editForm.order = code.label?.order || ''
+  editForm.info = code.label?.info || ''
   showEditModal.value = true
 }
 
 const saveEdit = () => {
   if (editingCode.value) {
     editingCode.value.label = {
-      line1: editForm.line1,
-      line2: editForm.line2
+      order: editForm.order,
+      info: editForm.info
     }
     showEditModal.value = false
     message.success('Данные обновлены')

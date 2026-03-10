@@ -305,7 +305,7 @@ async function processShipment() {
   if (scannedItems.value.length === 0) return
 
   const workerName = userStore.user?.name || 'Кладовщик'
-  const employeeId = userStore.user?.id || '1'
+  const userId = userStore.user?.id || '1'
   const currentMode = scanMode.value === 'ship' ? 'outgoing' : 'incoming'
   const orderLabel = selectedOrderNumber.value || 'Без привязки'
   const destination = scanMode.value === 'ship' 
@@ -323,23 +323,21 @@ async function processShipment() {
       })
     }
 
-    // 2. Логируем в историю (если это выдача)
-    if (currentMode === 'outgoing') {
-      const historyItem = {
-        orderNumber: orderLabel,
-        destination: destination,
-        totalAmount: scannedItems.value.reduce((sum, i) => sum + (i.price * i.quantity), 0),
-        items: scannedItems.value.map(i => ({
-          productName: i.name,
-          quantity: i.quantity,
-          unit: i.unit,
-          article: i.sku,
-          price: i.price,
-          scannedAt: new Date()
-        }))
-      }
-      employeesStore.addMaterialHistory(employeeId, historyItem)
+    // 2. Логируем в историю (если это выдача или приход)
+    const historyItem = {
+      orderNumber: orderLabel,
+      destination: destination,
+      totalAmount: scannedItems.value.reduce((sum, i) => sum + (i.price * i.quantity), 0),
+      items: scannedItems.value.map(i => ({
+        productName: i.name,
+        quantity: i.quantity,
+        unit: i.unit,
+        article: i.sku,
+        price: i.price,
+        scannedAt: new Date()
+      }))
     }
+    employeesStore.addMaterialHistory(userId, historyItem)
 
     message.success(currentMode === 'outgoing' ? (destinationType.value === 'production' ? 'Выдача оформлена' : 'Отгрузка оформлена') : 'Приход оформлен')
     clearSession()
