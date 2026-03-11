@@ -33,14 +33,6 @@
         <n-text depth="3">Управление персоналом предприятия</n-text>
       </div>
       <div class="flex gap-3">
-        <n-button @click="exportData">
-          <template #icon>
-            <n-icon>
-              <DownloadOutline />
-            </n-icon>
-          </template>
-          Экспорт
-        </n-button>
         <n-button type="primary" @click="showCreateModal = true">
           <template #icon>
             <n-icon>
@@ -358,7 +350,6 @@ import {
   CheckmarkCircleOutline,
   CashOutline,
   PersonAddOutline,
-  DownloadOutline,
   SearchOutline,
   EyeOutline,
   PencilOutline,
@@ -672,10 +663,6 @@ const deleteEmployee = (id: string) => {
       message.success('Сотрудник удален')
     }
   })
-}
-
-const exportData = () => {
-  message.success('Данные экспортированы')
 }
 
 const handleEmployeeSubmit = (employeeData: Partial<Employee>) => {

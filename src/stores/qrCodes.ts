@@ -12,8 +12,8 @@ export const useQRCodesStore = defineStore('qrCodes', () => {
       productId: 'p1',
       productName: 'Шкаф купе "Люкс"',
       label: {
-        order: 'Заказ: ORD-2024-001',
-        info: 'Деталь: Боковая панель',
+        order: 'ORD-2024-001',
+        info: 'Боковая панель',
       },
       status: 'generated' as QRCodeStatus,
       isActive: true,
@@ -29,8 +29,8 @@ export const useQRCodesStore = defineStore('qrCodes', () => {
       productId: 'p1',
       productName: 'Шкаф купе "Люкс"',
       label: {
-        order: 'Заказ: ORD-2024-001',
-        info: 'Деталь: Полка внутренняя',
+        order: 'ORD-2024-001',
+        info: 'Полка внутренняя',
       },
       status: 'generated' as QRCodeStatus,
       isActive: true,
@@ -46,8 +46,8 @@ export const useQRCodesStore = defineStore('qrCodes', () => {
       productId: 'p1',
       productName: 'Шкаф купе "Люкс"',
       label: {
-        order: 'Заказ: ORD-2024-001',
-        info: `Деталь: Комплект №${i + 3}`,
+        order: 'ORD-2024-001',
+        info: `Комплект №${i + 3}`,
       },
       status: 'generated' as QRCodeStatus,
       isActive: true,
@@ -76,8 +76,8 @@ export const useQRCodesStore = defineStore('qrCodes', () => {
         productId: params.productId,
         productName: params.productName,
         label: {
-          order: `Заказ: ${params.orderNumber}`,
-          info: `Деталь: ${params.productName}`,
+          order: `${params.orderNumber}`,
+          info: `${params.productName}`,
         },
         status: 'generated',
         isActive: true,

@@ -97,7 +97,7 @@ router.beforeEach((to, from, next) => {
   }
 
   // Проверка ролей
-  if (to.meta.roles && !to.meta.roles.includes(userStore.user?.role)) {
+  if (to.meta.roles && Array.isArray(to.meta.roles) && !to.meta.roles.includes(userStore.user?.role)) {
     // Если рабочий пытается зайти в сотрудников, редиректим в его профиль
     if (userStore.isWorker && to.path === '/employees') {
       next('/profile')

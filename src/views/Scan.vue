@@ -3,23 +3,23 @@
     <div class="flex justify-between items-center mb-6">
       <n-h1 class="m-0">Сканирование и Накладные</n-h1>
       <n-space>
-        <n-button v-if="scannedItems.length > 0" type="error" ghost @click="clearSession">
+        <n-button v-if="scannedItems.length > 0" type="error" ghost @click="() => clearSession()">
           Очистить сессию
         </n-button>
         <n-button 
           v-if="scannedItems.length > 0" 
-          type="primary" 
+          :type="submitButtonType" 
           size="large" 
           @click="showConfirmModal = true"
         >
-          Оформить {{ scanMode === 'ship' ? 'выдачу' : 'приход' }} ({{ scannedItems.length }})
+          {{ submitButtonText }} ({{ scannedItems.length }})
         </n-button>
       </n-space>
     </div>
     
     <n-card class="mb-6">
       <n-grid :cols="24" :x-gap="16">
-        <n-gi :span="8">
+        <n-gi :span="6">
           <n-form-item label="Сканирование" :show-feedback="false">
              <n-input
                 v-model:value="lastScannedCode"
@@ -27,19 +27,27 @@
                 size="large"
                 @keyup.enter="handleScan"
                 ref="scanInputRef"
-                autofocus
-              >
-                <template #prefix>
-                  <n-icon><QrCodeOutline /></n-icon>
-                </template>
-              </n-input>
+              />
           </n-form-item>
         </n-gi>
-        <n-gi :span="8">
-          <n-form-item label="Привязать к заказу (необязательно)" :show-feedback="false">
+        <n-gi :span="6">
+          <n-form-item label="Поиск и добавление вручную" :show-feedback="false">
+            <n-select
+              v-model:value="manualItemToAdd"
+              placeholder="Введите название или артикул..."
+              :options="allInventoryOptions"
+              filterable
+              clearable
+              size="large"
+              @update:value="handleManualAdd"
+            />
+          </n-form-item>
+        </n-gi>
+        <n-gi :span="4">
+          <n-form-item label="Заказ (необязательно)" :show-feedback="false">
             <n-select
               v-model:value="selectedOrderNumber"
-              placeholder="Выберите заказ"
+              placeholder="№ заказа"
               :options="orderOptions"
               filterable
               clearable
@@ -52,6 +60,7 @@
             <n-tabs type="segment" v-model:value="scanMode" size="large">
               <n-tab-pane name="ship" tab="Выдача / Отгрузка" />
               <n-tab-pane name="receive" tab="Приёмка / Приход" />
+              <n-tab-pane name="defect" tab="Брак / Списание" />
             </n-tabs>
           </n-form-item>
         </n-gi>
@@ -67,7 +76,25 @@
           </n-form-item>
         </n-gi>
       </n-grid>
+
+      <n-grid v-if="scanMode === 'receive'" :cols="24" :x-gap="16" class="mt-4">
+        <n-gi :span="12">
+          <n-alert type="info">В режиме <b>Приёмка</b> товары будут добавлены на основной склад. Проверьте цены закупки в таблице ниже.</n-alert>
+        </n-gi>
+      </n-grid>
+
+      <n-grid v-if="scanMode === 'defect'" :cols="24" :x-gap="16" class="mt-4">
+        <n-gi :span="12">
+          <n-form-item label="Причина списания" :show-feedback="false">
+            <n-input v-model:value="defectReason" placeholder="Укажите причину (например: скол, ошибка раскроя...)" size="large" />
+          </n-form-item>
+        </n-gi>
+      </n-grid>
     </n-card>
+
+    <n-alert v-if="scanMode === 'defect'" type="warning" class="mb-6" title="Режим фиксации брака">
+      Все отсканированные товары будут списаны со склада с пометкой о дефекте.
+    </n-alert>
 
     <n-card title="Список товаров в текущей накладной" class="mb-6">
       <template #header-extra>
@@ -81,12 +108,12 @@
       />
 
       <div v-if="scannedItems.length === 0" class="py-12 text-center text-gray-400">
-        <n-empty description="Отсканируйте товары, чтобы они появились здесь" />
+        <n-empty description="Отсканируйте товары или выберите их вручную из поиска" />
       </div>
     </n-card>
 
     <n-collapse default-expanded-names="history">
-      <n-collapse-item title="История последних сканирований" name="history">
+      <n-collapse-item title="История действий" name="history">
         <n-card size="small">
           <n-list>
             <n-list-item v-for="(scan, index) in scanHistory" :key="index">
@@ -104,12 +131,13 @@
     </n-collapse>
 
     <!-- Модалка подтверждения -->
-    <n-modal v-model:show="showConfirmModal" preset="dialog" type="info"
-      title="Подтверждение выдачи"
-      content="Вы уверены, что хотите оформить накладную? Это спишет указанные товары со склада."
-      positive-text="Подтвердить и списать"
+    <n-modal v-model:show="showConfirmModal" preset="dialog" 
+      :type="scanMode === 'defect' ? 'warning' : 'info'"
+      :title="confirmModalTitle"
+      :content="confirmModalContent"
+      positive-text="Подтвердить"
       negative-text="Отмена"
-      @positive-click="processShipment"
+      @positive-click="processAction"
     />
   </div>
 </template>
@@ -118,255 +146,302 @@
 import { ref, computed, h, onMounted, nextTick } from 'vue'
 import { 
   QrCodeOutline, 
-  TrashOutline 
+  TrashOutline,
+  SearchOutline
 } from '@vicons/ionicons5'
 import { 
   NInput, NButton, NIcon, NCard, NTabs, NTabPane, NAlert, 
   NDataTable, NInputNumber, NSpace, NTag, NEmpty, NList, NListItem, 
   NText, NH1, NSelect, NFormItem, NGrid, NGi, NModal, NCollapse, NCollapseItem,
   NRadioGroup, NRadioButton,
-  useMessage, useDialog 
+  useMessage
 } from 'naive-ui'
-import { useQRCodesStore } from '@/stores/qrCodes'
 import { useUserStore } from '@/stores/user'
 import { useInventoryStore } from '@/stores/inventory'
 import { useOrdersStore } from '@/stores/orders'
 import { useEmployeesStore } from '@/stores/employees'
-import type { InventoryItem } from '@/types'
+import type { InventoryItem, MaterialInvoice, MaterialInvoiceItem } from '@/types'
 
-const scanMode = ref('ship') // По умолчанию выдача (списание)
+const scanMode = ref<'ship' | 'receive' | 'defect'>('ship')
 const destinationType = ref<'production' | 'client'>('production')
+const defectReason = ref('')
 const lastScannedCode = ref('')
-const scanResult = ref<{ title: string, message: string, type: 'success' | 'error' | 'warning' } | null>(null)
-const scanInputRef = ref<any>(null)
+const scanInputRef = ref<HTMLInputElement | null>(null)
 const selectedOrderNumber = ref<string | null>(null)
+const manualItemToAdd = ref<string | null>(null)
 const showConfirmModal = ref(false)
+
+const message = useMessage()
+const inventoryStore = useInventoryStore()
+const ordersStore = useOrdersStore()
+const employeesStore = useEmployeesStore()
+const userStore = useUserStore()
 
 interface ScannedItem {
   id: string
   sku: string
   name: string
   quantity: number
-  unit: string
-  stock: number
   price: number
-  isProduct: boolean
+  unit: string
+  originalItem?: InventoryItem
 }
 
 const scannedItems = ref<ScannedItem[]>([])
+const scanHistory = ref<{ time: Date, code: string, resultMessage: string, resultType: 'success' | 'error' | 'warning' }[]>([])
 
-interface ScanLog {
-  id: number
-  code: string
-  time: Date
-  resultType: 'success' | 'error' | 'warning' | 'info' | 'primary' | 'default'
-  resultMessage: string
-}
-const scanHistory = ref<ScanLog[]>([])
+const orderOptions = computed(() => ordersStore.orders.map(o => ({
+  label: `Заказ ${o.orderNumber}`,
+  value: o.orderNumber
+})))
 
-const qrStore = useQRCodesStore()
-const userStore = useUserStore()
-const inventoryStore = useInventoryStore()
-const ordersStore = useOrdersStore()
-const employeesStore = useEmployeesStore()
-const message = useMessage()
-const dialog = useDialog()
+// Список всех товаров для ручного поиска
+const allInventoryOptions = computed(() => inventoryStore.items.map(item => ({
+  label: `${item.name} (${item.sku})`,
+  value: item.id
+})))
 
-const orderOptions = computed(() => {
-  return ordersStore.orders.map(o => ({
-    label: `${o.orderNumber} (${o.customerName})`,
-    value: o.orderNumber
-  }))
+const submitButtonText = computed(() => {
+  if (scanMode.value === 'receive') return 'Оформить приход'
+  if (scanMode.value === 'defect') return 'Списать брак'
+  return 'Оформить выдачу'
 })
 
-// Колонки таблицы
-const columns = [
-  {
-    title: 'Наименование',
-    key: 'name',
-    render: (row: ScannedItem) => h('div', [
-      h('div', { class: 'font-bold' }, row.name),
-      h('div', { class: 'text-xs text-gray-500' }, row.sku)
-    ])
-  },
-  {
-    title: 'Кол-во',
-    key: 'quantity',
-    width: 120,
-    render: (row: ScannedItem) => h(NInputNumber, {
-      value: row.quantity,
-      min: 1,
-      max: row.stock,
-      size: 'small',
-      'onUpdate:value': (v) => { if (v) row.quantity = v }
-    })
-  },
-  {
-    title: 'Ост.',
-    key: 'stock',
-    width: 70,
-    render: (row: ScannedItem) => h(NText, { depth: 3 }, { default: () => `${row.stock}` })
-  },
-  {
-    title: '',
-    key: 'actions',
-    width: 60,
-    render: (row: ScannedItem) => h(NButton, {
-      size: 'small',
-      quaternary: true,
-      circle: true,
-      type: 'error',
-      onClick: () => {
-        scannedItems.value = scannedItems.value.filter(i => i.id !== row.id)
-      }
-    }, { icon: () => h(NIcon, null, { default: () => h(TrashOutline) }) })
-  }
-]
+const submitButtonType = computed(() => {
+  if (scanMode.value === 'receive') return 'primary'
+  if (scanMode.value === 'defect') return 'warning'
+  return 'primary'
+})
 
-function handleScan() {
+const confirmModalTitle = computed(() => {
+  if (scanMode.value === 'receive') return 'Подтверждение приемки'
+  if (scanMode.value === 'defect') return 'Списание бракованного товара'
+  return 'Подтверждение выдачи'
+})
+
+const confirmModalContent = computed(() => {
+  if (scanMode.value === 'receive') return 'Добавить указанные товары на склад?'
+  if (scanMode.value === 'defect') return 'Вы уверены, что хотите списать эти товары как брак? Это действие уменьшит остатки безвозвратно.'
+  return 'Вы уверены, что хотите оформить накладную? Это спишет указанные товары со склада.'
+})
+
+const addItemToScanned = (foundItem: InventoryItem, method: 'scan' | 'manual') => {
+  const existing = scannedItems.value.find(si => si.id === foundItem.id)
+  if (existing) {
+    existing.quantity++
+  } else {
+    scannedItems.value.push({
+      id: foundItem.id,
+      sku: foundItem.sku,
+      name: foundItem.name,
+      quantity: 1,
+      price: (foundItem as any).purchasePrice || (foundItem as any).price || 0,
+      unit: foundItem.unit,
+      originalItem: foundItem
+    })
+  }
+  
+  scanHistory.value.unshift({
+    time: new Date(),
+    code: foundItem.sku,
+    resultMessage: `${method === 'manual' ? 'Добавлено вручную:' : 'Отсканировано:'} ${foundItem.name}`,
+    resultType: 'success'
+  })
+  message.success(`Добавлено: ${foundItem.name}`)
+}
+
+const handleScan = () => {
   const code = lastScannedCode.value.trim()
   if (!code) return
 
-  // Сброс фокуса перед повторным фокусом (решает проблему блокировки автофокуса)
-  scanInputRef.value?.blur()
-
-  // 1. Пытаемся найти как QR-код изделия (Готовая продукция)
-  const qr = qrStore.getQRCodeByCode(code)
-  if (qr) {
-    if (scannedItems.value.length > 0 && !scannedItems.value[0].isProduct) {
-      message.error('Нельзя смешивать товары основного склада и готовую продукцию в одной накладной')
-      return
-    }
-    destinationType.value = 'client'
-    handleQRScan(qr)
+  const foundItem = inventoryStore.items.find(item => item.sku === code || item.id === code)
+  
+  if (foundItem) {
+    addItemToScanned(foundItem, 'scan')
   } else {
-    // 2. Пытаемся найти как обычный товар по SKU или штрихкоду (Материалы/Склад)
-    const item = inventoryStore.items.find(i => i.sku === code || i.barcode === code)
-    if (item) {
-      if (scannedItems.value.length > 0 && scannedItems.value[0].isProduct) {
-        message.error('Нельзя смешивать готовую продукцию и товары основного склада в одной накладной')
-        return
-      }
-      destinationType.value = 'production'
-      handleItemScan(item)
-    } else {
-      setResult('Ошибка', 'Код не принадлежит нашим складам!', 'error')
-      addToHistory(code, 'Неизвестный код', 'error')
-      message.error('Критическая ошибка: Код не принадлежит нашим складам!')
-    }
+    scanHistory.value.unshift({
+      time: new Date(),
+      code: code,
+      resultMessage: 'Товар не найден',
+      resultType: 'error'
+    })
+    message.error('Товар не найден в базе данных')
   }
 
   lastScannedCode.value = ''
   nextTick(() => scanInputRef.value?.focus())
 }
 
-function handleQRScan(qr: any) {
-  // Находим соответствующий товар в инвентаре
-  const item = inventoryStore.items.find(i => i.sku === qr.productId || i.id === qr.productId)
-  if (!item) {
-    setResult('Ошибка', 'Изделие из QR-кода не найдено в базе товаров', 'error')
-    return
+const handleManualAdd = (itemId: string | null) => {
+  if (!itemId) return
+  const foundItem = inventoryStore.items.find(item => item.id === itemId)
+  if (foundItem) {
+    addItemToScanned(foundItem, 'manual')
+    manualItemToAdd.value = null // Сброс селекта
   }
-
-  addOrUpdateScannedItem(item, true)
-  setResult('Добавлено', `Изделие "${qr.productName}" добавлено в список`, 'success')
-  addToHistory(qr.code, 'Изделие добавлено', 'success')
 }
 
-function handleItemScan(item: InventoryItem) {
-  addOrUpdateScannedItem(item, item.categoryId === '99')
-  setResult('Добавлено', `Товар "${item.name}" добавлен в список`, 'success')
-  addToHistory(item.sku, 'Товар добавлен', 'success')
+const removeItem = (id: string) => {
+  scannedItems.value = scannedItems.value.filter(item => item.id !== id)
 }
 
-function addOrUpdateScannedItem(item: InventoryItem, isProduct: boolean) {
-  const existing = scannedItems.value.find(i => i.id === item.id)
-  if (existing) {
-    if (existing.quantity < item.currentStock) {
-      existing.quantity++
-    } else {
-      message.warning('Превышен доступный остаток на складе')
+const clearSession = (isSuccess = false) => {
+  scannedItems.value = []
+  // Не очищаем историю сканирований сразу после успеха, чтобы пользователь видел результат
+  if (!isSuccess) {
+    scanHistory.value = []
+  }
+  selectedOrderNumber.value = null
+  defectReason.value = ''
+  manualItemToAdd.value = null
+}
+
+const processAction = () => {
+  if (scanMode.value === 'receive') {
+    scannedItems.value.forEach(item => {
+      inventoryStore.updateStock(item.id, item.quantity, 'incoming', {
+        unitPrice: item.price,
+        createdAt: new Date()
+      } as any)
+    })
+
+    const historyItem: Omit<MaterialInvoice, 'id'> = {
+      date: new Date(),
+      orderNumber: 'ПРИХОД',
+      destination: 'Склад',
+      totalAmount: scannedItems.value.reduce((total, item) => total + (item.quantity * item.price), 0),
+      items: scannedItems.value.map(item => ({
+        productName: item.name,
+        quantity: item.quantity,
+        unit: item.unit,
+        article: item.sku,
+        price: item.price,
+        scannedAt: new Date()
+      })) as MaterialInvoiceItem[]
     }
+
+    if (userStore.user?.id) {
+      employeesStore.addMaterialHistory(userStore.user.id, historyItem as MaterialInvoice)
+    } else {
+      const admin = employeesStore.employees.find(e => e.role === 'admin')
+      if (admin) {
+        employeesStore.addMaterialHistory(admin.userId, historyItem as MaterialInvoice)
+      }
+    }
+
+    message.success('Приход успешно оформлен')
   } else {
-    scannedItems.value.push({
-      id: item.id,
-      sku: item.sku,
-      name: item.name,
-      quantity: 1,
-      unit: item.unit,
-      stock: item.currentStock,
-      price: item.purchasePrice || 0,
-      isProduct
+    const isDefect = scanMode.value === 'defect'
+    
+    scannedItems.value.forEach(item => {
+      inventoryStore.updateStock(item.id, item.quantity, isDefect ? 'write_off' : 'outgoing', {
+        createdAt: new Date()
+      } as any)
+    })
+    
+    if (selectedOrderNumber.value || isDefect) {
+      const historyItem: Omit<MaterialInvoice, 'id'> = {
+        date: new Date(),
+        orderNumber: selectedOrderNumber.value || (isDefect ? 'БРАК' : 'БЕЗ НОМЕРА'),
+        destination: isDefect ? 'Брак' : (destinationType.value === 'production' ? 'Производство' : 'Клиент'),
+        totalAmount: scannedItems.value.reduce((total, item) => total + (item.quantity * ((item.originalItem as any)?.purchasePrice || (item.originalItem as any)?.price || 0)), 0),
+        items: scannedItems.value.map(item => ({
+          productName: item.name,
+          quantity: item.quantity,
+          unit: item.unit,
+          article: item.sku,
+          price: (item.originalItem as any)?.purchasePrice || (item.originalItem as any)?.price || 0,
+          scannedAt: new Date()
+        })) as MaterialInvoiceItem[]
+      }
+
+      if (userStore.user?.id) {
+        employeesStore.addMaterialHistory(userStore.user.id, historyItem as MaterialInvoice)
+      } else {
+        const admin = employeesStore.employees.find(e => e.role === 'admin')
+        if (admin) {
+          employeesStore.addMaterialHistory(admin.userId, historyItem as MaterialInvoice)
+        }
+      }
+    }
+
+    if (isDefect) {
+      message.warning(`Списано ${scannedItems.value.length} позиций брака.`)
+    } else {
+      message.success('Выдача успешно оформлена')
+    }
+  }
+  
+  clearSession(true)
+  showConfirmModal.value = false
+}
+
+const columns = computed(() => {
+  const baseColumns: any[] = [
+    { title: 'Артикул', key: 'sku', width: 120, fixed: 'left' },
+    { title: 'Наименование', key: 'name', minWidth: 200 },
+    { 
+      title: 'Кол-во', 
+      key: 'quantity', 
+      width: 130,
+      render(row: ScannedItem) {
+        return h(NInputNumber, {
+          value: row.quantity,
+          min: 1,
+          size: 'small',
+          'onUpdate:value': (v: number | null) => {
+            if (v !== null) row.quantity = v
+          }
+        })
+      }
+    }
+  ]
+
+  // Добавляем колонку цены только для режима прихода
+  if (scanMode.value === 'receive') {
+    baseColumns.push({
+      title: 'Цена закупки (₽)',
+      key: 'price',
+      width: 150,
+      render(row: ScannedItem) {
+        return h(NInputNumber, {
+          value: row.price,
+          min: 0,
+          size: 'small',
+          precision: 2,
+          'onUpdate:value': (v: number | null) => {
+            if (v !== null) row.price = v
+          }
+        })
+      }
     })
   }
-}
 
-async function processShipment() {
-  if (scannedItems.value.length === 0) return
-
-  const workerName = userStore.user?.name || 'Кладовщик'
-  const userId = userStore.user?.id || '1'
-  const currentMode = scanMode.value === 'ship' ? 'outgoing' : 'incoming'
-  const orderLabel = selectedOrderNumber.value || 'Без привязки'
-  const destination = scanMode.value === 'ship' 
-    ? (destinationType.value === 'production' ? 'Производство' : 'Клиент')
-    : 'Основной склад'
-
-  try {
-    // 1. Обновляем остатки
-    for (const item of scannedItems.value) {
-      inventoryStore.updateStock(item.id, item.quantity, currentMode, {
-        documentNumber: `Накладная-${Date.now().toString().slice(-6)}`,
-        reason: `${currentMode === 'outgoing' ? (destinationType.value === 'production' ? 'Выдача в пр-во' : 'Отгрузка') : 'Приход'} (${orderLabel})`,
-        createdBy: workerName,
-        destinationLocation: destination
-      })
+  baseColumns.push(
+    { 
+      title: 'Ед.', 
+      key: 'unit', 
+      width: 60,
+      render: (row: ScannedItem) => row.unit
+    },
+    {
+      title: 'Действие',
+      key: 'actions',
+      width: 60,
+      render(row: ScannedItem) {
+        return h(NButton, {
+          quaternary: true,
+          circle: true,
+          size: 'small',
+          type: 'error',
+          onClick: () => removeItem(row.id)
+        }, { icon: () => h(NIcon, null, { default: () => h(TrashOutline) }) })
+      }
     }
+  )
 
-    // 2. Логируем в историю (если это выдача или приход)
-    const historyItem = {
-      orderNumber: orderLabel,
-      destination: destination,
-      totalAmount: scannedItems.value.reduce((sum, i) => sum + (i.price * i.quantity), 0),
-      items: scannedItems.value.map(i => ({
-        productName: i.name,
-        quantity: i.quantity,
-        unit: i.unit,
-        article: i.sku,
-        price: i.price,
-        scannedAt: new Date()
-      }))
-    }
-    employeesStore.addMaterialHistory(userId, historyItem)
-
-    message.success(currentMode === 'outgoing' ? (destinationType.value === 'production' ? 'Выдача оформлена' : 'Отгрузка оформлена') : 'Приход оформлен')
-    clearSession()
-  } catch (e) {
-    message.error('Ошибка при проведении операции')
-    console.error(e)
-  }
-}
-
-function clearSession() {
-  scannedItems.value = []
-  selectedOrderNumber.value = null
-  scanResult.value = null
-}
-
-function setResult(title: string, message: string, type: 'success' | 'error' | 'warning') {
-  scanResult.value = { title, message, type }
-}
-
-function addToHistory(code: string, message: string, type: 'success' | 'error' | 'warning') {
-  console.log('Adding to history:', code, message, type)
-  scanHistory.value.unshift({
-    id: Date.now(),
-    time: new Date(),
-    code,
-    resultMessage: message,
-    resultType: type
-  })
-}
+  return baseColumns
+})
 
 onMounted(() => {
   nextTick(() => scanInputRef.value?.focus())
@@ -374,7 +449,5 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.scan-page {
-  width: 100%;
-}
+.scan-page { padding: 0; }
 </style>

@@ -186,13 +186,12 @@
 import { ref, computed, h } from 'vue'
 import { 
   NText, NCard, NDataTable, NButton, NIcon, NSpace, NInput, NInputGroup,
-  NStatistic, NDescriptions, NDescriptionsItem, NTag,
+  NDescriptions, NDescriptionsItem, NTag,
   NTable, NH3, NSelect, NGrid, NGi, NH1, NInputGroupLabel
 } from 'naive-ui'
 import { 
   SearchOutline, 
   DocumentTextOutline, 
-  CubeOutline,
   ArrowBackOutline,
   CarOutline,
   BusinessOutline,
@@ -204,15 +203,6 @@ const employeesStore = useEmployeesStore()
 const searchQuery = ref('')
 const filterDestination = ref('all')
 const selectedInvoice = ref<any>(null)
-
-// Обработка клика по фильтру в карточке
-const handleFilterClick = (type: string) => {
-  if (filterDestination.value === type) {
-    filterDestination.value = 'all' // Сброс, если нажали повторно
-  } else {
-    filterDestination.value = type
-  }
-}
 
 // Обработка клика по строке
 const rowProps = (row: any) => {

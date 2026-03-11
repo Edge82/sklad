@@ -7,22 +7,6 @@
         <n-text depth="3">Управление материалами и запасами склада</n-text>
       </div>
       <div class="flex gap-3">
-        <n-button @click="exportData">
-          <template #icon>
-            <n-icon>
-              <DownloadOutline />
-            </n-icon>
-          </template>
-          Экспорт
-        </n-button>
-        <n-button v-if="mode !== 'product'" @click="showReportModal = true" type="info">
-          <template #icon>
-            <n-icon>
-              <AnalyticsOutline />
-            </n-icon>
-          </template>
-          Отчеты
-        </n-button>
         <n-button v-if="mode !== 'product'" @click="showReceiptModal = true" type="warning">
           <template #icon>
             <n-icon>
@@ -274,44 +258,6 @@
       </n-collapse-transition>
     </n-card>
 
-    <!-- Быстрые действия (только для материалов) -->
-    <n-card v-if="props.mode !== 'product'" title="Быстрые действия" class="mb-6">
-      <n-space>
-        <n-button @click="viewLowStock" type="warning">
-          <template #icon>
-            <n-icon>
-              <WarningOutline />
-            </n-icon>
-          </template>
-          Показать мало остатков ({{ inventoryStore.lowStockItems }})
-        </n-button>
-        <n-button @click="viewOutOfStock" type="error">
-          <template #icon>
-            <n-icon>
-              <CloseCircleOutline />
-            </n-icon>
-          </template>
-          Показать отсутствующие ({{ inventoryStore.outOfStockItems }})
-        </n-button>
-        <n-button @click="scanBarcode" type="primary">
-          <template #icon>
-            <n-icon>
-              <BarcodeOutline />
-            </n-icon>
-          </template>
-          Сканировать штрих-код
-        </n-button>
-        <n-button @click="startInventory" type="info">
-          <template #icon>
-            <n-icon>
-              <CheckmarkDoneOutline />
-            </n-icon>
-          </template>
-          Начать инвентаризацию
-        </n-button>
-      </n-space>
-    </n-card>
-
     <!-- Таблица -->
     <n-card>
       <div class="flex justify-between items-center mb-4">
@@ -435,7 +381,6 @@ import {
   NThing,
   NTag,
   NAvatar,
-  NSpace,
   NH3,
   NCollapseTransition
 } from 'naive-ui'
@@ -453,8 +398,6 @@ import {
   AppsOutline,
   BusinessOutline,
   SearchOutline,
-  BarcodeOutline,
-  CheckmarkDoneOutline,
   ArrowDownOutline,
   ArrowUpOutline,
   SwapHorizontalOutline,
@@ -468,6 +411,8 @@ import InventoryTransactionModal from '@/components/inventory/InventoryTransacti
 import InventoryItemDetails from '@/components/inventory/InventoryItemDetails.vue'
 import QRPrintModal from '@/components/common/QRPrintModal.vue'
 import { useDialog, useMessage } from 'naive-ui'
+import { useUserStore } from '@/stores/user'
+import { useEmployeesStore } from '@/stores/employees'
 
 const props = defineProps<{
   mode?: 'material' | 'product'
@@ -475,6 +420,8 @@ const props = defineProps<{
 
 const inventoryStore = useInventoryStore()
 const ordersStore = useOrdersStore()
+const userStore = useUserStore()
+const employeesStore = useEmployeesStore()
 const dialog = useDialog()
 const message = useMessage()
 
@@ -1002,28 +949,6 @@ const resetFilters = () => {
   advancedFilters.maxPrice = null
 }
 
-const viewLowStock = () => {
-  filters.status = 'low_stock'
-  message.info(`Показано ${inventoryStore.lowStockItems} позиций с малым остатком`)
-}
-
-const viewOutOfStock = () => {
-  filters.status = 'out_of_stock'
-  message.info(`Показано ${inventoryStore.outOfStockItems} отсутствующих позиций`)
-}
-
-const scanBarcode = () => {
-  message.info('Сканирование штрих-кода (в разработке)')
-}
-
-const startInventory = () => {
-  message.info('Начало инвентаризации (в разработке)')
-}
-
-const exportData = () => {
-  message.success('Данные экспортированы в Excel')
-}
-
 const handlePrintQR = (item: InventoryItem) => {
   if (item && (item.barcode || item.sku)) {
     printData.title = item.name
@@ -1062,10 +987,68 @@ const deleteItem = (id: string) => {
 
 const handleItemSubmit = (itemData: Partial<InventoryItem>) => {
   if (selectedItemId.value) {
+    const oldItem = inventoryStore.items.find(i => i.id === selectedItemId.value)
     inventoryStore.updateItem(selectedItemId.value, itemData)
+    
+    // Если изменилась цена закупки, создаем запись о корректировке в истории
+    if (oldItem && itemData.purchasePrice !== undefined && oldItem.purchasePrice !== itemData.purchasePrice) {
+      const historyItem = {
+        date: new Date(),
+        orderNumber: 'ИЗМЕНЕНИЕ ЦЕНЫ',
+        destination: 'Корректировка ТМЦ',
+        totalAmount: (oldItem.currentStock || 0) * (itemData.purchasePrice || 0),
+        items: [{
+          productName: oldItem.name,
+          quantity: oldItem.currentStock || 0,
+          unit: oldItem.unit,
+          article: oldItem.sku,
+          price: itemData.purchasePrice || 0,
+          scannedAt: new Date()
+        }],
+        remarks: `Цена изменена с ${oldItem.purchasePrice} на ${itemData.purchasePrice} ₽`
+      }
+
+      if (userStore.user?.id) {
+        employeesStore.addMaterialHistory(userStore.user.id, historyItem)
+      } else {
+        const admin = employeesStore.employees.find(e => e.role === 'admin')
+        if (admin) {
+          employeesStore.addMaterialHistory(admin.userId, historyItem)
+        }
+      }
+    }
+    
     message.success(`${props.mode === 'product' ? 'Изделие' : 'Материал'} успешно обновлено`)
   } else {
-    inventoryStore.addItem(itemData as Parameters<typeof inventoryStore.addItem>[0])
+    const newItem = inventoryStore.addItem(itemData as Parameters<typeof inventoryStore.addItem>[0])
+    
+    // Добавляем запись в "Движение материалов" о создании новой карточки
+    if (newItem) {
+      const historyItem = {
+        date: new Date(),
+        orderNumber: 'НОВАЯ КАРТОЧКА',
+        destination: 'Регистрация ТМЦ',
+        totalAmount: (newItem.currentStock || 0) * (newItem.purchasePrice || 0),
+        items: [{
+          productName: newItem.name,
+          quantity: newItem.currentStock || 0,
+          unit: newItem.unit,
+          article: newItem.sku,
+          price: newItem.purchasePrice || 0,
+          scannedAt: new Date()
+        }]
+      }
+
+      if (userStore.user?.id) {
+        employeesStore.addMaterialHistory(userStore.user.id, historyItem)
+      } else {
+        const admin = employeesStore.employees.find(e => e.role === 'admin')
+        if (admin) {
+          employeesStore.addMaterialHistory(admin.userId, historyItem)
+        }
+      }
+    }
+    
     message.success(`${props.mode === 'product' ? 'Изделие' : 'Материал'} успешно добавлено`)
   }
   selectedItemId.value = null
@@ -1074,7 +1057,37 @@ const handleItemSubmit = (itemData: Partial<InventoryItem>) => {
 const handleTransactionSubmit = (transactionData: Partial<InventoryTransaction>) => {
   const { itemId, quantity, type, ...rest } = transactionData
   if (itemId && quantity && type) {
+    // Обновляем остатки на складе
     inventoryStore.updateStock(itemId, quantity, type, rest)
+    
+    // Добавляем запись в общую историю движений для "Движения материалов"
+    const item = inventoryStore.items.find(i => i.id === itemId)
+    if (item) {
+      const historyItem = {
+        date: new Date(),
+        orderNumber: type === 'incoming' ? 'ПРИХОД (СКЛАД)' : (type === 'outgoing' ? 'РАСХОД (СКЛАД)' : 'КОРРЕКТИРОВКА'),
+        destination: type === 'incoming' ? 'Основной склад' : 'Выдача/Списание',
+        totalAmount: (quantity || 0) * (rest.unitPrice || item.purchasePrice || 0),
+        items: [{
+          productName: item.name,
+          quantity: quantity || 0,
+          unit: item.unit,
+          article: item.sku,
+          price: rest.unitPrice || item.purchasePrice || 0,
+          scannedAt: new Date()
+        }]
+      }
+
+      if (userStore.user?.id) {
+        employeesStore.addMaterialHistory(userStore.user.id, historyItem)
+      } else {
+        const admin = employeesStore.employees.find(e => e.role === 'admin')
+        if (admin) {
+          employeesStore.addMaterialHistory(admin.userId, historyItem)
+        }
+      }
+    }
+    
     message.success('Операция успешно выполнена')
   }
 }

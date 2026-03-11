@@ -32,8 +32,7 @@ import {
   DocumentTextOutline,
   QrCodeOutline,
   HammerOutline,
-  SyncOutline,
-  CarOutline
+  SyncOutline
 } from '@vicons/ionicons5'
 import type { MenuOption } from 'naive-ui'
 

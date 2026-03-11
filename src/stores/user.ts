@@ -11,7 +11,7 @@ export interface UserSettings {
 
 export const useUserStore = defineStore('user', () => {
   const user = ref<User | null>({
-    id: '1',
+    id: 'user-4',
     email: 'admin@warehouse.com',
     name: 'Александр Иванов',
     role: 'director',
@@ -41,11 +41,11 @@ export const useUserStore = defineStore('user', () => {
   const login = async (email: string, role: User['role']) => {
     // В будущем тут будет API запрос
     user.value = {
-      id: role === 'worker' ? 'user-3' : Math.random().toString(36).substring(2, 9),
+      id: role === 'director' ? 'user-4' : (role === 'worker' ? 'user-3' : Math.random().toString(36).substring(2, 9)),
       email,
-      name: email.split('@')[0] || 'Пользователь',
+      name: role === 'director' ? 'Александр Иванов' : (email.split('@')[0] || 'Пользователь'),
       role,
-      department: 'Производство',
+      department: role === 'director' ? 'Управление' : 'Производство',
       isActive: true,
       permissions: role === 'director' ? ['all'] : [],
       phone: '+7 (900) 000-00-00',

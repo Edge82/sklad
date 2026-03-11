@@ -118,19 +118,19 @@ export const useEmployeesStore = defineStore('employees', () => {
     },
     {
       id: '4',
-      name: 'Ольга Козлова',
+      name: 'Александр Иванов',
       avatar: 'https://i.pravatar.cc/150?u=4',
       photo: 'https://i.pravatar.cc/150?u=4',
-      email: 'olga.kozlova@furniture.com',
+      email: 'admin@warehouse.com',
       phone: '+7 (999) 777-88-99',
-      position: 'Бухгалтер',
-      department: 'Финансы',
+      position: 'Директор',
+      department: 'Управление',
       role: 'admin',
       status: 'active',
-      salary: 70000,
+      salary: 150000,
       hireDate: new Date('2021-11-30'),
       birthDate: new Date('1992-09-18'),
-      skills: ['Бухгалтерия', 'Налоги', '1С'],
+      skills: ['Управление', 'Стратегия', 'Финансы'],
       lastLogin: new Date('2024-01-22T10:15:00'),
       userId: 'user-4',
       currentTools: [],
@@ -242,13 +242,6 @@ export const useEmployeesStore = defineStore('employees', () => {
       return employees.value.filter(emp => emp.userId === userStore.user?.id)
     }
     return employees.value
-  })
-
-  // Вынесенная логика поиска "себя" для более надежной работы
-  const currentEmployee = computed(() => {
-    const userId = userStore.user?.id
-    if (!userId) return null
-    return employees.value.find(emp => emp.userId === userId)
   })
 
   const totalEmployees = computed(() => allEmployees.value.length)
@@ -377,7 +370,21 @@ export const useEmployeesStore = defineStore('employees', () => {
   }
 
   const addMaterialHistory = (userId: string, historyItem: any) => {
-    const employee = employees.value.find(emp => emp.userId === userId || emp.id === userId)
+    // 1. Поиск по ID
+    let employee = employees.value.find(emp => emp.userId === userId || emp.id === userId)
+    
+    // 2. Если не нашли, ищем по имени (если оно не 'admin'/'Пользователь')
+    if (!employee && userStore.user?.name && !['admin', 'Пользователь'].includes(userStore.user.name)) {
+      employee = employees.value.find(emp => emp.name === userStore.user?.name)
+    }
+
+    // 3. ЕСЛИ ВСЕ ЕЩЕ НЕ НАШЛИ (как в случае с сессией e2ux0ub/admin):
+    // То принудительно записываем на 'Александр Иванов' (Директор), 
+    // так как в демо-режиме под админом обычно заходит именно он.
+    if (!employee && (userStore.user?.role === 'director' || userStore.user?.name === 'admin')) {
+      employee = employees.value.find(emp => emp.userId === 'user-4' || emp.name === 'Александр Иванов')
+    }
+
     if (employee) {
       if (!employee.materialHistory) {
         employee.materialHistory = []
@@ -390,7 +397,11 @@ export const useEmployeesStore = defineStore('employees', () => {
       // Принудительно обновляем массив для реактивности
       employees.value = [...employees.value]
     } else {
-      console.warn('Employee not found for history update:', userId)
+      console.error('КРИТИЧЕСКАЯ ОШИБКА: Сотрудник не найден в списке!', {
+        requestedId: userId,
+        currentUserName: userStore.user?.name,
+        role: userStore.user?.role
+      })
     }
   }
 
