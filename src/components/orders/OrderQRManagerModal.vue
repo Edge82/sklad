@@ -244,9 +244,11 @@ const previewName = computed(() => {
 onMounted(() => {
   if (props.items.length === 1) {
     const item = props.items[0]
-    genForm.value.productId = item.productId || item.id
-    genForm.value.productName = item.productName || item.itemName || ''
-    genForm.value.labelInfo = ''
+    if (item) {
+      genForm.value.productId = item.productId || item.id
+      genForm.value.productName = item.productName || item.itemName || ''
+      genForm.value.labelInfo = ''
+    }
   }
 })
 
@@ -400,11 +402,11 @@ const handlePrintAll = () => {
 }
 
 const handlePrintLastGenerated = () => {
-  if (lastGeneratedCodes.value.length === 1) {
-    handlePrint(lastGeneratedCodes.value[0])
+  const code = lastGeneratedCodes.value[0]
+  if (lastGeneratedCodes.value.length === 1 && code) {
+    handlePrint(code)
   } else if (lastGeneratedCodes.value.length > 1) {
     message.info(`Отправка пачки на печать: ${lastGeneratedCodes.value.length} шт.`)
-    // В будущем тут может быть BulkPrint
   }
 }
 
