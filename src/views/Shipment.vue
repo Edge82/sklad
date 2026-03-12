@@ -18,71 +18,75 @@
     </div>
 
     <!-- Резюме (Статистика в стиле Inventory.vue) -->
-    <n-grid v-if="!selectedInvoice" :cols="4" :x-gap="16" :y-gap="16" class="mb-6">
+    <n-grid v-if="!selectedInvoice" :cols="4" :x-gap="12" :y-gap="12" class="mb-6 items-stretch">
       <n-gi>
         <n-card 
-          class="cursor-pointer transition-colors" 
-          :class="{ 'border-blue-500 bg-blue-50/10': filterDestination === 'all' }"
+          size="small" 
+          hoverable
+          class="metric-card h-full flex flex-col justify-center" 
+          :class="{ 'active': filterDestination === 'all' }"
           @click="filterDestination = 'all'"
         >
-          <div class="flex justify-between items-center">
-            <div>
-              <n-text depth="3">Всего операций</n-text>
-              <n-h3 class="m-0">{{ allInvoices.length }}</n-h3>
-            </div>
-            <n-icon size="32" :color="filterDestination === 'all' ? '#2080f0' : '#888'">
+          <div class="flex items-center gap-3 py-1">
+            <n-icon size="28" color="#2080f0">
               <DocumentTextOutline />
             </n-icon>
+            <div>
+              <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">Всего операций</n-text>
+              <n-h3 class="m-0 leading-none">{{ allInvoices.length }}</n-h3>
+            </div>
           </div>
         </n-card>
       </n-gi>
 
       <n-gi>
         <n-card 
-          class="cursor-pointer transition-colors" 
-          :class="{ 'border-green-500 bg-green-50/10': filterDestination === 'Клиент' }"
+          size="small" 
+          hoverable
+          class="metric-card h-full flex flex-col justify-center" 
+          :class="{ 'active': filterDestination === 'Клиент' }"
           @click="filterDestination = 'Клиент'"
         >
-          <div class="flex justify-between items-center">
-            <div>
-              <n-text depth="3">Отгружено клиентам</n-text>
-              <n-h3 class="m-0">{{ statsByType.client }}</n-h3>
-            </div>
-            <n-icon size="32" :color="filterDestination === 'Клиент' ? '#18a058' : '#888'">
+          <div class="flex items-center gap-3 py-1">
+            <n-icon size="28" color="#18a058">
               <CarOutline />
             </n-icon>
+            <div>
+              <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">Отгружено клиентам</n-text>
+              <n-h3 class="m-0 leading-none">{{ statsByType.client }}</n-h3>
+            </div>
           </div>
         </n-card>
       </n-gi>
 
       <n-gi>
         <n-card 
-          class="cursor-pointer transition-colors" 
-          :class="{ 'border-blue-500 bg-blue-50/10': filterDestination === 'Производство' }"
+          size="small" 
+          hoverable
+          class="metric-card h-full flex flex-col justify-center" 
+          :class="{ 'active': filterDestination === 'Производство' }"
           @click="filterDestination = 'Производство'"
         >
-          <div class="flex justify-between items-center">
-            <div>
-              <n-text depth="3">Выдано в пр-во</n-text>
-              <n-h3 class="m-0">{{ statsByType.production }}</n-h3>
-            </div>
-            <n-icon size="32" :color="filterDestination === 'Производство' ? '#2080f0' : '#888'">
+          <div class="flex items-center gap-3 py-1">
+            <n-icon size="28" color="#2080f0">
               <BusinessOutline />
             </n-icon>
+            <div>
+              <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">Выдано в пр-во</n-text>
+              <n-h3 class="m-0 leading-none">{{ statsByType.production }}</n-h3>
+            </div>
           </div>
         </n-card>
       </n-gi>
 
       <n-gi>
-        <n-card class="revenue-card">
-          <div class="flex justify-between items-center">
+        <n-card border-variant="dark" class="metric-card revenue-card h-full flex flex-col justify-center" size="small">
+          <div class="flex items-center gap-3 py-1">
+            <n-icon size="28" color="#18a058" :component="AnalyticsOutline" />
             <div>
-              <n-text depth="3" class="revenue-label">Сумма накладных</n-text>
-              <n-h3 class="m-0 revenue-value">{{ totalRevenue.toLocaleString() }} ₽</n-h3>
+              <n-text depth="3" class="revenue-label block mb-1">Сумма накладных</n-text>
+              <n-h3 class="m-0 leading-none revenue-value" style="font-size: 22px;">{{ totalRevenue.toLocaleString() }} ₽</n-h3>
             </div>
-            <n-icon size="32" color="#18a058">
-              <AnalyticsOutline />
-            </n-icon>
           </div>
         </n-card>
       </n-gi>
@@ -337,23 +341,53 @@ const columns = [
 
 <style scoped>
 .shipment-page {
-  padding: 0;
+  max-width: 1600px;
+  margin: 0 auto;
+  padding: 0 24px;
 }
-.cursor-pointer {
+@media (max-width: 768px) {
+  .shipment-page {
+    padding: 0 12px;
+  }
+}
+
+.metric-card {
+  height: 100%;
+  background-color: #2a2a2a;
+  border-bottom: 4px solid transparent;
+  transition: all 0.3s ease;
   cursor: pointer;
 }
 
+.metric-card:not(.revenue-card):hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  background-color: #333;
+}
+
+.metric-card.active {
+  background-color: #333;
+  border-bottom-color: #18a058;
+}
+
 .revenue-card {
-  background: linear-gradient(135deg, rgba(24, 160, 88, 0.05) 0%, rgba(24, 160, 88, 0.1) 100%);
-  border-left: 4px solid #18a058;
+  background: rgba(24, 160, 88, 0.1) !important;
+  border: 1px solid rgba(24, 160, 88, 0.3) !important;
+  cursor: default !important;
 }
 
 .revenue-label {
-  color: #18a058;
-  font-weight: 500;
+  color: #18a058 !important;
+  font-weight: bold;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 10px;
+  line-height: 1;
+  margin-bottom: 4px;
 }
 
 .revenue-value {
-  color: #18a058;
+  color: #18a058 !important;
+  font-weight: 900 !important;
 }
 </style>

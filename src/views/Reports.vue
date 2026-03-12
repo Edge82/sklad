@@ -1,215 +1,215 @@
 <template>
-  <div class="reports-page">
+  <div class="reports-page p-6">
     <!-- Шапка страницы -->
     <div class="flex justify-between items-center mb-6">
-      <div class="flex items-center gap-4">
-        <div>
-          <n-h1 class="mb-0">{{ pageHeader }}</n-h1>
-          <n-text depth="3">{{ pageSubHeader }}</n-text>
+        <div class="flex items-center gap-4">
+          <div>
+            <n-h1 class="mb-0">{{ pageHeader }}</n-h1>
+            <n-text depth="3">{{ pageSubHeader }}</n-text>
+          </div>
         </div>
-      </div>
-    </div>
-
-    <!-- Основной контент (переключаемый) -->
-    <div class="reports-content">
-      <!-- Сводка (закреплена сверху) -->
-      <div class="sticky-summary">
-        <n-grid :cols="5" :x-gap="12" class="mb-4">
-          <!-- Метрики -->
-          <n-gi v-for="metric in summaryMetrics" :key="metric.id">
-            <n-card 
-              size="small" 
-              hoverable
-              :class="['metric-card', { 'active': activeTab === metric.id }]"
-              @click="activeTab = metric.id"
-            >
-              <div class="flex items-center gap-3 py-1">
-                <n-icon size="28" :color="metric.color">
-                  <component :is="metric.icon" />
-                </n-icon>
-                <div>
-                  <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">{{ metric.label }}</n-text>
-                  <n-h3 class="m-0 leading-none">{{ metric.value }}</n-h3>
-                </div>
-              </div>
-            </n-card>
-          </n-gi>
-        </n-grid>
-      </div>
-
-      <!-- Контент в зависимости от вкладки -->
-      <div v-if="activeTab === 'main'">
-        <div class="mb-6 flex justify-end">
-          <n-date-picker 
-            v-model:value="dateRange" 
-            type="daterange" 
-            clearable 
-            placeholder="Период управления"
-            style="width: 260px"
-          />
-        </div>
-
-        <n-grid :cols="2" :x-gap="12" class="mb-6">
-          <n-gi>
-            <n-card title="Топ сотрудников (активность)">
-              <n-list hoverable clickable>
-                <n-list-item v-for="emp in topEmployees" :key="emp.id" @click="openEmployeeProfile(emp)">
-                  <template #prefix>
-                    <n-avatar round :size="48" :src="emp.avatar" class="mr-2" />
-                  </template>
-                  <n-thing :title="emp.name" :description="emp.position" />
-                  <template #suffix>
-                    <div style="display: flex; flex-direction: column; align-items: flex-end; min-width: 100px;">
-                      <span style="font-size: 24px; font-weight: bold; line-height: 1; color: #2080f0;">{{ emp.operations }}</span>
-                      <span style="font-size: 10px; color: #888; text-transform: uppercase; font-weight: bold; margin-top: 4px;">операций</span>
-                    </div>
-                  </template>
-                </n-list-item>
-              </n-list>
-            </n-card>
-          </n-gi>
-
-          <n-gi>
-            <n-card title="Оборачиваемость по категориям">
-              <div class="flex flex-col gap-6 py-2">
-                <div v-for="item in turnoverStats" :key="item.category">
-                  <div class="flex justify-between mb-2">
-                    <n-text strong>{{ item.category }}</n-text>
-                    <n-text type="info" strong>{{ item.value }}%</n-text>
+      <!-- Основной контент (переключаемый) -->
+      <div class="reports-content">
+        <!-- Сводка (закреплена сверху) -->
+        <div class="sticky-summary">
+          <n-grid :cols="5" :x-gap="12" class="mb-4">
+            <!-- Метрики -->
+            <n-gi v-for="metric in summaryMetrics" :key="metric.id">
+              <n-card 
+                size="small" 
+                hoverable
+                :class="['metric-card', { 'active': activeTab === metric.id }]"
+                @click="activeTab = metric.id"
+              >
+                <div class="flex items-center gap-3 py-1">
+                  <n-icon size="28" :color="metric.color">
+                    <component :is="metric.icon" />
+                  </n-icon>
+                  <div>
+                    <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">{{ metric.label }}</n-text>
+                    <n-h3 class="m-0 leading-none">{{ metric.value }}</n-h3>
                   </div>
-                  <n-progress type="line" :percentage="item.value" :color="item.color" :show-indicator="false" :height="12" />
                 </div>
-              </div>
-            </n-card>
-          </n-gi>
-        </n-grid>
-
-        <n-card title="История последних движений ТМЦ" border-variant="dark">
-          <n-data-table :columns="movementColumns" :data="movementHistory" :pagination="{ pageSize: 12 }" />
-        </n-card>
-      </div>
-
-      <!-- Детальный отчет по заказам -->
-      <div v-else-if="activeTab === 'orders'">
-        <div class="mb-4 flex justify-between items-center">
-          <n-h2 class="m-0">Расход материалов по заказам</n-h2>
-          <n-date-picker 
-            v-model:value="dateRange" 
-            type="daterange" 
-            clearable 
-            placeholder="Период"
-            style="width: 260px"
-          />
+              </n-card>
+            </n-gi>
+          </n-grid>
         </div>
 
-        <div class="flex flex-col gap-6">
-          <n-card 
-            v-for="order in ordersReport" 
-            :key="order.orderNumber" 
-            :title="`Заказ: ${order.orderNumber}`" 
-            size="small" 
-            border-variant="dark" 
-            hoverable
-          >
-            <template #header-extra>
-              <n-tooltip trigger="hover">
-                <template #trigger>
-                  <n-tag type="info" size="small" round>
-                    {{ Array.from(order.employees).length }} мастера
-                  </n-tag>
-                </template>
-                Работали: {{ Array.from(order.employees).join(', ') }}
-              </n-tooltip>
-            </template>
-            
-            <n-table size="small" :single-line="false" striped>
-              <thead>
-                <tr>
-                  <th>Наименование материала</th>
-                  <th style="width: 140px">Артикул</th>
-                  <th style="width: 100px">Цена (ед.)</th>
-                  <th style="width: 100px">Кол-во</th>
-                  <th style="width: 60px">Ед.</th>
-                  <th style="width: 120px">Сумма</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="item in order.items" :key="item.article">
-                  <td>{{ item.productName }}</td>
-                  <td><n-text code depth="3">{{ item.article }}</n-text></td>
-                  <td>{{ (item.price || 0).toLocaleString('ru-RU') }} ₽</td>
-                  <td><n-text strong type="primary">{{ item.quantity }}</n-text></td>
-                  <td>{{ item.unit }}</td>
-                  <td><n-text strong>{{ ((item.price || 0) * item.quantity).toLocaleString('ru-RU') }} ₽</n-text></td>
-                </tr>
-              </tbody>
-              <tfoot>
-                <tr>
-                  <td colspan="5" style="text-align: right"><strong>ИТОГО ПО ЗАКАЗУ:</strong></td>
-                  <td><strong>{{ order.items.reduce((sum, i) => sum + (i.price || 0) * i.quantity, 0).toLocaleString('ru-RU') }} ₽</strong></td>
-                </tr>
-              </tfoot>
-            </n-table>
+        <!-- Контент в зависимости от вкладки -->
+        <div v-if="activeTab === 'main'">
+          <div class="mb-6 flex justify-end">
+            <n-date-picker 
+              v-model:value="dateRange" 
+              type="daterange" 
+              clearable 
+              placeholder="Период управления"
+              style="width: 260px"
+            />
+          </div>
+
+          <n-grid :cols="2" :x-gap="12" class="mb-6">
+            <n-gi>
+              <n-card title="Топ сотрудников (активность)">
+                <n-list hoverable clickable>
+                  <n-list-item v-for="emp in topEmployees" :key="emp.id" @click="openEmployeeProfile(emp)">
+                    <template #prefix>
+                      <n-avatar round :size="48" :src="emp.avatar" class="mr-2" />
+                    </template>
+                    <n-thing :title="emp.name" :description="emp.position" />
+                    <template #suffix>
+                      <div style="display: flex; flex-direction: column; align-items: flex-end; min-width: 100px;">
+                        <span style="font-size: 24px; font-weight: bold; line-height: 1; color: #2080f0;">{{ emp.operations }}</span>
+                        <span style="font-size: 10px; color: #888; text-transform: uppercase; font-weight: bold; margin-top: 4px;">операций</span>
+                      </div>
+                    </template>
+                  </n-list-item>
+                </n-list>
+              </n-card>
+            </n-gi>
+
+            <n-gi>
+              <n-card title="Оборачиваемость по категориям">
+                <div class="flex flex-col gap-6 py-2">
+                  <div v-for="item in turnoverStats" :key="item.category">
+                    <div class="flex justify-between mb-2">
+                      <n-text strong>{{ item.category }}</n-text>
+                      <n-text type="info" strong>{{ item.value }}%</n-text>
+                    </div>
+                    <n-progress type="line" :percentage="item.value" :color="item.color" :show-indicator="false" :height="12" />
+                  </div>
+                </div>
+              </n-card>
+            </n-gi>
+          </n-grid>
+
+          <n-card title="История последних движений ТМЦ" border-variant="dark">
+            <n-data-table :columns="movementColumns" :data="movementHistory" :pagination="{ pageSize: 12 }" />
           </n-card>
         </div>
-        <n-empty v-if="ordersReport.length === 0" description="За выбранный период данных не найдено" class="mt-20" />
-      </div>
 
-      <!-- Детальный отчет по оборачиваемости -->
-      <div v-else-if="activeTab === 'turnover'">
-        <n-card border-variant="dark">
-          <n-data-table :columns="turnoverDetailedColumns" :data="turnoverItems" :pagination="{ pageSize: 20 }" />
-        </n-card>
-      </div>
-
-      <!-- Детальный отчет по критическим остаткам -->
-      <div v-else-if="activeTab === 'critical'">
-        <n-card border-variant="dark">
-          <n-data-table :columns="criticalDetailedColumns" :data="criticalItems" :pagination="{ pageSize: 20 }" />
-        </n-card>
-      </div>
-
-      <!-- Детальный отчет по инструменту -->
-      <div v-else-if="activeTab === 'tools'">
-        <n-card border-variant="dark">
-          <n-data-table :columns="toolsDetailedColumns" :data="forgottenTools" :pagination="{ pageSize: 20 }" />
-        </n-card>
-      </div>
-    </div>
-
-    <!-- Модалка только для профиля сотрудника -->
-    <n-modal v-model:show="showEmployeeModal" preset="card" :auto-focus="false" title="Портрет производительности мастера" style="width: 900px">
-      <div v-if="selectedEmployee">
-        <div class="flex justify-between items-center mb-6">
-          <div class="flex gap-4 items-center">
-            <n-avatar :size="80" round :src="selectedEmployee.avatar" />
-            <div>
-              <n-h2 class="m-0">{{ selectedEmployee.name }}</n-h2>
-              <n-text depth="3" class="text-lg">{{ selectedEmployee.position }}</n-text>
-            </div>
+        <!-- Детальный отчет по заказам -->
+        <div v-else-if="activeTab === 'orders'">
+          <div class="mb-4 flex justify-between items-center">
+            <n-h2 class="m-0">Расход материалов по заказам</n-h2>
+            <n-date-picker 
+              v-model:value="dateRange" 
+              type="daterange" 
+              clearable 
+              placeholder="Период"
+              style="width: 260px"
+            />
           </div>
-          <n-tag type="success" size="large" round>
-            <template #icon><n-icon><CheckmarkCircleOutline /></n-icon></template>
-            В штате
-          </n-tag>
+
+          <div class="flex flex-col gap-6">
+            <n-card 
+              v-for="order in ordersReport" 
+              :key="order.orderNumber" 
+              :title="`Заказ: ${order.orderNumber}`" 
+              size="small" 
+              border-variant="dark" 
+              hoverable
+            >
+              <template #header-extra>
+                <n-tooltip trigger="hover">
+                  <template #trigger>
+                    <n-tag type="info" size="small" round>
+                      {{ Array.from(order.employees).length }} мастера
+                    </n-tag>
+                  </template>
+                  Работали: {{ Array.from(order.employees).join(', ') }}
+                </n-tooltip>
+              </template>
+              
+              <n-table size="small" :single-line="false" striped>
+                <thead>
+                  <tr>
+                    <th>Наименование материала</th>
+                    <th style="width: 140px">Артикул</th>
+                    <th style="width: 100px">Цена (ед.)</th>
+                    <th style="width: 100px">Кол-во</th>
+                    <th style="width: 60px">Ед.</th>
+                    <th style="width: 120px">Сумма</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="item in order.items" :key="item.article">
+                    <td>{{ item.productName }}</td>
+                    <td><n-text code depth="3">{{ item.article }}</n-text></td>
+                    <td>{{ (item.price || 0).toLocaleString('ru-RU') }} ₽</td>
+                    <td><n-text strong type="primary">{{ item.quantity }}</n-text></td>
+                    <td>{{ item.unit }}</td>
+                    <td><n-text strong>{{ ((item.price || 0) * item.quantity).toLocaleString('ru-RU') }} ₽</n-text></td>
+                  </tr>
+                </tbody>
+                <tfoot>
+                  <tr>
+                    <td colspan="5" style="text-align: right"><strong>ИТОГО ПО ЗАКАЗУ:</strong></td>
+                    <td><strong>{{ order.items.reduce((sum, i) => sum + (i.price || 0) * i.quantity, 0).toLocaleString('ru-RU') }} ₽</strong></td>
+                  </tr>
+                </tfoot>
+              </n-table>
+            </n-card>
+          </div>
+          <n-empty v-if="ordersReport.length === 0" description="За выбранный период данных не найдено" class="mt-20" />
         </div>
 
-        <n-grid :cols="4" :x-gap="12" class="mb-6">
-          <n-gi><n-card size="small"><n-statistic label="Заказов" :value="selectedEmployeeUniqueOrders"><template #prefix><n-icon><CubeOutline /></n-icon></template></n-statistic></n-card></n-gi>
-          <n-gi><n-card size="small"><n-statistic label="Операций" :value="selectedEmployeeOperations"><template #prefix><n-icon><StatsChartOutline /></n-icon></template></n-statistic></n-card></n-gi>
-          <n-gi><n-card size="small"><n-statistic label="Эффективность" :value="89"><template #suffix>%</template><template #prefix><n-icon><TrendingUpOutline /></n-icon></template></n-statistic></n-card></n-gi>
-          <n-gi><n-card size="small"><n-statistic label="Ошибок" :value="0"><template #prefix><n-icon><WarningOutline /></n-icon></template></n-statistic></n-card></n-gi>
-        </n-grid>
+        <!-- Детальный отчет по оборачиваемости -->
+        <div v-else-if="activeTab === 'turnover'">
+          <n-card border-variant="dark">
+            <n-data-table :columns="turnoverDetailedColumns" :data="turnoverItems" :pagination="{ pageSize: 20 }" />
+          </n-card>
+        </div>
 
-        <n-h3>История операций</n-h3>
-        <n-data-table :columns="employeeHistoryColumns" :data="selectedEmployeeHistory" size="small" />
+        <!-- Детальный отчет по критическим остаткам -->
+        <div v-else-if="activeTab === 'critical'">
+          <n-card border-variant="dark">
+            <n-data-table :columns="criticalDetailedColumns" :data="criticalItems" :pagination="{ pageSize: 20 }" />
+          </n-card>
+        </div>
+
+        <!-- Детальный отчет по инструменту -->
+        <div v-else-if="activeTab === 'tools'">
+          <n-card border-variant="dark">
+            <n-data-table :columns="toolsDetailedColumns" :data="forgottenTools" :pagination="{ pageSize: 20 }" />
+          </n-card>
+        </div>
       </div>
-    </n-modal>
+
+      <!-- Модалка только для профиля сотрудника -->
+      <n-modal v-model:show="showEmployeeModal" preset="card" :auto-focus="false" title="Портрет производительности мастера" style="width: 900px">
+        <div v-if="selectedEmployee">
+          <div class="flex justify-between items-center mb-6">
+            <div class="flex gap-4 items-center">
+              <n-avatar :size="80" round :src="selectedEmployee.avatar" />
+              <div>
+                <n-h2 class="m-0">{{ selectedEmployee.name }}</n-h2>
+                <n-text depth="3" class="text-lg">{{ selectedEmployee.position }}</n-text>
+              </div>
+            </div>
+            <n-tag type="success" size="large" round>
+              <template #icon><n-icon><CheckmarkCircleOutline /></n-icon></template>
+              В штате
+            </n-tag>
+          </div>
+
+          <n-grid :cols="4" :x-gap="12" class="mb-6">
+            <n-gi><n-card size="small"><n-statistic label="Заказов" :value="selectedEmployeeUniqueOrders"><template #prefix><n-icon><CubeOutline /></n-icon></template></n-statistic></n-card></n-gi>
+            <n-gi><n-card size="small"><n-statistic label="Операций" :value="selectedEmployeeOperations"><template #prefix><n-icon><StatsChartOutline /></n-icon></template></n-statistic></n-card></n-gi>
+            <n-gi><n-card size="small"><n-statistic label="Эффективность" :value="89"><template #suffix>%</template><template #prefix><n-icon><TrendingUpOutline /></n-icon></template></n-statistic></n-card></n-gi>
+            <n-gi><n-card size="small"><n-statistic label="Ошибок" :value="0"><template #prefix><n-icon><WarningOutline /></n-icon></template></n-statistic></n-card></n-gi>
+          </n-grid>
+
+          <n-h3>История операций</n-h3>
+          <n-data-table :columns="employeeHistoryColumns" :data="selectedEmployeeHistory" size="small" />
+        </div>
+      </n-modal>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, h } from 'vue'
+import { useThemeVars } from 'naive-ui'
 import { useInventoryStore } from '@/stores/inventory'
 import { useEmployeesStore } from '@/stores/employees'
 import { useToolsStore } from '@/stores/tools'
@@ -234,6 +234,7 @@ import {
 const inventoryStore = useInventoryStore()
 const employeesStore = useEmployeesStore()
 const toolsStore = useToolsStore()
+const themeVars = useThemeVars()
 
 const dateRange = ref<[number, number] | null>(null)
 const activeTab = ref('main')
@@ -454,15 +455,13 @@ const selectedEmployeeOperations = computed(() => selectedEmployee.value?.materi
 </script>
 
 <style scoped>
-.reports-page { padding: 0; }
 .sticky-summary {
   position: sticky;
-  top: -12px;
+  top: 0px;
   z-index: 100;
-  background: #1a1a1a;
-  padding-top: 12px;
+  background: #101014;
   padding-bottom: 8px;
-  border-bottom: 2px solid #333;
+  border-bottom: 2px solid v-bind('themeVars.borderColor');
   margin-bottom: 16px;
 }
 .metric-card {
@@ -481,5 +480,15 @@ const selectedEmployeeOperations = computed(() => selectedEmployee.value?.materi
 }
 .top-employees-mini {
   height: 100%;
+}
+.reports-page {
+  max-width: 1600px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+@media (max-width: 768px) {
+  .reports-page {
+    padding: 0 12px;
+  }
 }
 </style>

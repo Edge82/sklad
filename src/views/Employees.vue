@@ -25,7 +25,7 @@
     </div>
   </div>
 
-  <div v-show="!selectedInlineEmployee" class="employees-page">
+  <div v-show="!selectedInlineEmployee" class="employees-page p-6">
     <!-- Заголовок и кнопки -->
     <div class="flex justify-between items-center mb-6">
       <div>
@@ -45,90 +45,89 @@
     </div>
 
     <!-- Статистика -->
-    <n-grid :cols="5" :x-gap="16" :y-gap="16" class="mb-6 items-stretch">
+    <n-grid :cols="5" :x-gap="12" :y-gap="12" class="mb-6 items-stretch">
       <n-gi>
         <n-card
-          class="cursor-pointer transition-colors hover:shadow-md h-full flex flex-col justify-center"
-          style="cursor: pointer;"
-          :class="[!filters.status && !filters.role && !filters.department ? 'border-blue-500 shadow-sm' : 'hover:border-blue-500']"
-          size="small"
+          size="small" 
+          hoverable
+          class="metric-card h-full flex flex-col justify-center"
+          :class="{ 'active': !filters.status && !filters.role && !filters.department }"
           @click="resetFilters"
         >
-          <div class="flex items-center gap-3">
-            <n-icon size="24" color="#2080f0">
+          <div class="flex items-center gap-3 py-1">
+            <n-icon size="28" color="#2080f0">
               <PeopleOutline />
             </n-icon>
             <div>
-              <n-text depth="3">Всего сотр.</n-text>
-              <n-h2 class="m-0 line-height-1">{{ employeesStore.totalEmployees }}</n-h2>
+              <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">Всего сотр.</n-text>
+              <n-h3 class="m-0 leading-none">{{ employeesStore.totalEmployees }}</n-h3>
             </div>
           </div>
         </n-card>
       </n-gi>
       <n-gi>
         <n-card
-          class="cursor-pointer transition-colors hover:shadow-md h-full flex flex-col justify-center"
-          style="cursor: pointer;"
-          :class="[filters.status === 'active' ? 'border-green-500 shadow-sm' : 'hover:border-green-500']"
-          size="small"
+          size="small" 
+          hoverable
+          class="metric-card h-full flex flex-col justify-center"
+          :class="{ 'active': filters.status === 'active' }"
           @click="() => { resetFilters(); filters.status = 'active'; }"
         >
-          <div class="flex items-center gap-3">
-            <n-icon size="24" color="#18a058">
+          <div class="flex items-center gap-3 py-1">
+            <n-icon size="28" color="#18a058">
               <CheckmarkCircleOutline />
             </n-icon>
             <div>
-              <n-text depth="3">Активных</n-text>
-              <n-h2 class="m-0 line-height-1">{{ employeesStore.activeEmployees }}</n-h2>
+              <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">Активных</n-text>
+              <n-h3 class="m-0 leading-none">{{ employeesStore.activeEmployees }}</n-h3>
             </div>
           </div>
         </n-card>
       </n-gi>
       <n-gi>
         <n-card
-          class="cursor-pointer transition-colors hover:shadow-md h-full flex flex-col justify-center"
-          style="cursor: pointer;"
-          :class="[filters.role === 'worker' ? 'border-blue-400 shadow-sm' : 'hover:border-blue-400']"
-          size="small"
+          size="small" 
+          hoverable
+          class="metric-card h-full flex flex-col justify-center"
+          :class="{ 'active': filters.role === 'worker' }"
           @click="() => { resetFilters(); filters.role = 'worker'; }"
         >
-          <div class="flex items-center gap-3">
-            <n-icon size="24" color="#70c0e8">
+          <div class="flex items-center gap-3 py-1">
+            <n-icon size="28" color="#70c0e8">
               <BuildOutline />
             </n-icon>
             <div>
-              <n-text depth="3">Рабочих</n-text>
-              <n-h2 class="m-0 line-height-1">{{ employeesStore.employees.filter(e => e.role === 'worker').length }}</n-h2>
+              <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">Рабочих</n-text>
+              <n-h3 class="m-0 leading-none">{{ employeesStore.employees.filter(e => e.role === 'worker').length }}</n-h3>
             </div>
           </div>
         </n-card>
       </n-gi>
       <n-gi>
         <n-card
-          class="cursor-pointer transition-colors hover:shadow-md h-full flex flex-col justify-center"
-          style="cursor: pointer;"
-          :class="[filters.status === 'vacation' ? 'border-yellow-500 shadow-sm' : 'hover:border-yellow-500']"
-          size="small"
+          size="small" 
+          hoverable
+          class="metric-card h-full flex flex-col justify-center"
+          :class="{ 'active': filters.status === 'vacation' }"
           @click="() => { resetFilters(); filters.status = 'vacation'; }"
         >
-          <div class="flex items-center gap-3">
-            <n-icon size="24" color="#f0a020">
+          <div class="flex items-center gap-3 py-1">
+            <n-icon size="28" color="#f0a020">
               <TimeOutline />
-            </n-icon>
-            <div>
-              <n-text depth="3">В отпуске</n-text>
-              <n-h2 class="m-0 line-height-1">{{ employeesStore.employees.filter(e => e.status === 'vacation').length }}</n-h2>
+            </n-icon>            <div>
+              <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">В отпуске</n-text>
+              <n-h3 class="m-0 leading-none">{{ employeesStore.employees.filter(e => e.status === 'vacation').length }}</n-h3>
             </div>
           </div>
         </n-card>
       </n-gi>
       <n-gi>
-        <n-card border-variant="dark" class="revenue-card h-full flex flex-col justify-center" size="small">
-          <div class="flex items-center gap-3">
-            <n-icon size="24" color="#18a058" :component="CashOutline" />
+        <n-card border-variant="dark" class="metric-card revenue-card h-full flex flex-col justify-center" size="small">
+          <div class="flex items-center gap-3 py-1">
+            <n-icon size="28" color="#18a058" :component="CashOutline" />
             <div>
               <n-text depth="3" class="revenue-label block mb-1">ФОТ в месяц</n-text>
-              <n-h2 class="m-0 line-height-1 revenue-value" style="font-size: 22px;">{{ formatCurrency(filteredTotalSalary) }}</n-h2>
+              <n-h3 class="m-0 leading-none revenue-value" style="font-size: 22px;">{{ formatCurrency(filteredTotalSalary) }}</n-h3>
             </div>
           </div>
         </n-card>
@@ -680,8 +679,33 @@ const handleEmployeeSubmit = (employeeData: Partial<Employee>) => {
 
 <style scoped>
 .employees-page {
-  max-width: 1400px;
+  max-width: 1600px;
   margin: 0 auto;
+  padding: 0 24px;
+}
+@media (max-width: 768px) {
+  .employees-page {
+    padding: 0 12px;
+  }
+}
+
+.metric-card {
+  height: 100%;
+  background-color: #2a2a2a;
+  border-bottom: 4px solid transparent;
+  transition: all 0.3s ease;
+  cursor: pointer;
+}
+
+.metric-card:not(.revenue-card):hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  background-color: #333;
+}
+
+.metric-card.active {
+  background-color: #333;
+  border-bottom-color: #18a058;
 }
 
 .employee-card {
@@ -707,6 +731,7 @@ const handleEmployeeSubmit = (employeeData: Partial<Employee>) => {
 .revenue-card {
   background: rgba(24, 160, 88, 0.1) !important;
   border: 1px solid rgba(24, 160, 88, 0.3) !important;
+  cursor: default !important;
 }
 
 .revenue-label {

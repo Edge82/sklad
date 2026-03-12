@@ -7,7 +7,7 @@
         position="absolute"
         style="top: 64px; bottom: 0; left: 0; right: 0;"
         :native-scrollbar="false"
-        content-style="padding: 12px; background: #1a1a1a;"
+        content-style="padding: 0; background: #101014;"
       >
         <router-view />
       </n-layout-content>

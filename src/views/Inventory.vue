@@ -1,5 +1,5 @@
 <template>
-  <div class="inventory-page">
+  <div class="inventory-page p-6">
     <!-- Заголовок и кнопки -->
     <div class="flex justify-between items-center mb-6">
       <div>
@@ -35,163 +35,219 @@
     </div>
 
     <!-- Статистика -->
-    <n-grid :cols="6" :x-gap="16" :y-gap="16" class="mb-6">
+    <n-grid :cols="6" :x-gap="12" :y-gap="12" class="mb-6 items-stretch">
       <n-gi v-if="props.mode === 'product'">
-        <n-card class="cursor-pointer hover:border-blue-500 transition-colors" @click="resetFilters">
-          <div class="flex justify-between items-center">
-            <div>
-              <n-text depth="3">Готовность склада</n-text>
-              <n-h3 class="m-0">{{ averageReadiness }}%</n-h3>
-            </div>
-            <n-icon size="32" color="#626aef">
+        <n-card 
+          size="small" 
+          hoverable
+          class="metric-card h-full flex flex-col justify-center"
+          :class="{ 'active': !filters.status }"
+          @click="resetFilters"
+        >
+          <div class="flex items-center gap-3 py-1">
+            <n-icon size="28" color="#626aef">
               <AnalyticsOutline />
             </n-icon>
+            <div>
+              <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">Готовность склада</n-text>
+              <n-h3 class="m-0 leading-none">{{ averageReadiness }}%</n-h3>
+            </div>
           </div>
         </n-card>
       </n-gi>
       <n-gi v-else>
-        <n-card class="cursor-pointer hover:border-blue-500 transition-colors" @click="resetFilters">
-          <div class="flex justify-between items-center">
-            <div>
-              <n-text depth="3">Всего позиций</n-text>
-              <n-h3 class="m-0">{{ baseItemsForStats.length }}</n-h3>
-            </div>
-            <n-icon size="32" color="#2080f0">
+        <n-card 
+          size="small" 
+          hoverable
+          class="metric-card h-full flex flex-col justify-center"
+          :class="{ 'active': !filters.status }"
+          @click="resetFilters"
+        >
+          <div class="flex items-center gap-3 py-1">
+            <n-icon size="28" color="#2080f0">
               <CubeOutline />
             </n-icon>
+            <div>
+              <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">Всего позиций</n-text>
+              <n-h3 class="m-0 leading-none">{{ baseItemsForStats.length }}</n-h3>
+            </div>
           </div>
         </n-card>
       </n-gi>
 
       <n-gi v-if="props.mode === 'product'">
-        <n-card class="cursor-pointer hover:border-orange-500 transition-colors" @click="filters.status = 'in_work'">
-          <div class="flex justify-between items-center">
-            <div>
-              <n-text depth="3">В работе</n-text>
-              <n-h3 class="m-0">{{ ordersStore.pendingOrders }}</n-h3>
-            </div>
-            <n-icon size="32" color="#f0a020">
+        <n-card 
+          size="small" 
+          hoverable
+          class="metric-card h-full flex flex-col justify-center"
+          :class="{ 'active': filters.status === 'in_work' }"
+          @click="filters.status = 'in_work'"
+        >
+          <div class="flex items-center gap-3 py-1">
+            <n-icon size="28" color="#f0a020">
               <TimeOutline />
             </n-icon>
+            <div>
+              <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">В работе</n-text>
+              <n-h3 class="m-0 leading-none">{{ ordersStore.pendingOrders }}</n-h3>
+            </div>
           </div>
         </n-card>
       </n-gi>
       <n-gi v-else>
-        <n-card class="cursor-pointer hover:border-orange-500 transition-colors" @click="filters.status = 'low_stock'">
-          <div class="flex justify-between items-center">
-            <div>
-              <n-text depth="3">Мало осталось</n-text>
-              <n-h3 class="m-0">{{ filteredLowStockCount }}</n-h3>
-            </div>
-            <n-icon size="32" color="#f0a020">
+        <n-card 
+          size="small" 
+          hoverable
+          class="metric-card h-full flex flex-col justify-center"
+          :class="{ 'active': filters.status === 'low_stock' }"
+          @click="filters.status = 'low_stock'"
+        >
+          <div class="flex items-center gap-3 py-1">
+            <n-icon size="28" color="#f0a020">
               <WarningOutline />
             </n-icon>
+            <div>
+              <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">Мало осталось</n-text>
+              <n-h3 class="m-0 leading-none">{{ filteredLowStockCount }}</n-h3>
+            </div>
           </div>
         </n-card>
       </n-gi>
 
       <n-gi v-if="props.mode === 'product'">
-        <n-card class="cursor-pointer hover:border-green-500 transition-colors" @click="filters.status = 'ready_to_ship'">
-          <div class="flex justify-between items-center">
-            <div>
-              <n-text depth="3">Готовы к отгрузке</n-text>
-              <n-h3 class="m-0">{{ readyToShipToday }}</n-h3>
-            </div>
-            <n-icon size="32" color="#18a058">
+        <n-card 
+          size="small" 
+          hoverable
+          class="metric-card h-full flex flex-col justify-center"
+          :class="{ 'active': filters.status === 'ready_to_ship' }"
+          @click="filters.status = 'ready_to_ship'"
+        >
+          <div class="flex items-center gap-3 py-1">
+            <n-icon size="28" color="#18a058">
               <DownloadOutline />
             </n-icon>
+            <div>
+              <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">Готовы к отгрузке</n-text>
+              <n-h3 class="m-0 leading-none">{{ readyToShipToday }}</n-h3>
+            </div>
           </div>
         </n-card>
       </n-gi>
       <n-gi v-if="props.mode !== 'product'">
-        <n-card class="cursor-pointer hover:border-red-500 transition-colors" @click="filters.status = 'out_of_stock'">
-          <div class="flex justify-between items-center">
-            <div>
-              <n-text depth="3">Отсутствует</n-text>
-              <n-h3 class="m-0">{{ filteredOutOfStockCount }}</n-h3>
-            </div>
-            <n-icon size="32" color="#d03050">
+        <n-card 
+          size="small" 
+          hoverable
+          class="metric-card h-full flex flex-col justify-center"
+          :class="{ 'active': filters.status === 'out_of_stock' }"
+          @click="filters.status = 'out_of_stock'"
+        >
+          <div class="flex items-center gap-3 py-1">
+            <n-icon size="28" color="#d03050">
               <CloseCircleOutline />
             </n-icon>
+            <div>
+              <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">Отсутствует</n-text>
+              <n-h3 class="m-0 leading-none">{{ filteredOutOfStockCount }}</n-h3>
+            </div>
           </div>
         </n-card>
       </n-gi>
 
       <n-gi v-if="props.mode === 'product'">
-        <n-card class="cursor-pointer hover:border-blue-500 transition-colors" @click="filters.status = 'awaiting_shipment'">
-          <div class="flex justify-between items-center">
-            <div>
-              <n-text depth="3">Ожидают выдачи</n-text>
-              <n-h3 class="m-0">{{ awaitingShipment }}</n-h3>
-            </div>
-            <n-icon size="32" color="#2080f0" class="opacity-80">
+        <n-card 
+          size="small" 
+          hoverable
+          class="metric-card h-full flex flex-col justify-center"
+          :class="{ 'active': filters.status === 'awaiting_shipment' }"
+          @click="filters.status = 'awaiting_shipment'"
+        >
+          <div class="flex items-center gap-3 py-1">
+            <n-icon size="28" color="#2080f0">
               <CubeOutline />
             </n-icon>
+            <div>
+              <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">Ожидают выдачи</n-text>
+              <n-h3 class="m-0 leading-none">{{ awaitingShipment }}</n-h3>
+            </div>
           </div>
         </n-card>
       </n-gi>
       <n-gi v-if="props.mode !== 'product'">
-        <n-card class="cursor-pointer hover:border-purple-500 transition-colors" @click="filters.status = 'reserved'">
-          <div class="flex justify-between items-center">
-            <div>
-              <n-text depth="3">Зарезервировано</n-text>
-              <n-h3 class="m-0">{{ filteredReservedCount }}</n-h3>
-            </div>
-            <n-icon size="32" color="#626aef" class="opacity-80">
+        <n-card 
+          size="small" 
+          hoverable
+          class="metric-card h-full flex flex-col justify-center"
+          :class="{ 'active': filters.status === 'reserved' }"
+          @click="filters.status = 'reserved'"
+        >
+          <div class="flex items-center gap-3 py-1">
+            <n-icon size="28" color="#626aef">
               <AppsOutline />
             </n-icon>
+            <div>
+              <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">Зарезервировано</n-text>
+              <n-h3 class="m-0 leading-none">{{ filteredReservedCount }}</n-h3>
+            </div>
           </div>
         </n-card>
       </n-gi>
       <n-gi v-if="props.mode === 'product'">
-        <n-card class="cursor-pointer hover:border-orange-500 transition-colors" @click="resetFilters">
-          <div class="flex justify-between items-center">
-            <div>
-              <n-text depth="3">Всего изделий</n-text>
-              <n-h3 class="m-0">{{ baseItemsForStats.length }}</n-h3>
-            </div>
-            <n-icon size="32" color="#f0a020" class="opacity-80">
+        <n-card 
+          size="small" 
+          hoverable
+          class="metric-card h-full flex flex-col justify-center"
+          :class="{ 'active': filters.status === 'all_products' }"
+          @click="filters.status = 'all_products'"
+        >
+          <div class="flex items-center gap-3 py-1">
+            <n-icon size="28" color="#f0a020">
               <BusinessOutline />
             </n-icon>
+            <div>
+              <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">Всего изделий</n-text>
+              <n-h3 class="m-0 leading-none">{{ baseItemsForStats.length }}</n-h3>
+            </div>
           </div>
         </n-card>
       </n-gi>
       <n-gi v-if="props.mode === 'product'">
-        <n-card border-variant="dark" class="revenue-card">
-          <div class="flex justify-between items-center">
+        <n-card border-variant="dark" class="metric-card revenue-card h-full flex flex-col justify-center" size="small">
+          <div class="flex items-center gap-3 py-1">
+            <n-icon size="28" color="#18a058" :component="CashOutline" />
             <div>
-              <n-text depth="3" class="revenue-label text-[10px]">Стоимость продукции</n-text>
-              <n-h3 class="m-0 revenue-value">{{ formatCurrency(filteredTotalValue) }}</n-h3>
+              <n-text depth="3" class="revenue-label block mb-1">Стоимость продукции</n-text>
+              <n-h3 class="m-0 leading-none revenue-value" style="font-size: 22px;">{{ formatCurrency(filteredTotalValue) }}</n-h3>
             </div>
-            <n-icon size="32" color="#18a058">
-              <CashOutline />
-            </n-icon>
           </div>
         </n-card>
       </n-gi>
       <n-gi v-if="props.mode !== 'product'">
-        <n-card class="cursor-pointer hover:border-green-500 transition-colors" @click="filters.status = 'on_order'">
-          <div class="flex justify-between items-center">
-            <div>
-              <n-text depth="3">В пути (SKU)</n-text>
-              <n-h3 class="m-0">{{ filteredOnOrderCount }}</n-h3>
-            </div>
-            <n-icon size="32" color="#18a058" class="opacity-80">
+        <n-card 
+          size="small" 
+          hoverable
+          class="metric-card h-full flex flex-col justify-center"
+          :class="{ 'active': filters.status === 'on_order' }"
+          @click="filters.status = 'on_order'"
+        >
+          <div class="flex items-center gap-3 py-1">
+            <n-icon size="28" color="#18a058">
               <SwapHorizontalOutline />
             </n-icon>
+            <div>
+              <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">В пути (SKU)</n-text>
+              <n-h3 class="m-0 leading-none">{{ filteredOnOrderCount }}</n-h3>
+            </div>
           </div>
         </n-card>
       </n-gi>
       <n-gi v-if="props.mode !== 'product'">
-        <n-card border-variant="dark" class="revenue-card">
-          <div class="flex justify-between items-center">
+        <n-card border-variant="dark" class="metric-card revenue-card h-full flex flex-col justify-center" size="small">
+          <div class="flex items-center gap-3 py-1">
+            <n-icon size="28" color="#18a058" :component="CashOutline" />
             <div>
-              <n-text depth="3" class="revenue-label text-[10px]">Стоимость запасов</n-text>
-              <n-h3 class="m-0 revenue-value">{{ formatCurrency(filteredTotalValue) }}</n-h3>
+              <n-text depth="3" class="revenue-label block mb-1">Стоимость запасов</n-text>
+              <n-h3 class="m-0 leading-none revenue-value" style="font-size: 22px;">{{ formatCurrency(filteredTotalValue) }}</n-h3>
             </div>
-            <n-icon size="32" color="#18a058">
-              <CashOutline />
-            </n-icon>
           </div>
         </n-card>
       </n-gi>
@@ -572,7 +628,7 @@ const filteredItems = computed(() => {
   }
 
   // Фильтр по статусу (если это не наш специальный статус)
-  if (filters.status && !['ready_to_ship', 'awaiting_shipment', 'in_work', 'reserved'].includes(filters.status)) {
+  if (filters.status && !['ready_to_ship', 'awaiting_shipment', 'in_work', 'reserved', 'all_products'].includes(filters.status)) {
     result = result.filter(item => item.status === filters.status)
   }
 
@@ -1116,15 +1172,37 @@ const rowProps = (row: InventoryTableRow) => {
 .inventory-page {
   max-width: 1600px;
   margin: 0 auto;
+  padding: 0 24px;
+}
+@media (max-width: 768px) {
+  .inventory-page {
+    padding: 0 12px;
+  }
 }
 
-.cursor-pointer {
+.metric-card {
+  height: 100%;
+  background-color: #2a2a2a;
+  border-bottom: 4px solid transparent;
+  transition: all 0.3s ease;
   cursor: pointer;
+}
+
+.metric-card:not(.revenue-card):hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  background-color: #333;
+}
+
+.metric-card.active {
+  background-color: #333;
+  border-bottom-color: #18a058;
 }
 
 .revenue-card {
   background: rgba(24, 160, 88, 0.1) !important;
   border: 1px solid rgba(24, 160, 88, 0.3) !important;
+  cursor: default !important;
 }
 
 .revenue-label {
@@ -1132,6 +1210,7 @@ const rowProps = (row: InventoryTableRow) => {
   font-weight: bold;
   text-transform: uppercase;
   letter-spacing: 0.05em;
+  font-size: 10px;
 }
 
 .revenue-value {

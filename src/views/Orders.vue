@@ -1,5 +1,5 @@
 <template>
-  <div class="orders-page">
+  <div class="orders-page p-6">
     <div class="flex justify-between items-center mb-6">
       <div class="flex items-center gap-4">
         <n-button v-if="viewMode !== 'list'" circle @click="goBack" type="primary" secondary>
@@ -29,66 +29,90 @@
     <!-- Режим списка заказов -->
     <div v-show="viewMode === 'list'">
       <!-- Статистика -->
-      <n-grid :cols="5" :x-gap="16" :y-gap="16" class="mb-6 items-stretch">
+      <n-grid :cols="5" :x-gap="12" :y-gap="12" class="mb-6 items-stretch">
         <n-gi>
-          <n-card class="cursor-pointer hover:shadow-md transition-colors h-full flex flex-col justify-center" size="small" @click="resetFilters">
-            <div class="flex items-center gap-3">
-              <n-icon size="24" color="#2080f0">
+          <n-card 
+            size="small" 
+            hoverable
+            class="metric-card h-full flex flex-col justify-center"
+            :class="{ 'active': !filters.status }"
+            @click="resetFilters"
+          >
+            <div class="flex items-center gap-3 py-1">
+              <n-icon size="28" color="#2080f0">
                 <CubeOutline />
               </n-icon>
               <div>
-                <n-text depth="3">Всего заказов</n-text>
-                <n-h2 class="m-0 line-height-1">{{ totalOrdersCount }}</n-h2>
+                <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">Всего заказов</n-text>
+                <n-h3 class="m-0 leading-none">{{ totalOrdersCount }}</n-h3>
               </div>
             </div>
           </n-card>
         </n-gi>
         <n-gi>
-          <n-card class="cursor-pointer hover:shadow-md transition-colors h-full flex flex-col justify-center" size="small" @click="filters.status = 'new'">
-            <div class="flex items-center gap-3">
-              <n-icon size="24" color="#f0a020">
+          <n-card 
+            size="small" 
+            hoverable
+            class="metric-card h-full flex flex-col justify-center"
+            :class="{ 'active': filters.status === 'new' }"
+            @click="filters.status = 'new'"
+          >
+            <div class="flex items-center gap-3 py-1">
+              <n-icon size="28" color="#f0a020">
                 <AppsOutline />
               </n-icon>
               <div>
-                <n-text depth="3">Новые</n-text>
-                <n-h2 class="m-0 line-height-1">{{ newOrdersCount }}</n-h2>
+                <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">Новые</n-text>
+                <n-h3 class="m-0 leading-none">{{ newOrdersCount }}</n-h3>
               </div>
             </div>
           </n-card>
         </n-gi>
         <n-gi>
-          <n-card class="cursor-pointer hover:shadow-md transition-colors h-full flex flex-col justify-center" size="small" @click="filters.status = 'in_progress'">
-            <div class="flex items-center gap-3">
-              <n-icon size="24" color="#f0a020">
+          <n-card 
+            size="small" 
+            hoverable
+            class="metric-card h-full flex flex-col justify-center"
+            :class="{ 'active': filters.status === 'in_progress' }"
+            @click="filters.status = 'in_progress'"
+          >
+            <div class="flex items-center gap-3 py-1">
+              <n-icon size="28" color="#f0a020">
                 <TimeOutline />
               </n-icon>
               <div>
-                <n-text depth="3">В производстве</n-text>
-                <n-h2 class="m-0 line-height-1">{{ inProgressOrdersCount }}</n-h2>
+                <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">В производстве</n-text>
+                <n-h3 class="m-0 leading-none">{{ inProgressOrdersCount }}</n-h3>
               </div>
             </div>
           </n-card>
         </n-gi>
         <n-gi>
-          <n-card class="cursor-pointer hover:shadow-md transition-colors h-full flex flex-col justify-center" size="small" @click="filters.status = 'ready'">
-            <div class="flex items-center gap-3">
-              <n-icon size="24" color="#18a058">
+          <n-card 
+            size="small" 
+            hoverable
+            class="metric-card h-full flex flex-col justify-center"
+            :class="{ 'active': filters.status === 'ready' }"
+            @click="filters.status = 'ready'"
+          >
+            <div class="flex items-center gap-3 py-1">
+              <n-icon size="28" color="#18a058">
                 <CheckmarkDoneOutline />
               </n-icon>
               <div>
-                <n-text depth="3">Готовы к выдаче</n-text>
-                <n-h2 class="m-0 line-height-1">{{ readyOrdersCount }}</n-h2>
+                <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">Готовы к выдаче</n-text>
+                <n-h3 class="m-0 leading-none">{{ readyOrdersCount }}</n-h3>
               </div>
             </div>
           </n-card>
         </n-gi>
         <n-gi>
-          <n-card border-variant="dark" class="revenue-card h-full flex flex-col justify-center" size="small">
-            <div class="flex items-center gap-3">
-              <n-icon size="24" color="#18a058" :component="CashOutline" />
+          <n-card border-variant="dark" class="metric-card revenue-card h-full flex flex-col justify-center" size="small">
+            <div class="flex items-center gap-3 py-1">
+              <n-icon size="28" color="#18a058" :component="CashOutline" />
               <div>
                 <n-text depth="3" class="revenue-label block mb-1">Выручка в работе</n-text>
-                <n-h2 class="m-0 line-height-1 revenue-value" style="font-size: 22px;">{{ formatCurrency(revenueInWork) }}</n-h2>
+                <n-h3 class="m-0 leading-none revenue-value" style="font-size: 22px;">{{ formatCurrency(revenueInWork) }}</n-h3>
               </div>
             </div>
           </n-card>
@@ -530,15 +554,37 @@ const columns = [
 .orders-page {
   max-width: 1600px;
   margin: 0 auto;
+  padding: 0 24px;
+}
+@media (max-width: 768px) {
+  .orders-page {
+    padding: 0 12px;
+  }
 }
 
-.cursor-pointer {
+.metric-card {
+  height: 100%;
+  background-color: #2a2a2a;
+  border-bottom: 4px solid transparent;
+  transition: all 0.3s ease;
   cursor: pointer;
+}
+
+.metric-card:not(.revenue-card):hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  background-color: #333;
+}
+
+.metric-card.active {
+  background-color: #333;
+  border-bottom-color: #18a058;
 }
 
 .revenue-card {
   background: rgba(24, 160, 88, 0.1) !important;
   border: 1px solid rgba(24, 160, 88, 0.3) !important;
+  cursor: default !important;
 }
 
 .revenue-label {
