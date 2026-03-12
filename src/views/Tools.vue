@@ -8,7 +8,7 @@
       <n-button type="primary" @click="handleAddTool">Добавить инструмент</n-button>
     </div>
 
-    <n-grid :cols="5" :x-gap="12" :y-gap="12" class="mb-6 items-stretch">
+    <n-grid :cols="5" :x-gap="12" :y-gap="12" class="mb-6 items-stretch" style="padding: 8px 0">
       <n-gi>
         <n-card
           size="small" 
@@ -98,26 +98,43 @@
       </n-gi>
     </n-grid>
 
-    <n-card>
-      <div class="flex justify-between items-center mb-4">
-        <n-space align="center">
-          <n-input
-            v-model:value="filters.search"
-            placeholder="Поиск инструмента..."
-            clearable
-          >
-            <template #prefix>
-              <n-icon>
-                <SearchOutline />
-              </n-icon>
-            </template>
-          </n-input>
-          <n-tag v-if="filters.status !== 'all'" closable @close="filters.status = 'all'">
-            Статус: {{ getStatusLabel(filters.status) }}
-          </n-tag>
-        </n-space>
-      </div>
+    <n-card class="mb-4" size="small">
+      <n-space align="center" :size="[16, 12]">
+        <n-input
+          v-model:value="filters.search"
+          placeholder="Поиск инструмента..."
+          clearable
+          style="width: 320px"
+        >
+          <template #prefix>
+            <n-icon><SearchOutline /></n-icon>
+          </template>
+        </n-input>
+        
+        <n-select 
+          v-model:value="filters.status" 
+          placeholder="Все статусы" 
+          :options="[
+            { label: 'Все инструменты', value: 'all' },
+            { label: 'В наличии', value: 'available' },
+            { label: 'Выдано', value: 'issued' },
+            { label: 'В ремонте', value: 'repair' }
+          ]" 
+          clearable
+          style="width: 180px" 
+        />
+        
+        <n-button @click="() => { filters.search = ''; filters.status = 'all'; }" quaternary type="warning">
+          Сбросить фильтры
+        </n-button>
 
+        <n-tag v-if="filters.status !== 'all'" closable @close="filters.status = 'all'">
+          Активен статус: {{ getStatusLabel(filters.status) }}
+        </n-tag>
+      </n-space>
+    </n-card>
+
+    <n-card size="small">
       <n-tabs type="line">
         <n-tab-pane name="list" tab="Список инструментов">
           <n-data-table :columns="columns" :data="filteredTools" />

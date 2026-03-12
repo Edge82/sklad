@@ -1,5 +1,5 @@
 <template>
-  <div class="integration-page">
+  <div class="integration-page p-6">
     <n-h1>Интеграция с 1С</n-h1>
     
     <n-grid :cols="2" :x-gap="16">
@@ -68,6 +68,16 @@ const logColumns: DataTableColumns<SyncLog> = [
 </script>
 
 <style scoped>
+.integration-page {
+  max-width: 1600px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+@media (max-width: 768px) {
+  .integration-page {
+    padding: 0 12px;
+  }
+}
 .status-dot {
   width: 12px;
   height: 12px;

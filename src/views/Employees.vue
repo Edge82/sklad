@@ -45,7 +45,7 @@
     </div>
 
     <!-- Статистика -->
-    <n-grid :cols="5" :x-gap="12" :y-gap="12" class="mb-6 items-stretch">
+    <n-grid :cols="5" :x-gap="12" :y-gap="12" class="mb-6 items-stretch" style="padding: 8px 0">
       <n-gi>
         <n-card
           size="small" 
@@ -135,23 +135,44 @@
     </n-grid>
 
     <!-- Фильтры -->
-    <n-card class="mb-6">
-      <div class="flex flex-wrap gap-4">
-        <n-select v-model:value="filters.department" placeholder="Отдел" :options="departmentOptions" clearable
-          style="width: 200px" />
-        <n-select v-model:value="filters.status" placeholder="Статус" :options="statusOptions" clearable
-          style="width: 200px" />
-        <n-select v-model:value="filters.role" placeholder="Должность" :options="roleOptions" clearable
-          style="width: 200px" />
-        <n-input v-model:value="searchQuery" placeholder="Поиск по имени, email или телефону" clearable
-          style="width: 300px">
-          <template #prefix>
-            <n-icon>
-              <SearchOutline />
-            </n-icon>
-          </template>
-        </n-input>
-        <n-button @click="resetFilters">Сбросить</n-button>
+    <n-card class="mb-4" size="small">
+      <div class="flex items-center gap-4">
+        <n-space align="center" :size="[16, 12]">
+          <n-select 
+            v-model:value="filters.department" 
+            placeholder="Все отделы" 
+            :options="departmentOptions" 
+            clearable
+            style="width: 170px" 
+          />
+          <n-select 
+            v-model:value="filters.status" 
+            placeholder="Все статусы" 
+            :options="statusOptions" 
+            clearable
+            style="width: 170px" 
+          />
+          <n-select 
+            v-model:value="filters.role" 
+            placeholder="Все должности" 
+            :options="roleOptions" 
+            clearable
+            style="width: 170px" 
+          />
+          <n-input 
+            v-model:value="searchQuery" 
+            placeholder="Поиск по имени, email или телефону..." 
+            clearable
+            style="width: 280px"
+          >
+            <template #prefix>
+              <n-icon><SearchOutline /></n-icon>
+            </template>
+          </n-input>
+          <n-button @click="resetFilters" quaternary type="warning">
+            Сбросить
+          </n-button>
+        </n-space>
 
         <div class="ml-auto flex gap-1">
           <n-button 

@@ -18,7 +18,7 @@
     </div>
 
     <!-- Резюме (Статистика в стиле Inventory.vue) -->
-    <n-grid v-if="!selectedInvoice" :cols="4" :x-gap="12" :y-gap="12" class="mb-6 items-stretch">
+    <n-grid v-if="!selectedInvoice" :cols="4" :x-gap="12" :y-gap="12" class="mb-6 items-stretch" style="padding: 8px 0">
       <n-gi>
         <n-card 
           size="small" 
@@ -92,23 +92,19 @@
       </n-gi>
     </n-grid>
 
-    <n-card v-if="!selectedInvoice" class="mb-6 shadow-sm">
-      <n-space justify="space-between" align="center">
-        <n-space>
-          <n-input-group>
-            <n-input-group-label>Назначение</n-input-group-label>
-            <n-select 
-              v-model:value="filterDestination" 
-              :options="destinationOptions" 
-              style="width: 220px"
-              placeholder="Все направления"
-            />
-          </n-input-group>
-        </n-space>
+    <n-card v-if="!selectedInvoice" class="mb-4" size="small">
+      <n-space align="center" :size="[16, 12]">
+        <n-select 
+          v-model:value="filterDestination" 
+          :options="destinationOptions" 
+          style="width: 220px"
+          placeholder="Все направления"
+          clearable
+        />
 
         <n-input 
           v-model:value="searchQuery" 
-          placeholder="Заказ, товар, сотрудник..." 
+          placeholder="Поиск по заказу, товару или сотруднику..." 
           style="width: 400px"
           clearable
         >
@@ -116,6 +112,10 @@
             <n-icon><SearchOutline /></n-icon>
           </template>
         </n-input>
+        
+        <n-button @click="() => { filterDestination = 'all'; searchQuery = ''; }" quaternary type="warning">
+          Сбросить
+        </n-button>
       </n-space>
     </n-card>
 
@@ -189,9 +189,9 @@
 <script setup lang="ts">
 import { ref, computed, h } from 'vue'
 import { 
-  NText, NCard, NDataTable, NButton, NIcon, NSpace, NInput, NInputGroup,
+  NText, NCard, NDataTable, NButton, NIcon, NSpace, NInput,
   NDescriptions, NDescriptionsItem, NTag,
-  NTable, NH3, NSelect, NGrid, NGi, NH1, NInputGroupLabel
+  NTable, NH3, NSelect, NGrid, NGi, NH1
 } from 'naive-ui'
 import { 
   SearchOutline, 

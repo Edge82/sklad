@@ -63,7 +63,9 @@ export const useQRCodesStore = defineStore('qrCodes', () => {
     productId: string,
     productName: string,
     count: number,
-    generatedBy: string
+    generatedBy: string,
+    labelInfo?: string,
+    labelOrder?: string
   }) {
     const newCodes: QRCode[] = []
     for (let i = 0; i < params.count; i++) {
@@ -76,8 +78,8 @@ export const useQRCodesStore = defineStore('qrCodes', () => {
         productId: params.productId,
         productName: params.productName,
         label: {
-          order: `${params.orderNumber}`,
-          info: `${params.productName}`,
+          order: params.labelOrder || `${params.orderNumber}`,
+          info: params.labelInfo || `${params.productName}`,
         },
         status: 'generated',
         isActive: true,

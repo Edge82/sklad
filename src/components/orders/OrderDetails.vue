@@ -76,8 +76,7 @@
             <th>QR Коды</th>
             <th>Цена за ед.</th>
             <th>Материалы</th>
-            <th>Сумма</th>
-            <th class="text-right">Управление</th>
+            <th class="text-right">Сумма</th>
           </tr>
         </thead>
         <tbody>
@@ -105,32 +104,16 @@
             <td>{{ formatCurrency(item.unitPrice) }}</td>
             <td>{{ item.materialUsed || '-' }}</td>
             <td>{{ formatCurrency(item.totalPrice) }}</td>
-            <td class="text-right">
-              <n-button quaternary circle size="small" type="primary" @click="openManageModal(item)">
-                <template #icon>
-                  <n-icon><QrCodeOutline /></n-icon>
-                </template>
-              </n-button>
-            </td>
           </tr>
         </tbody>
         <tfoot>
           <tr>
-            <td colspan="7" class="text-right font-bold">Итого:</td>
+            <td colspan="6" class="text-right font-bold">Итого:</td>
             <td class="font-bold text-lg text-right">{{ formatCurrency(order.totalAmount) }}</td>
           </tr>
         </tfoot>
       </n-table>
     </n-card>
-
-    <ManageQRModal
-      v-if="selectedItem"
-      v-model:show="showManageModal"
-      :order-id="order.id"
-      :order-number="order.orderNumber"
-      :product-id="selectedItem.productId"
-      :item-name="selectedItem.productName || selectedItem.itemName || ''"
-    />
 
     <!-- Примечания и действия -->
     <n-grid :cols="2" :x-gap="16">
@@ -208,7 +191,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed } from 'vue'
 import type { Order, OrderItem } from '@/types'
 import {
   NCard,
@@ -232,12 +215,10 @@ import {
   SyncOutline,
   NotificationsOutline,
   CreateOutline,
-  TimeOutline,
-  QrCodeOutline
+  TimeOutline
 } from '@vicons/ionicons5'
 import { useQRCodesStore } from '@/stores/qrCodes'
 import { useOrdersStore } from '@/stores/orders'
-import ManageQRModal from './ManageQRModal.vue'
 
 const props = defineProps<{
   order: Order
@@ -246,14 +227,6 @@ const props = defineProps<{
 const qrStore = useQRCodesStore()
 const ordersStore = useOrdersStore()
 const message = useMessage()
-
-const showManageModal = ref(false)
-const selectedItem = ref<OrderItem | null>(null)
-
-const openManageModal = (item: OrderItem) => {
-  selectedItem.value = item
-  showManageModal.value = true
-}
 
 const getQRCount = (item: OrderItem) => {
   return qrStore.qrCodes.filter(q => q.orderId === props.order.id && q.productId === item.productId).length

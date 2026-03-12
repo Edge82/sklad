@@ -35,7 +35,7 @@
     </div>
 
     <!-- Статистика -->
-    <n-grid :cols="6" :x-gap="12" :y-gap="12" class="mb-6 items-stretch">
+    <n-grid :cols="6" :x-gap="12" :y-gap="12" class="mb-6 items-stretch" style="padding: 8px 0">
       <n-gi v-if="props.mode === 'product'">
         <n-card 
           size="small" 
@@ -254,28 +254,54 @@
     </n-grid>
 
     <!-- Фильтры и поиск -->
-    <n-card class="mb-6">
-      <div class="flex flex-wrap gap-4">
-        <n-select v-if="props.mode !== 'product'" v-model:value="filters.category" placeholder="Категория" :options="categoryOptions" clearable
-          style="width: 200px" />
-        <n-select v-if="props.mode !== 'product'" v-model:value="filters.status" placeholder="Статус" :options="statusOptions" clearable
-          style="width: 200px" />
-        <n-input v-model:value="searchQuery" placeholder="Поиск по названию, артикулу или SKU" clearable
-          style="width: 300px">
+    <n-card class="mb-4" size="small">
+      <n-space align="center" :size="[16, 12]">
+        <n-select 
+          v-if="props.mode !== 'product'" 
+          v-model:value="filters.category" 
+          placeholder="Все категории" 
+          :options="categoryOptions" 
+          clearable
+          style="width: 180px" 
+        />
+        <n-select 
+          v-if="props.mode !== 'product'" 
+          v-model:value="filters.status" 
+          placeholder="Все статусы" 
+          :options="statusOptions" 
+          clearable
+          style="width: 180px" 
+        />
+        <n-input 
+          v-model:value="searchQuery" 
+          placeholder="Поиск по названию или артикулу..." 
+          clearable
+          style="width: 320px"
+        >
           <template #prefix>
-            <n-icon>
-              <SearchOutline />
-            </n-icon>
+            <n-icon><SearchOutline /></n-icon>
           </template>
         </n-input>
-        <n-button @click="resetFilters">Сбросить</n-button>
-        <n-button v-if="props.mode === 'product'" type="primary" secondary @click="isGrouped = !isGrouped">
+        <n-button @click="resetFilters" quaternary type="warning">
+          Сбросить
+        </n-button>
+        <n-button 
+          v-if="props.mode === 'product'" 
+          type="primary" 
+          secondary 
+          @click="isGrouped = !isGrouped"
+        >
           {{ isGrouped ? 'Разгруппировать' : 'Группировать по заказу' }}
         </n-button>
-        <n-button v-if="props.mode !== 'product'" type="primary" @click="showAdvancedFilters = !showAdvancedFilters">
-          Расширенные фильтры
+        <n-button 
+          v-if="props.mode !== 'product'" 
+          quaternary
+          type="primary"
+          @click="showAdvancedFilters = !showAdvancedFilters"
+        >
+          {{ showAdvancedFilters ? 'Скрыть фильтры' : 'Расширенные фильтры' }}
         </n-button>
-      </div>
+      </n-space>
 
       <!-- Расширенные фильтры -->
       <n-collapse-transition v-if="props.mode !== 'product'" :show="showAdvancedFilters">

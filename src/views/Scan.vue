@@ -1,5 +1,5 @@
 <template>
-  <div class="scan-page">
+  <div class="scan-page p-6">
     <div class="flex justify-between items-center mb-6">
       <n-h1 class="m-0">Сканирование и Накладные</n-h1>
       <n-space>
@@ -449,5 +449,14 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.scan-page { padding: 0; }
+.scan-page {
+  max-width: 1600px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+@media (max-width: 768px) {
+  .scan-page {
+    padding: 0 12px;
+  }
+}
 </style>

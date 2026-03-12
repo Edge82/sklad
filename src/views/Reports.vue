@@ -12,7 +12,7 @@
       <div class="reports-content">
         <!-- Сводка (закреплена сверху) -->
         <div class="sticky-summary">
-          <n-grid :cols="5" :x-gap="12" class="mb-4">
+          <n-grid :cols="5" :x-gap="12" class="mb-4" style="padding: 8px 0">
             <!-- Метрики -->
             <n-gi v-for="metric in summaryMetrics" :key="metric.id">
               <n-card 
@@ -37,16 +37,6 @@
 
         <!-- Контент в зависимости от вкладки -->
         <div v-if="activeTab === 'main'">
-          <div class="mb-6 flex justify-end">
-            <n-date-picker 
-              v-model:value="dateRange" 
-              type="daterange" 
-              clearable 
-              placeholder="Период управления"
-              style="width: 260px"
-            />
-          </div>
-
           <n-grid :cols="2" :x-gap="12" class="mb-6">
             <n-gi>
               <n-card title="Топ сотрудников (активность)">
@@ -460,9 +450,7 @@ const selectedEmployeeOperations = computed(() => selectedEmployee.value?.materi
   top: 0px;
   z-index: 100;
   background: #101014;
-  padding-bottom: 8px;
-  border-bottom: 2px solid v-bind('themeVars.borderColor');
-  margin-bottom: 16px;
+  margin-bottom: 12px;
 }
 .metric-card {
   transition: all 0.3s ease;

@@ -29,7 +29,7 @@
     <!-- Режим списка заказов -->
     <div v-show="viewMode === 'list'">
       <!-- Статистика -->
-      <n-grid :cols="5" :x-gap="12" :y-gap="12" class="mb-6 items-stretch">
+      <n-grid :cols="5" :x-gap="12" :y-gap="12" class="mb-6 items-stretch" style="padding: 8px 0">
         <n-gi>
           <n-card 
             size="small" 
@@ -120,24 +120,36 @@
       </n-grid>
 
       <!-- Фильтры -->
-      <n-card class="mb-6">
-        <div class="flex flex-wrap gap-4">
-          <n-input v-model:value="searchQuery" placeholder="Поиск по номеру заказа или клиенту" clearable
-            style="width: 300px">
+      <n-card class="mb-4" size="small">
+        <n-space align="center" :size="[16, 12]">
+          <n-input 
+            v-model:value="searchQuery" 
+            placeholder="Поиск по номеру или клиенту" 
+            clearable
+            style="width: 320px"
+          >
             <template #prefix>
-              <n-icon>
-                <SearchOutline />
-              </n-icon>
+              <n-icon><SearchOutline /></n-icon>
             </template>
           </n-input>
-          <n-select v-model:value="filters.status" placeholder="Статус" :options="[
-            { label: 'Новый', value: 'new' },
-            { label: 'В работе', value: 'in_progress' },
-            { label: 'Готов', value: 'ready' },
-            { label: 'Отгружен', value: 'shipped' }
-          ]" clearable style="width: 200px" />
-          <n-button @click="resetFilters">Сбросить</n-button>
-        </div>
+          
+          <n-select 
+            v-model:value="filters.status" 
+            placeholder="Все статусы" 
+            :options="[
+              { label: 'Новый', value: 'new' },
+              { label: 'В работе', value: 'in_progress' },
+              { label: 'Готов', value: 'ready' },
+              { label: 'Отгружен', value: 'shipped' }
+            ]" 
+            clearable 
+            style="width: 180px" 
+          />
+          
+          <n-button @click="resetFilters" quaternary type="warning">
+            Сбросить фильтры
+          </n-button>
+        </n-space>
       </n-card>
 
       <n-card border-variant="dark">
@@ -178,7 +190,7 @@
        </n-card>
     </div>
 
-    <QRGeneratorModal
+    <OrderQRManagerModal
       v-if="selectedOrderForQR"
       :show="showQRModal"
       :order-id="selectedOrderForQR.id"
@@ -253,7 +265,7 @@ import {
   CashOutline,
   AppsOutline
 } from '@vicons/ionicons5'
-import QRGeneratorModal from '@/components/qr-generator/QRGeneratorModal.vue'
+import OrderQRManagerModal from '@/components/orders/OrderQRManagerModal.vue'
 import OrderForm from '@/components/orders/OrderForm.vue'
 import OrderDetails from '@/components/orders/OrderDetails.vue'
 import EmployeeProductionDocument from '@/components/employees/EmployeeProductionDocument.vue'
