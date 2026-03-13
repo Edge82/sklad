@@ -180,7 +180,7 @@ import {
 import {
   NIcon, NH1, NText, NGrid, NGi, NCard, NH3, 
   NDatePicker, NDataTable, NProgress, NList, NListItem,
-  NThing, NAvatar, NTag, NH2, NStatistic, NTooltip, NTable, NEmpty, NModal,
+  NThing, NAvatar, NTag, NH2, NStatistic, NTable, NEmpty, NModal,
   NSpace
 } from 'naive-ui'
 

@@ -230,7 +230,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, h, watch, computed, reactive, nextTick } from 'vue'
+import { ref, h, watch, computed, reactive } from 'vue'
 import { useOrdersStore } from '@/stores/orders'
 import { useEmployeesStore } from '@/stores/employees'
 import { useQRCodesStore } from '@/stores/qrCodes'

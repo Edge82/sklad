@@ -145,9 +145,7 @@
 <script setup lang="ts">
 import { ref, computed, h, onMounted, nextTick } from 'vue'
 import { 
-  QrCodeOutline, 
-  TrashOutline,
-  SearchOutline
+  TrashOutline
 } from '@vicons/ionicons5'
 import { 
   NInput, NButton, NIcon, NCard, NTabs, NTabPane, NAlert, 
