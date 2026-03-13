@@ -337,7 +337,7 @@ const processAction = () => {
       } as any)
     })
     
-    if (selectedOrderNumber.value || isDefect) {
+    if (selectedOrderNumber.value || isDefect || !isDefect) {
       const historyItem: Omit<MaterialInvoice, 'id'> = {
         date: new Date(),
         orderNumber: selectedOrderNumber.value || (isDefect ? 'БРАК' : 'БЕЗ НОМЕРА'),
