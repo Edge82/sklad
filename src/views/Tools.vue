@@ -135,17 +135,14 @@
     </n-card>
 
     <n-card size="small">
-      <n-tabs type="line">
-        <n-tab-pane name="list" tab="Список инструментов">
-          <n-data-table :columns="columns" :data="filteredTools" />
-        </n-tab-pane>
-        <n-tab-pane name="movement" tab="Выдача/Возврат">
-          <!-- TODO: Movement logic -->
-        </n-tab-pane>
-        <n-tab-pane name="repair" tab="Поломки и ремонт">
-          <!-- TODO: Repair logic -->
-        </n-tab-pane>
-      </n-tabs>
+      <n-data-table 
+        :columns="columns" 
+        :data="filteredTools" 
+        :row-props="(row: Tool) => ({
+          style: 'cursor: pointer',
+          onClick: () => handleEditTool(row.id)
+        })"
+      />
     </n-card>
 
     <ToolModal 
@@ -172,20 +169,16 @@ import {
   NIcon,
   useDialog,
   useMessage,
-  NH2,
   NText,
   NGrid,
   NGi,
   NCard,
-  NTabs,
-  NTabPane,
   NDataTable,
   NInput,
   type DataTableColumns
 } from 'naive-ui'
 import { useToolsStore } from '@/stores/tools'
 import {
-  PencilOutline,
   TrashOutline,
   QrCodeOutline,
   CashOutline,
@@ -335,7 +328,7 @@ const columns: DataTableColumns<Tool> = [
   {
     title: 'Действия',
     key: 'actions',
-    width: 150,
+    width: 100,
     render(row) {
       return h(NSpace, { wrap: false }, {
         default: () => [
@@ -344,11 +337,6 @@ const columns: DataTableColumns<Tool> = [
             quaternary: true,
             onClick: (e) => { e.stopPropagation(); handlePrintQR(row) }
           }, { icon: () => h(NIcon, null, { default: () => h(QrCodeOutline) }) }),
-          h(NButton, {
-            size: 'small',
-            quaternary: true,
-            onClick: (e) => { e.stopPropagation(); handleEditTool(row.id) }
-          }, { icon: () => h(NIcon, null, { default: () => h(PencilOutline) }) }),
           h(NButton, {
             size: 'small',
             quaternary: true,

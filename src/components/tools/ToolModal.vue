@@ -63,6 +63,17 @@
             />
           </n-form-item>
         </n-gi>
+
+        <n-gi v-if="formData.status === 'repair'" :span="2">
+          <n-form-item label="Описание поломки" path="breakdownDescription">
+            <n-input
+              v-model:value="formData.breakdownDescription"
+              type="textarea"
+              placeholder="Опишите, что случилось с инструментом..."
+              :autosize="{ minRows: 2, maxRows: 4 }"
+            />
+          </n-form-item>
+        </n-gi>
       </n-grid>
 
       <div class="flex justify-end gap-3 mt-6">
@@ -137,7 +148,8 @@ const formData = reactive({
   qrCode: '',
   issuedTo: undefined as string | undefined,
   issuedToName: undefined as string | undefined,
-  issuedAt: undefined as Date | undefined
+  issuedAt: undefined as Date | undefined,
+  breakdownDescription: '' as string | undefined
 })
 
 const handleEmployeeChange = (value: string) => {
@@ -179,6 +191,17 @@ const rules: FormRules = {
       }
       return true
     }
+  }],
+  breakdownDescription: [{
+    required: true,
+    message: 'Опишите поломку',
+    trigger: ['blur', 'input'],
+    validator: (_, value) => {
+      if (formData.status === 'repair' && !value) {
+        return new Error('Опишите поломку')
+      }
+      return true
+    }
   }]
 }
 
@@ -205,7 +228,8 @@ watch(() => props.show, (newShow) => {
           qrCode: '',
           issuedTo: undefined,
           issuedToName: undefined,
-          issuedAt: undefined
+          issuedAt: undefined,
+          breakdownDescription: ''
         }
         
         // Сначала применяем значения из инструмента, перекрывая ими дефолты
@@ -225,7 +249,8 @@ watch(() => props.show, (newShow) => {
         qrCode: 'TOOL-' + Math.random().toString(36).substr(2, 9).toUpperCase(),
         issuedTo: undefined,
         issuedToName: undefined,
-        issuedAt: undefined
+        issuedAt: undefined,
+        breakdownDescription: ''
       })
     }
   }

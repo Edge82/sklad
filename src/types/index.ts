@@ -187,6 +187,9 @@ export interface Tool {
   
   // Стоимость
   price?: number;                  // Цена приобретения
+
+  // Ремонт
+  breakdownDescription?: string;   // Описание поломки
 }
 
 // Поломка/ремонт
