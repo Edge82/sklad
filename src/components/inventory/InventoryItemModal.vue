@@ -1,5 +1,5 @@
 <template>
-  <n-modal v-model:show="showModal" preset="card" :title="title" style="width: 800px" :bordered="false" size="huge">
+  <n-modal v-model:show="showModal" preset="card" :title="title" class="w-200!" :bordered="false" size="huge">
     <n-form ref="formRef" :model="formData" :rules="rules" label-placement="top">
       <div v-if="props.mode === 'product'" class="py-2">
         <n-grid :cols="2" :x-gap="24">
@@ -14,7 +14,7 @@
 
             <n-form-item label="Текущее количество на складе" path="currentStock" required>
               <n-input-number v-model:value="formData.currentStock" :min="0" placeholder="Введите количество"
-                style="width: 100%" />
+                class="w-full" />
             </n-form-item>
 
             <n-form-item label="Штрих-код (QR-код)" path="barcode">
@@ -69,7 +69,7 @@
 
               <n-form-item label="Средняя цена" path="averagePrice" required>
                 <n-input-number v-model:value="formData.averagePrice" :min="0" placeholder="Введите цену"
-                  style="width: 100%">
+                  class="w-full">
                   <template #suffix>₽</template>
                 </n-input-number>
               </n-form-item>
@@ -94,24 +94,24 @@
             <n-gi>
               <n-form-item label="Текущий остаток" path="currentStock" required>
                 <n-input-number v-model:value="formData.currentStock" :min="0" placeholder="Текущее количество"
-                  style="width: 100%" />
+                  class="w-full" />
               </n-form-item>
 
               <n-form-item label="Минимальный запас" path="minStock" required>
                 <n-input-number v-model:value="formData.minStock" :min="0" placeholder="Минимальное количество"
-                  style="width: 100%" />
+                  class="w-full" />
               </n-form-item>
             </n-gi>
 
             <n-gi>
               <n-form-item label="Максимальный запас" path="maxStock" required>
                 <n-input-number v-model:value="formData.maxStock" :min="0" placeholder="Максимальное количество"
-                  style="width: 100%" />
+                  class="w-full" />
               </n-form-item>
 
               <n-form-item label="Резерв" path="reserved" required>
                 <n-input-number v-model:value="formData.reserved" :min="0" placeholder="Зарезервировано"
-                  style="width: 100%" />
+                  class="w-full" />
               </n-form-item>
             </n-gi>
           </n-grid>
@@ -133,12 +133,12 @@
             <n-gi>
               <n-form-item label="Срок поставки (дни)" path="deliveryTime" required>
                 <n-input-number v-model:value="formData.deliveryTime" :min="1" placeholder="Срок поставки"
-                  style="width: 100%" />
+                  class="w-full" />
               </n-form-item>
 
               <n-form-item label="Мин. партия" path="minOrderQuantity" required>
                 <n-input-number v-model:value="formData.minOrderQuantity" :min="0" placeholder="Минимальная партия"
-                  style="width: 100%" />
+                  class="w-full" />
               </n-form-item>
             </n-gi>
           </n-grid>

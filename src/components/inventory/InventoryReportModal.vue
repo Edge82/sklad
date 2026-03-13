@@ -1,5 +1,5 @@
 <template>
-  <n-modal v-model:show="showModal" preset="card" title="Отчеты по складу" style="width: 900px" :bordered="false"
+  <n-modal v-model:show="showModal" preset="card" title="Отчеты по складу" class="w-225!" :bordered="false"
     size="huge">
     <n-tabs type="line" animated>
       <!-- Отчет по остаткам -->
@@ -8,9 +8,9 @@
           <n-space vertical>
             <div class="flex gap-4 mb-4">
               <n-date-picker v-model:value="reportParams.stock.dateRange" type="daterange" clearable
-                placeholder="Период" style="width: 300px" />
+                placeholder="Период" class="w-75" />
               <n-select v-model:value="reportParams.stock.category" placeholder="Категория" :options="categoryOptions"
-                clearable style="width: 200px" />
+                clearable class="w-50" />
               <n-button type="primary" @click="generateStockReport">
                 <template #icon>
                   <n-icon>
@@ -41,9 +41,9 @@
           <n-space vertical>
             <div class="flex gap-4 mb-4">
               <n-date-picker v-model:value="reportParams.movement.dateRange" type="daterange" clearable
-                placeholder="Период" style="width: 300px" />
+                placeholder="Период" class="w-75" />
               <n-select v-model:value="reportParams.movement.type" placeholder="Тип операции"
-                :options="transactionTypeOptions" clearable style="width: 200px" />
+                :options="transactionTypeOptions" clearable class="w-50" />
               <n-button type="primary" @click="generateMovementReport">
                 <template #icon>
                   <n-icon>

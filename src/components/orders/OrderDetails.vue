@@ -85,7 +85,7 @@
             <td>{{ item.productName || item.itemName }}</td>
             <td>{{ item.quantity }}</td>
             <td>
-              <div class="flex flex-col gap-1" style="min-width: 140px">
+              <div class="flex flex-col gap-1 min-w-35">
                 <div class="flex justify-end items-center text-[10px] px-1">
                    <n-text strong :type="getScannedCount(item) === getQRCount(item) && getQRCount(item) > 0 ? 'success' : 'default'">
                      Готово: {{ getScannedCount(item) }} / {{ getQRCount(item) }}

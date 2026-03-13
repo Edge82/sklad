@@ -1,5 +1,5 @@
 <template>
-  <n-modal v-model:show="showModal" preset="card" :title="title" style="width: 600px">
+  <n-modal v-model:show="showModal" preset="card" :title="title" class="w-150!">
     <n-form ref="formRef" :model="formData" :rules="rules" label-placement="top">
       <n-grid :cols="2" :x-gap="24">
         <n-gi :span="2">
@@ -46,7 +46,7 @@
 
         <n-gi>
           <n-form-item label="Стоимость" path="price">
-            <n-input-number v-model:value="formData.price" :min="0" placeholder="0" style="width: 100%">
+            <n-input-number v-model:value="formData.price" :min="0" placeholder="0" class="w-full">
               <template #suffix>₽</template>
             </n-input-number>
           </n-form-item>

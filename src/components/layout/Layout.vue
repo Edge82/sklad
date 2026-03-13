@@ -1,13 +1,12 @@
 <template>
-  <n-layout has-sider position="absolute" style="height: 100vh; overflow: hidden">
+  <n-layout has-sider class="h-screen overflow-hidden">
     <Sidebar />
-    <n-layout>
+    <n-layout class="flex flex-col h-full overflow-hidden">
       <Header />
       <n-layout-content
-        position="absolute"
-        style="top: 64px; bottom: 0; left: 0; right: 0;"
+        class="flex-1 bg-[#101014]"
         :native-scrollbar="false"
-        content-style="padding: 0; background: #101014;"
+        content-class="p-0"
       >
         <router-view />
       </n-layout-content>

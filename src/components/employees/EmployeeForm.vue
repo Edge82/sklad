@@ -39,7 +39,7 @@
 
         <n-form-item label="Дата рождения" path="birthDate">
           <n-date-picker v-model:value="formData.birthDate" type="date" placeholder="Выберите дату"
-            style="width: 100%" />
+            class="w-full" />
         </n-form-item>
       </n-gi>
 
@@ -68,14 +68,14 @@
         <n-h3>Финансы</n-h3>
         <n-form-item label="Зарплата" path="salary" required>
           <n-input-number v-model:value="formData.salary" :min="0" :precision="0" placeholder="Введите зарплату"
-            style="width: 100%">
+            class="w-full">
             <template #suffix>₽/мес</template>
           </n-input-number>
         </n-form-item>
 
         <n-form-item label="Дата приема" path="hireDate" required>
           <n-date-picker v-model:value="formData.hireDate" type="date" placeholder="Выберите дату приема"
-            style="width: 100%" />
+            class="w-full" />
         </n-form-item>
       </n-gi>
 

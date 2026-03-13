@@ -1,5 +1,5 @@
 <template>
-  <n-modal v-model:show="showModal" preset="card" :title="title" style="width: 600px" :bordered="false" size="huge">
+  <n-modal v-model:show="showModal" preset="card" :title="title" class="w-150!" :bordered="false" size="huge">
     <n-form ref="formRef" :model="formData" :rules="rules" label-placement="top">
       <n-grid :cols="1" :x-gap="24">
         <!-- Выбор материала -->
@@ -32,7 +32,7 @@
         <n-gi>
           <n-form-item :label="quantityLabel" path="quantity" required>
             <n-input-number v-model:value="formData.quantity" :min="minQuantity" :max="maxQuantity"
-              :precision="getPrecision(selectedItem?.unit)" placeholder="Введите количество" style="width: 100%" />
+              :precision="getPrecision(selectedItem?.unit)" placeholder="Введите количество" class="w-full" />
             <template #feedback>
               <div class="text-xs text-gray-500">
                 {{ quantityHint }}
@@ -45,7 +45,7 @@
         <n-gi v-if="props.type === 'incoming'">
           <n-form-item label="Цена за единицу" path="unitPrice" required>
             <n-input-number v-model:value="formData.unitPrice" :min="0" :precision="2" placeholder="Введите цену"
-              style="width: 100%">
+              class="w-full">
               <template #suffix>₽</template>
             </n-input-number>
           </n-form-item>

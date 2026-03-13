@@ -1,5 +1,5 @@
 <template>
-  <n-modal :show="show" @update:show="$emit('update:show', $event)" preset="card" style="width: 400px" :title="'Печать QR-кода: ' + title">
+  <n-modal :show="show" @update:show="$emit('update:show', $event)" preset="card" class="w-100!" :title="'Печать QR-кода: ' + title">
     <div id="qr-print-content" class="qr-container">
       <img :src="qrUrl" class="qr-image" />
       <div class="label-title">{{ title }}</div>

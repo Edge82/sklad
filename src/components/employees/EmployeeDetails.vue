@@ -98,7 +98,7 @@
       type="card" 
       default-value="document"
       class="h-full flex flex-col" 
-      content-style="flex: 1; overflow-y: auto; padding: 24px;"
+      content-class="flex-1 overflow-y-auto p-6"
     >
       <n-tab-pane name="document" tab="Накладные и документы">
         <div class="py-4 h-full bg-[#101014] overflow-y-auto">
@@ -150,12 +150,18 @@
       </n-tab-pane>
     </n-tabs>
   </div>
-  <div v-else class="flex items-center justify-center min-h-[400px]">
+  <div v-else class="flex items-center justify-center min-h-100">
     <n-empty size="large" description="Сотрудник не найден в базе данных" />
   </div>
 
   <!-- Модалка возврата инструмента -->
-  <n-modal v-model:show="showReturnModal" preset="card" title="Сдача инструмента" style="width: 450px" :auto-focus="false">
+  <n-modal 
+    v-model:show="showReturnModal" 
+    preset="card" 
+    title="Сдача инструмента" 
+    class="w-md!" 
+    :auto-focus="false"
+  >
     <n-form :model="returnForm" label-placement="top">
       <n-form-item label="Инструмент">
         <n-text strong class="text-blue-500 text-lg uppercase block mb-2 px-1">

@@ -4,7 +4,7 @@
     @update:show="$emit('close')"
     preset="card"
     :title="`Управление QR-кодами заказа: ${orderNumber}`"
-    style="width: 900px"
+    class="w-225"
     :auto-focus="false"
   >
     <n-tabs type="line" animated>
@@ -114,7 +114,7 @@
               <div class="text-[10px] opacity-50 mt-2">Будет создано {{ genForm.count }} шт.</div>
             </div>
 
-            <div class="flex justify-end" style="margin-top: 12px">
+            <div class="flex justify-end mt-3">
               <n-space>
                 <n-button 
                   type="primary" 

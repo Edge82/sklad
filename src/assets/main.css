@@ -2,6 +2,59 @@
 
 @import './base.css';
 
+/* Глобальный сброс для Naive UI: Tailwind v4 ставит svg { display: block }, что ломает иконки */
+svg {
+  display: inline-block !important;
+  vertical-align: middle;
+}
+.n-breadcrumb .n-breadcrumb-item .n-icon {
+  vertical-align: 0
+}
+/* Фикс для Naive UI: выпадающие списки и модалки должны быть поверх всего */
+.n-modal-container,
+.n-popover-shared,
+.n-dropdown-menu {
+  z-index: 9999 !important;
+}
+
+/* Фикс для Naive UI: Tailwind v4 preflight делает img { display: block }, что ломает аватарки */
+img {
+  display: inline-block !important;
+}
+
+/* Фикс для Naive UI Select: восстанавливаем позиционирование стрелочек и плейсхолдеров */
+.n-base-selection,
+.n-base-selection-label,
+.n-base-selection-placeholder,
+.n-base-selection-suffix {
+  display: flex !important;
+  align-items: center !important;
+  line-height: 1 !important;
+}
+
+.n-base-selection-suffix {
+  position: absolute !important;
+  right: 10px !important;
+  top: 50% !important;
+  transform: translateY(-50%) !important;
+  height: 16px !important;
+  width: 16px !important;
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+}
+
+.n-base-selection-suffix .n-base-selection-suffix__arrow {
+  width: 16px !important;
+  height: 16px !important;
+  display: flex !important;
+}
+
+.n-base-selection-suffix svg {
+  width: 16px !important;
+  height: 16px !important;
+}
+
 #app {
   width: 100%;
   margin: 0;

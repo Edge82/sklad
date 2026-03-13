@@ -35,7 +35,7 @@
     </div>
 
     <!-- Статистика -->
-    <n-grid :cols="6" :x-gap="12" :y-gap="12" class="mb-6 items-stretch" style="padding: 8px 0">
+    <n-grid :cols="6" :x-gap="12" :y-gap="12" class="mb-6 items-stretch py-2">
       <n-gi v-if="props.mode === 'product'">
         <n-card 
           size="small" 
@@ -216,7 +216,7 @@
             <n-icon size="28" color="#18a058" :component="CashOutline" />
             <div>
               <n-text depth="3" class="revenue-label block mb-1">Стоимость продукции</n-text>
-              <n-h3 class="m-0 leading-none revenue-value" style="font-size: 22px;">{{ formatCurrency(filteredTotalValue) }}</n-h3>
+              <n-h3 class="m-0 leading-none revenue-value text-[22px]">{{ formatCurrency(filteredTotalValue) }}</n-h3>
             </div>
           </div>
         </n-card>
@@ -246,7 +246,7 @@
             <n-icon size="28" color="#18a058" :component="CashOutline" />
             <div>
               <n-text depth="3" class="revenue-label block mb-1">Стоимость запасов</n-text>
-              <n-h3 class="m-0 leading-none revenue-value" style="font-size: 22px;">{{ formatCurrency(filteredTotalValue) }}</n-h3>
+              <n-h3 class="m-0 leading-none revenue-value text-[22px]">{{ formatCurrency(filteredTotalValue) }}</n-h3>
             </div>
           </div>
         </n-card>
@@ -262,7 +262,8 @@
           placeholder="Все категории" 
           :options="categoryOptions" 
           clearable
-          style="width: 180px" 
+          class="w-56!" 
+          :consistent-menu-width="false"
         />
         <n-select 
           v-if="props.mode !== 'product'" 
@@ -270,13 +271,14 @@
           placeholder="Все статусы" 
           :options="statusOptions" 
           clearable
-          style="width: 180px" 
+          class="w-56!" 
+          :consistent-menu-width="false"
         />
         <n-input 
           v-model:value="searchQuery" 
           placeholder="Поиск по названию или артикулу..." 
           clearable
-          style="width: 320px"
+          class="w-96!"
         >
           <template #prefix>
             <n-icon><SearchOutline /></n-icon>
@@ -310,19 +312,19 @@
             <n-gi>
               <n-form-item label="Минимальный остаток">
                 <n-input-number v-model:value="advancedFilters.minStock" :min="0" placeholder="От"
-                  style="width: 100%" />
+                  class="w-full" />
               </n-form-item>
             </n-gi>
             <n-gi>
               <n-form-item label="Максимальный остаток">
                 <n-input-number v-model:value="advancedFilters.maxStock" :min="0" placeholder="До"
-                  style="width: 100%" />
+                  class="w-full" />
               </n-form-item>
             </n-gi>
             <n-gi>
               <n-form-item label="Цена от">
                 <n-input-number v-model:value="advancedFilters.minPrice" :min="0" placeholder="Мин цена"
-                  style="width: 100%">
+                  class="w-full">
                   <template #suffix>₽</template>
                 </n-input-number>
               </n-form-item>
@@ -330,7 +332,7 @@
             <n-gi>
               <n-form-item label="Цена до">
                 <n-input-number v-model:value="advancedFilters.maxPrice" :min="0" placeholder="Макс цена"
-                  style="width: 100%">
+                  class="w-full">
                   <template #suffix>₽</template>
                 </n-input-number>
               </n-form-item>
@@ -346,7 +348,7 @@
         <n-h3 class="m-0">{{ props.mode === 'product' ? 'Изделия и запасы' : 'Материалы и запасы' }}</n-h3>
         <div class="flex items-center gap-2">
           <n-text>Показывать:</n-text>
-          <n-select v-model:value="itemsPerPage" :options="pageSizeOptions" style="width: 100px" />
+          <n-select v-model:value="itemsPerPage" :options="pageSizeOptions" class="w-32!" />
         </div>
       </div>
 
@@ -421,7 +423,7 @@
       @submit="handleTransactionSubmit" 
     />
 
-    <n-modal v-model:show="showDetailsModal" preset="card" title="Детали материала" style="width: 1000px">
+    <n-modal v-model:show="showDetailsModal" preset="card" title="Детали материала" class="w-250!">
       <InventoryItemDetails 
         v-if="selectedItemId" 
         :item-id="selectedItemId" 
@@ -822,8 +824,10 @@ const columns: DataTableColumns<InventoryTableRow> = [
       }
       const item = row as InventoryItem
       return h('div', { 
-        class: 'flex items-center gap-3',
-        style: isGrouped.value ? 'padding-left: 32px; border-left: 2px solid rgba(32, 128, 240, 0.3); margin-left: -12px;' : ''
+        class: [
+          'flex items-center gap-3',
+          isGrouped.value ? 'pl-8 border-l-2 border-blue-400/30 -ml-3' : ''
+        ]
       }, [
         h('div', { class: 'w-8 h-8 bg-gray-800 rounded flex items-center justify-center shrink-0' },
           h(NIcon, { size: '16' }, () => getCategoryIcon(item.categoryId))
@@ -1181,12 +1185,11 @@ const rowProps = (row: InventoryTableRow) => {
   const isGroup = 'isGroup' in row && row.isGroup
   if (isGroup) {
     return {
-      style: 'background: rgba(32, 128, 240, 0.08); font-weight: bold; cursor: default;',
-      class: 'group-header-row'
+      class: 'group-header-row bg-blue-400/10 font-bold cursor-default'
     }
   }
   return {
-    style: 'cursor: pointer;',
+    class: 'cursor-pointer',
     onClick: () => {
       editItem((row as InventoryItem).id)
     }

@@ -40,12 +40,18 @@ export const useUserStore = defineStore('user', () => {
 
   const login = async (email: string, role: User['role']) => {
     // В будущем тут будет API запрос
+    let userName = 'Пользователь'
+    if (role === 'director') userName = 'Александр Иванов'
+    else if (role === 'manager') userName = 'Сергей Петров'
+    else if (role === 'storekeeper') userName = 'Дмитрий Сидоров'
+    else if (role === 'worker') userName = 'Андрей Кузнецов'
+
     user.value = {
       id: role === 'director' ? 'user-4' : (role === 'worker' ? 'user-3' : Math.random().toString(36).substring(2, 9)),
       email,
-      name: role === 'director' ? 'Александр Иванов' : (email.split('@')[0] || 'Пользователь'),
+      name: userName,
       role,
-      department: role === 'director' ? 'Управление' : 'Производство',
+      department: role === 'director' ? 'Управление' : (role === 'storekeeper' ? 'Склад' : 'Производство'),
       isActive: true,
       permissions: role === 'director' ? ['all'] : [],
       phone: '+7 (900) 000-00-00',

@@ -18,7 +18,7 @@
     </div>
 
     <!-- Резюме (Статистика в стиле Inventory.vue) -->
-    <n-grid v-if="!selectedInvoice" :cols="4" :x-gap="12" :y-gap="12" class="mb-6 items-stretch" style="padding: 8px 0">
+    <n-grid v-if="!selectedInvoice" :cols="4" :x-gap="12" :y-gap="12" class="mb-6 items-stretch py-2">
       <n-gi>
         <n-card 
           size="small" 
@@ -85,7 +85,7 @@
             <n-icon size="28" color="#18a058" :component="AnalyticsOutline" />
             <div>
               <n-text depth="3" class="revenue-label block mb-1">Сумма накладных</n-text>
-              <n-h3 class="m-0 leading-none revenue-value" style="font-size: 22px;">{{ totalRevenue.toLocaleString() }} ₽</n-h3>
+              <n-h3 class="m-0 leading-none revenue-value text-[22px]">{{ totalRevenue.toLocaleString() }} ₽</n-h3>
             </div>
           </div>
         </n-card>
@@ -97,7 +97,7 @@
         <n-select 
           v-model:value="filterDestination" 
           :options="destinationOptions" 
-          style="width: 220px"
+          class="w-56!"
           placeholder="Все направления"
           clearable
         />
@@ -105,7 +105,7 @@
         <n-input 
           v-model:value="searchQuery" 
           placeholder="Поиск по заказу, товару или сотруднику..." 
-          style="width: 400px"
+          class="w-96!"
           clearable
         >
           <template #prefix>
@@ -125,8 +125,9 @@
           :columns="columns"
           :data="filteredInvoices"
           :pagination="pagination"
+          :row-key="(row: any) => row.id"
+          v-model:expanded-row-keys="expandedKeys"
           :row-props="rowProps"
-          class="cursor-pointer"
         />
       </div>
 
@@ -152,29 +153,29 @@
             <tr>
               <th>Артикул</th>
               <th>Наименование</th>
-              <th style="text-align: right">Цена</th>
-              <th style="text-align: right">Количество</th>
-              <th style="text-align: right">Сумма</th>
+              <th class="text-right">Цена</th>
+              <th class="text-right">Количество</th>
+              <th class="text-right">Сумма</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="(item, idx) in selectedInvoice.items" :key="idx">
               <td><n-text depth="3">{{ item.article ?? '—' }}</n-text></td>
               <td><n-text strong>{{ item.productName }}</n-text></td>
-              <td style="text-align: right">{{ (item.price || 0).toLocaleString() }} ₽</td>
-              <td style="text-align: right">
+              <td class="text-right">{{ (item.price || 0).toLocaleString() }} ₽</td>
+              <td class="text-right">
                 <n-text depth="2" strong>{{ item.quantity }} {{ item.unit }}</n-text>
               </td>
-              <td style="text-align: right">
+              <td class="text-right">
                 <n-text type="success" strong>{{ ((item.price || 0) * item.quantity).toLocaleString() }} ₽</n-text>
               </td>
             </tr>
           </tbody>
           <tfoot>
             <tr>
-              <th colspan="4" style="text-align: right">Итого к списанию:</th>
-              <th style="text-align: right">
-                <n-text type="success" strong style="font-size: 1.1em">
+              <th colspan="4" class="text-right">Итого к списанию:</th>
+              <th class="text-right">
+                <n-text type="success" strong class="text-[1.1em]">
                   {{ (selectedInvoice.totalAmount || selectedInvoice.items.reduce((sum: number, i: any) => sum + (i.price || 0) * i.quantity, 0)).toLocaleString() }} ₽
                 </n-text>
               </th>
@@ -187,7 +188,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, h } from 'vue'
+import { ref, computed, h, watch, nextTick } from 'vue'
 import { 
   NText, NCard, NDataTable, NButton, NIcon, NSpace, NInput,
   NDescriptions, NDescriptionsItem, NTag,
@@ -207,16 +208,7 @@ const employeesStore = useEmployeesStore()
 const searchQuery = ref('')
 const filterDestination = ref('all')
 const selectedInvoice = ref<any>(null)
-
-// Обработка клика по строке
-const rowProps = (row: any) => {
-  return {
-    style: 'cursor: pointer',
-    onClick: () => {
-      selectedInvoice.value = row
-    }
-  }
-}
+const expandedKeys = ref<string[]>([])
 
 const destinationOptions = [
   { label: 'Все направления', value: 'all' },
@@ -227,14 +219,6 @@ const destinationOptions = [
 const pagination = {
   pageSize: 15
 }
-
-// Статистика по типам
-const statsByType = computed(() => {
-  return {
-    production: allInvoices.value.filter(inv => inv.destination === 'Производство').length,
-    client: allInvoices.value.filter(inv => inv.destination === 'Клиент').length
-  }
-})
 
 // Собираем все накладные из всех сотрудников
 const allInvoices = computed(() => {
@@ -266,6 +250,29 @@ const allInvoices = computed(() => {
   })
 })
 
+// Обработка клика по строке - теперь только сворачивание/разворачивание
+const rowProps = (row: any) => {
+  return {
+    style: 'cursor: pointer',
+    onClick: () => {
+      const index = expandedKeys.value.indexOf(row.id)
+      if (index > -1) {
+        expandedKeys.value.splice(index, 1)
+      } else {
+        expandedKeys.value.push(row.id)
+      }
+    }
+  }
+}
+
+// Статистика по типам
+const statsByType = computed(() => {
+  return {
+    production: allInvoices.value.filter(inv => inv.destination === 'Производство').length,
+    client: allInvoices.value.filter(inv => inv.destination === 'Клиент').length
+  }
+})
+
 // Расчет общей суммы отфильтрованных накладных (Итого по таблице)
 const totalRevenue = computed(() => {
   return filteredInvoices.value
@@ -292,7 +299,37 @@ const filteredInvoices = computed(() => {
   return list
 })
 
-const columns = [
+const columns: any[] = [
+  {
+    type: 'expand',
+    expandAble: () => true,
+    renderExpand: (row: any) => {
+      const items = row.items || []
+      return h('div', { class: 'p-4 bg-[rgba(255,255,255,0.02)] border-t border-gray-800' }, [
+        h(NH3, { class: 'mb-4' }, { default: () => 'Состав накладной' }),
+        h(NTable, { singleLine: false, size: 'small', striped: true }, {
+          default: () => [
+            h('thead', [
+              h('tr', [
+                h('th', 'Артикул'),
+                h('th', 'Наименование'),
+                h('th', { class: 'text-right' }, { default: () => 'Цена' }),
+                h('th', { class: 'text-right' }, { default: () => 'Количество' }),
+                h('th', { class: 'text-right' }, { default: () => 'Сумма' })
+              ])
+            ]),
+            h('tbody', items.map((item: any) => h('tr', [
+              h('td', item.article || '—'),
+              h('td', item.productName),
+              h('td', { class: 'text-right' }, (item.price || 0).toLocaleString() + ' ₽'),
+              h('td', { class: 'text-right' }, `${item.quantity} ${item.unit}`),
+              h('td', { class: 'text-right font-bold text-green-500' }, ((item.price || 0) * item.quantity).toLocaleString() + ' ₽')
+            ])))
+          ]
+        })
+      ])
+    }
+  },
   {
     title: 'Дата и время',
     key: 'date',

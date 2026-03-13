@@ -1,6 +1,6 @@
 <template>
-  <div v-show="selectedInlineEmployee" class="employees-inline-details h-full flex flex-col p-4">
-    <div class="mb-6 flex justify-between items-center">
+  <div v-show="selectedInlineEmployee" class="employees-inline-details h-full flex flex-col py-6">
+    <div class="mb-6 flex justify-between items-center px-4">
       <div class="flex items-center gap-3">
         <n-button quaternary circle @click="handleInlineBack">
           <template #icon><n-icon size="24"><ArrowBackOutline /></n-icon></template>
@@ -45,7 +45,7 @@
     </div>
 
     <!-- Статистика -->
-    <n-grid :cols="5" :x-gap="12" :y-gap="12" class="mb-6 items-stretch" style="padding: 8px 0">
+    <n-grid :cols="5" :x-gap="12" :y-gap="12" class="mb-6 items-stretch py-2">
       <n-gi>
         <n-card
           size="small" 
@@ -127,7 +127,7 @@
             <n-icon size="28" color="#18a058" :component="CashOutline" />
             <div>
               <n-text depth="3" class="revenue-label block mb-1">ФОТ в месяц</n-text>
-              <n-h3 class="m-0 leading-none revenue-value" style="font-size: 22px;">{{ formatCurrency(filteredTotalSalary) }}</n-h3>
+              <n-h3 class="m-0 leading-none revenue-value text-[22px]">{{ formatCurrency(filteredTotalSalary) }}</n-h3>
             </div>
           </div>
         </n-card>
@@ -143,27 +143,27 @@
             placeholder="Все отделы" 
             :options="departmentOptions" 
             clearable
-            style="width: 170px" 
+            class="w-56!" 
           />
           <n-select 
             v-model:value="filters.status" 
             placeholder="Все статусы" 
             :options="statusOptions" 
             clearable
-            style="width: 170px" 
+            class="w-56!" 
           />
           <n-select 
             v-model:value="filters.role" 
             placeholder="Все должности" 
             :options="roleOptions" 
             clearable
-            style="width: 170px" 
+            class="w-56!" 
           />
           <n-input 
             v-model:value="searchQuery" 
             placeholder="Поиск по имени, email или телефону..." 
             clearable
-            style="width: 280px"
+            class="w-96!"
           >
             <template #prefix>
               <n-icon><SearchOutline /></n-icon>
@@ -211,7 +211,7 @@
             :row-key="(row: Employee) => row.id" 
             striped 
             :row-props="(row: Employee) => ({
-              style: 'cursor: pointer',
+              class: 'cursor-pointer',
               onClick: () => viewEmployee(row.id, 'slim')
             })"
           />
@@ -301,7 +301,7 @@
       preset="card"
       :auto-focus="false"
       :title="selectedEmployeeId ? 'Редактировать сотрудника' : 'Добавить сотрудника'" 
-      style="width: 800px"
+      class="w-200!"
       @update:show="(val: boolean) => !val && (selectedEmployeeId = null)"
     >
       <EmployeeForm :employee-id="selectedEmployeeId" @submit="handleEmployeeSubmit" @cancel="showCreateModal = false" />
@@ -312,30 +312,28 @@
       v-model:show="showViewModal" 
       preset="card"
       :auto-focus="false"
-      :class="viewDetailMode === 'full' ? '' : 'fullscreen-modal'"
+      class="w-225!"
       :segmented="{
         content: true,
         footer: 'soft'
       }"
-      :style="viewDetailMode === 'full' ? 'width: 900px' : 'width: 100vw; height: 100vh; position: fixed; left: 0; top: 0; margin: 0;'"
-      :content-style="viewDetailMode === 'full' ? 'padding: 0' : 'padding: 0; height: 100%;'"
-      :header-style="viewDetailMode === 'full' ? '' : 'padding: 12px 24px; background: #101014; border-bottom: 1px solid #333;'"
+      :content-style="'padding: 0'"
     >
       <template #header>
         <div class="flex items-center gap-4">
            <n-text strong class="text-xl">
              {{ selectedEmployeeForView?.name }}
              <span class="text-gray-500 font-normal ml-2">
-               — {{ viewDetailMode === 'full' ? 'Персональные данные' : 'Производственная активность' }}
+               — Персональные данные
              </span>
            </n-text>
         </div>
       </template>
       <EmployeeDetails 
         v-if="selectedEmployeeForView" 
-        :key="`view-${selectedEmployeeForView.id}-${selectedEmployeeForView.avatar?.length || 0}-${viewDetailMode}`"
+        :key="`view-${selectedEmployeeForView.id}-${selectedEmployeeForView.avatar?.length || 0}`"
         :employee="selectedEmployeeForView" 
-        :mode="viewDetailMode"
+        mode="full"
       />
     </n-modal>
   </div>
@@ -699,12 +697,14 @@ const handleEmployeeSubmit = (employeeData: Partial<Employee>) => {
 </script>
 
 <style scoped>
+.employees-inline-details,
 .employees-page {
   max-width: 1600px;
   margin: 0 auto;
   padding: 0 24px;
 }
 @media (max-width: 768px) {
+  .employees-inline-details,
   .employees-page {
     padding: 0 12px;
   }

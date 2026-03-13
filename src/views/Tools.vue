@@ -8,7 +8,7 @@
       <n-button type="primary" @click="handleAddTool">Добавить инструмент</n-button>
     </div>
 
-    <n-grid :cols="5" :x-gap="12" :y-gap="12" class="mb-6 items-stretch" style="padding: 8px 0">
+    <n-grid :cols="5" :x-gap="12" :y-gap="12" class="mb-6 items-stretch py-2">
       <n-gi>
         <n-card
           size="small" 
@@ -91,7 +91,7 @@
             <n-icon size="28" color="#18a058" :component="CashOutline" />
             <div>
               <n-text depth="3" class="revenue-label block mb-1">Стоимость инстр.</n-text>
-              <n-h3 class="m-0 leading-none revenue-value" style="font-size: 22px;">{{ formatCurrency(totalToolsCost) }}</n-h3>
+              <n-h3 class="m-0 leading-none revenue-value text-[22px]">{{ formatCurrency(totalToolsCost) }}</n-h3>
             </div>
           </div>
         </n-card>
@@ -104,7 +104,7 @@
           v-model:value="filters.search"
           placeholder="Поиск инструмента..."
           clearable
-          style="width: 320px"
+          class="w-96!"
         >
           <template #prefix>
             <n-icon><SearchOutline /></n-icon>
@@ -121,7 +121,7 @@
             { label: 'В ремонте', value: 'repair' }
           ]" 
           clearable
-          style="width: 180px" 
+          class="w-56!" 
         />
         
         <n-button @click="() => { filters.search = ''; filters.status = 'all'; }" quaternary type="warning">
@@ -139,7 +139,7 @@
         :columns="columns" 
         :data="filteredTools" 
         :row-props="(row: Tool) => ({
-          style: 'cursor: pointer',
+          class: 'cursor-pointer',
           onClick: () => handleEditTool(row.id)
         })"
       />

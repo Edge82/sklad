@@ -1,6 +1,6 @@
 <template>
   <n-layout-sider bordered collapse-mode="width" :collapsed-width="64" :width="240" :collapsed="collapsed" show-trigger
-    @collapse="collapsed = true" @expand="collapsed = false">
+    class="relative z-20 shrink-0" @collapse="collapsed = true" @expand="collapsed = false">
     <div class="p-4 flex items-center gap-3 border-b">
       <n-icon size="24" class="text-[#18a058]">
         <CubeOutline />

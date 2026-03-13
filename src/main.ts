@@ -9,6 +9,11 @@ import * as Naive from 'naive-ui'
 const app = createApp(App)
 const pinia = createPinia()
 
+// Fix for Tailwind CSS v4 + Naive UI conflict
+const meta = document.createElement('meta')
+meta.name = 'naive-ui-style'
+document.head.prepend(meta) // Используем prepend вместо append
+
 // Регистрируем все компоненты Naive UI глобально
 for (const [key, component] of Object.entries(Naive)) {
   const comp = component as Component & { name?: string }

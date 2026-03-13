@@ -2,17 +2,18 @@
   <div class="reports-page p-6">
     <!-- Шапка страницы -->
     <div class="flex justify-between items-center mb-6">
-        <div class="flex items-center gap-4">
-          <div>
-            <n-h1 class="mb-0">{{ pageHeader }}</n-h1>
-            <n-text depth="3">{{ pageSubHeader }}</n-text>
-          </div>
+      <div class="flex items-center gap-4">
+        <div>
+          <n-h1 class="mb-0">{{ pageHeader }}</n-h1>
+          <n-text depth="3">{{ pageSubHeader }}</n-text>
         </div>
-      <!-- Основной контент (переключаемый) -->
-      <div class="reports-content">
+      </div>
+    </div>
+    <!-- Основной контент (переключаемый) -->
+    <div class="reports-content">
         <!-- Сводка (закреплена сверху) -->
         <div class="sticky-summary">
-          <n-grid :cols="5" :x-gap="12" class="mb-4" style="padding: 8px 0">
+          <n-grid :cols="5" :x-gap="12" class="mb-4 py-2">
             <!-- Метрики -->
             <n-gi v-for="metric in summaryMetrics" :key="metric.id">
               <n-card 
@@ -47,9 +48,9 @@
                     </template>
                     <n-thing :title="emp.name" :description="emp.position" />
                     <template #suffix>
-                      <div style="display: flex; flex-direction: column; align-items: flex-end; min-width: 100px;">
-                        <span style="font-size: 24px; font-weight: bold; line-height: 1; color: #2080f0;">{{ emp.operations }}</span>
-                        <span style="font-size: 10px; color: #888; text-transform: uppercase; font-weight: bold; margin-top: 4px;">операций</span>
+                      <div class="flex flex-col items-end min-w-25">
+                        <span class="text-2xl font-bold leading-none text-[#2080f0]">{{ emp.operations }}</span>
+                        <span class="text-[10px] text-gray-500 uppercase font-bold mt-1">операций</span>
                       </div>
                     </template>
                   </n-list-item>
@@ -86,60 +87,22 @@
               type="daterange" 
               clearable 
               placeholder="Период"
-              style="width: 260px"
+              class="w-65"
             />
           </div>
 
-          <div class="flex flex-col gap-6">
-            <n-card 
-              v-for="order in ordersReport" 
-              :key="order.orderNumber" 
-              :title="`Заказ: ${order.orderNumber}`" 
-              size="small" 
-              border-variant="dark" 
-              hoverable
-            >
-              <template #header-extra>
-                <n-tooltip trigger="hover">
-                  <template #trigger>
-                    <n-tag type="info" size="small" round>
-                      {{ Array.from(order.employees).length }} мастера
-                    </n-tag>
-                  </template>
-                  Работали: {{ Array.from(order.employees).join(', ') }}
-                </n-tooltip>
-              </template>
-              
-              <n-table size="small" :single-line="false" striped>
-                <thead>
-                  <tr>
-                    <th>Наименование материала</th>
-                    <th style="width: 140px">Артикул</th>
-                    <th style="width: 100px">Цена (ед.)</th>
-                    <th style="width: 100px">Кол-во</th>
-                    <th style="width: 60px">Ед.</th>
-                    <th style="width: 120px">Сумма</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="item in order.items" :key="item.article">
-                    <td>{{ item.productName }}</td>
-                    <td><n-text code depth="3">{{ item.article }}</n-text></td>
-                    <td>{{ (item.price || 0).toLocaleString('ru-RU') }} ₽</td>
-                    <td><n-text strong type="primary">{{ item.quantity }}</n-text></td>
-                    <td>{{ item.unit }}</td>
-                    <td><n-text strong>{{ ((item.price || 0) * item.quantity).toLocaleString('ru-RU') }} ₽</n-text></td>
-                  </tr>
-                </tbody>
-                <tfoot>
-                  <tr>
-                    <td colspan="5" style="text-align: right"><strong>ИТОГО ПО ЗАКАЗУ:</strong></td>
-                    <td><strong>{{ order.items.reduce((sum, i) => sum + (i.price || 0) * i.quantity, 0).toLocaleString('ru-RU') }} ₽</strong></td>
-                  </tr>
-                </tfoot>
-              </n-table>
-            </n-card>
-          </div>
+          <n-card border-variant="dark" class="table-card shadow-sm">
+            <n-data-table 
+              :columns="ordersReportColumns" 
+              :data="ordersReport" 
+              :row-key="(row: OrderReportEntry) => row.orderNumber"
+              v-model:expanded-row-keys="expandedOrderKeys"
+              :row-props="(row: OrderReportEntry) => ({
+                 class: 'cursor-pointer',
+                 onClick: () => handleOrderReportRowClick(row)
+              })"
+            />
+          </n-card>
           <n-empty v-if="ordersReport.length === 0" description="За выбранный период данных не найдено" class="mt-20" />
         </div>
 
@@ -166,7 +129,7 @@
       </div>
 
       <!-- Модалка только для профиля сотрудника -->
-      <n-modal v-model:show="showEmployeeModal" preset="card" :auto-focus="false" title="Портрет производительности мастера" style="width: 900px">
+      <n-modal v-model:show="showEmployeeModal" preset="card" :auto-focus="false" title="Портрет производительности мастера" class="w-225!">
         <div v-if="selectedEmployee">
           <div class="flex justify-between items-center mb-6">
             <div class="flex gap-4 items-center">
@@ -194,7 +157,6 @@
         </div>
       </n-modal>
     </div>
-  </div>
 </template>
 
 <script setup lang="ts">
@@ -218,18 +180,114 @@ import {
 import {
   NIcon, NH1, NText, NGrid, NGi, NCard, NH3, 
   NDatePicker, NDataTable, NProgress, NList, NListItem,
-  NThing, NAvatar, NTag, NH2, NStatistic, NTooltip, NTable, NEmpty, NModal
+  NThing, NAvatar, NTag, NH2, NStatistic, NTooltip, NTable, NEmpty, NModal,
+  NSpace
 } from 'naive-ui'
 
 const inventoryStore = useInventoryStore()
 const employeesStore = useEmployeesStore()
 const toolsStore = useToolsStore()
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const themeVars = useThemeVars()
 
 const dateRange = ref<[number, number] | null>(null)
 const activeTab = ref('main')
 const selectedEmployee = ref<Employee | null>(null)
 const showEmployeeModal = ref(false)
+const expandedOrderKeys = ref<string[]>([])
+
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const orderConsumptionColumns: any[] = [
+  { title: 'Материал', key: 'productName' },
+  { 
+    title: 'Артикул', 
+    key: 'article',
+    render: (row: MaterialInvoiceItem) => h(NText, { depth: 3, code: true }, { default: () => row.article || '—' })
+  },
+  { 
+    title: 'Цена', 
+    key: 'price',
+    render: (row: MaterialInvoiceItem) => `${(row.price || 0).toLocaleString('ru-RU')} ₽`
+  },
+  { 
+    title: 'Кол-во', 
+    key: 'quantity',
+    render: (row: MaterialInvoiceItem) => h(NText, { strong: true, type: 'primary' }, { default: () => `${row.quantity} ${row.unit}` })
+  },
+  { 
+    title: 'Сумма', 
+    key: 'amount',
+    render: (row: MaterialInvoiceItem) => h(NText, { strong: true }, { default: () => `${((row.price || 0) * row.quantity).toLocaleString('ru-RU')} ₽` })
+  }
+]
+
+// Колонки основной таблицы отчета по заказам
+const ordersReportColumns: any[] = [
+  {
+    type: 'expand',
+    expandAble: () => true,
+    renderExpand: (row: OrderReportEntry) => {
+      return h('div', { class: 'p-4 bg-[rgba(255,255,255,0.02)] border-t border-gray-800' }, [
+        h(NTable, { size: 'small', singleLine: false, striped: true }, {
+          default: () => [
+            h('thead', [
+              h('tr', [
+                h('th', 'Наименование'),
+                h('th', 'Артикул'),
+                h('th', 'Цена'),
+                h('th', 'Кол-во'),
+                h('th', 'Ед.'),
+                h('th', 'Сумма')
+              ])
+            ]),
+            h('tbody', row.items.map(item => h('tr', [
+              h('td', item.productName),
+              h('td', h(NText, { depth: 3, code: true }, { default: () => item.article || '—' })),
+              h('td', `${(item.price || 0).toLocaleString('ru-RU')} ₽`),
+              h('td', h(NText, { strong: true }, { default: () => item.quantity })),
+              h('td', item.unit),
+              h('td', h(NText, { strong: true }, { default: () => `${((item.price || 0) * item.quantity).toLocaleString('ru-RU')} ₽` }))
+            ])))
+          ]
+        })
+      ])
+    }
+  },
+  {
+    title: 'Заказ',
+    key: 'orderNumber',
+    render: (row: OrderReportEntry) => h(NText, { strong: true, class: 'text-lg font-mono' }, { default: () => row.orderNumber })
+  },
+  {
+    title: 'Мастера',
+    key: 'employees',
+    render: (row: OrderReportEntry) => h(NSpace, { size: 'small' }, {
+      default: () => Array.from(row.employees).map(name => h(NTag, { size: 'small', round: true, quaternary: true, type: 'info' }, { default: () => name }))
+    })
+  },
+  {
+    title: 'Позиций ТМЦ',
+    key: 'itemsCount',
+    render: (row: OrderReportEntry) => h(NTag, { type: 'success', quaternary: true }, { default: () => `${row.items.length} наим.` })
+  },
+  {
+    title: 'Итоговая стоимость',
+    key: 'totalAmount',
+    render: (row: OrderReportEntry) => {
+      const total = row.items.reduce((sum, i) => sum + (i.price || 0) * i.quantity, 0)
+      return h(NText, { strong: true, type: 'success', class: 'text-lg' }, { default: () => `${total.toLocaleString('ru-RU')} ₽` })
+    }
+  }
+]
+
+const handleOrderReportRowClick = (row: OrderReportEntry) => {
+  const index = expandedOrderKeys.value.indexOf(row.orderNumber)
+  if (index > -1) {
+    expandedOrderKeys.value.splice(index, 1)
+  } else {
+    expandedOrderKeys.value.push(row.orderNumber)
+  }
+}
 
 const pageHeader = computed(() => {
   switch (activeTab.value) {
@@ -251,7 +309,7 @@ const pageSubHeader = computed(() => {
   }
 })
 
-const criticalItems = computed(() => inventoryStore.items.filter(item => item.currentStock <= (item.minStock || 5)))
+const criticalItems = computed(() => inventoryStore.items.filter((item: InventoryItem) => item.currentStock <= (item.minStock || 5)))
 const forgottenTools = computed(() => toolsStore.tools.filter(t => t.status === 'issued'))
 
 interface OrderReportEntry {
@@ -308,7 +366,7 @@ const ordersReport = computed(() => {
 const topEmployees = computed(() => 
   employeesStore.employees
     .map((emp: Employee) => ({ ...emp, operations: (emp.materialHistory?.length || 0) }))
-    .sort((a, b) => b.operations - a.operations)
+    .sort((a: any, b: any) => b.operations - a.operations)
     .slice(0, 5)
 )
 

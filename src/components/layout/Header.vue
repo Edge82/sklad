@@ -1,5 +1,5 @@
 <template>
-  <n-layout-header bordered class="px-6 flex justify-between items-center" style="height: 64px; flex-shrink: 0">
+  <n-layout-header bordered class="px-6 flex justify-between items-center h-16 shrink-0 relative bg-[#101014] z-10">
     <n-breadcrumb class="overflow-hidden whitespace-nowrap">
       <n-breadcrumb-item @click="$router.push('/dashboard')">
         <n-icon>
@@ -23,14 +23,17 @@
         </n-button>
       </n-badge>
 
-      <n-dropdown :options="userOptions" @select="handleUserAction">
-        <n-button quaternary>
+      <n-dropdown :options="userOptions" @select="handleUserAction" trigger="click">
+        <n-button quaternary class="!px-2 h-10 border-0">
           <div class="flex items-center gap-2">
-            <n-avatar round size="small" :src="userStore.user?.avatar">
+            <n-avatar round size="small" :src="userStore.user?.avatar" v-if="userStore.user?.avatar">
               {{ userStore.user?.name?.charAt(0) }}
             </n-avatar>
-            <span>{{ userStore.user?.name }}</span>
-            <n-icon>
+            <n-avatar round size="small" v-else class="bg-teal-600!">
+              {{ userStore.user?.name?.charAt(0) || 'А' }}
+            </n-avatar>
+            <span class="font-medium text-white">{{ userStore.user?.name || 'Загрузка...' }}</span>
+            <n-icon size="16" class="text-gray-400">
               <ChevronDownOutline />
             </n-icon>
           </div>
@@ -143,7 +146,16 @@ function renderIcon(icon: Component) {
   return () => h(NIcon, null, { default: () => h(icon) })
 }
 
-const userOptions: DropdownOption[] = [
+const userOptions = computed<DropdownOption[]>(() => [
+  {
+    label: userStore.user?.name || 'Пользователь',
+    key: 'user-info',
+    disabled: true
+  },
+  {
+    type: 'divider',
+    key: 'd1'
+  },
   {
     label: 'Личный кабинет',
     key: 'profile',
@@ -154,7 +166,7 @@ const userOptions: DropdownOption[] = [
     key: 'logout',
     icon: renderIcon(LogOutOutline)
   }
-]
+])
 
 const handleUserAction = (key: string) => {
   if (key === 'logout') {

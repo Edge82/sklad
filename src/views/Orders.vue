@@ -18,7 +18,7 @@
           </n-text>
         </div>
       </div>
-      <div v-if="viewMode === 'list'" style="gap: 8px; display: flex; margin: 8px;">
+      <div v-if="viewMode === 'list'" class="flex gap-2 m-2">
         <n-button type="primary" @click="showCreateModal = true">
           <template #icon><n-icon><AddCircleOutline /></n-icon></template>
           Новый заказ
@@ -29,7 +29,7 @@
     <!-- Режим списка заказов -->
     <div v-show="viewMode === 'list'">
       <!-- Статистика -->
-      <n-grid :cols="5" :x-gap="12" :y-gap="12" class="mb-6 items-stretch" style="padding: 8px 0">
+      <n-grid :cols="5" :x-gap="12" :y-gap="12" class="mb-6 items-stretch py-2">
         <n-gi>
           <n-card 
             size="small" 
@@ -112,7 +112,7 @@
               <n-icon size="28" color="#18a058" :component="CashOutline" />
               <div>
                 <n-text depth="3" class="revenue-label block mb-1">Выручка в работе</n-text>
-                <n-h3 class="m-0 leading-none revenue-value" style="font-size: 22px;">{{ formatCurrency(revenueInWork) }}</n-h3>
+                <n-h3 class="m-0 leading-none revenue-value text-[22px]">{{ formatCurrency(revenueInWork) }}</n-h3>
               </div>
             </div>
           </n-card>
@@ -126,7 +126,7 @@
             v-model:value="searchQuery" 
             placeholder="Поиск по номеру или клиенту" 
             clearable
-            style="width: 320px"
+            class="w-96!"
           >
             <template #prefix>
               <n-icon><SearchOutline /></n-icon>
@@ -143,7 +143,7 @@
               { label: 'Отгружен', value: 'shipped' }
             ]" 
             clearable 
-            style="width: 180px" 
+            class="w-56!" 
           />
           
           <n-button @click="resetFilters" quaternary type="warning">
@@ -157,7 +157,7 @@
           :columns="columns" 
           :data="filteredOrders" 
           :row-props="(row: Order) => ({
-             style: 'cursor: pointer',
+             class: 'cursor-pointer',
              onClick: () => handleRowClick(row)
           })"
         />
@@ -165,13 +165,15 @@
     </div>
 
     <!-- Режим списка накладных конкретного заказа -->
-    <div v-show="viewMode === 'invoices'">
+    <div v-if="viewMode === 'invoices'">
        <n-card border-variant="dark">
           <n-data-table 
              :columns="invoiceRegistryColumns" 
              :data="orderInvoices" 
+             :row-key="(row: InvoiceRow) => row.id"
+             v-model:expanded-row-keys="expandedInvoiceKeys"
              :row-props="(row: InvoiceRow) => ({
-                style: 'cursor: pointer',
+                class: 'cursor-pointer',
                 onClick: () => handleInvoiceRowClick(row)
              })"
           />
@@ -179,8 +181,8 @@
     </div>
 
     <!-- Режим детального просмотра конкретной накладной -->
-    <div v-show="viewMode === 'details'">
-       <n-card border-variant="dark" content-style="padding: 0;">
+    <div v-if="viewMode === 'details'">
+       <n-card border-variant="dark" class="p-0">
           <EmployeeProductionDocument 
             v-if="viewMode === 'details' && selectedInvoiceDetail"
             :tools="[]"
@@ -205,7 +207,7 @@
       preset="card"
       :auto-focus="false"
       :title="selectedOrderForEdit ? 'Редактировать заказ' : 'Новый заказ'"
-      style="width: 800px"
+      class="w-200!"
     >
       <OrderForm 
         :initial-data="selectedOrderForEdit || undefined" 
@@ -220,7 +222,7 @@
       preset="card"
       :auto-focus="false"
       title="Детали заказа"
-      style="width: 900px"
+      class="w-225!"
     >
       <OrderDetails v-if="selectedOrderForDetails" :order="selectedOrderForDetails" />
     </n-modal>
@@ -228,7 +230,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, h, watch, computed, reactive } from 'vue'
+import { ref, h, watch, computed, reactive, nextTick } from 'vue'
 import { useOrdersStore } from '@/stores/orders'
 import { useEmployeesStore } from '@/stores/employees'
 import { useQRCodesStore } from '@/stores/qrCodes'
@@ -249,7 +251,8 @@ import {
   NDataTable, 
   NProgress,
   NInput,
-  NSelect
+  NSelect,
+  NTable
 } from 'naive-ui'
 import {
   AddCircleOutline,
@@ -300,6 +303,9 @@ const selectedOrderForDetails = ref<Order | null>(null)
 const selectedOrderForEdit = ref<Order | null>(null)
 const selectedOrderForInvoices = ref<Order | null>(null)
 const selectedInvoiceDetail = ref<InvoiceRow | null>(null)
+
+// Для управления раскрытыми строками в реестре накладных
+const expandedInvoiceKeys = ref<string[]>([])
 
 // Навигация: 'list' (список заказов), 'invoices' (список накладных заказа), 'details' (просмотр накладной)
 const viewMode = ref<'list' | 'invoices' | 'details'>('list')
@@ -359,11 +365,17 @@ const handleRowClick = (row: Order) => {
 const handleViewInvoices = (row: Order) => {
   selectedOrderForInvoices.value = row
   viewMode.value = 'invoices'
+  // Свернуто по умолчанию
+  expandedInvoiceKeys.value = []
 }
 
 const handleInvoiceRowClick = (row: InvoiceRow) => {
-  selectedInvoiceDetail.value = row
-  viewMode.value = 'details'
+  const index = expandedInvoiceKeys.value.indexOf(row.id)
+  if (index > -1) {
+    expandedInvoiceKeys.value.splice(index, 1)
+  } else {
+    expandedInvoiceKeys.value.push(row.id)
+  }
 }
 
 // Собираем все накладные по всем сотрудникам для выбранного заказа
@@ -374,11 +386,12 @@ const orderInvoices = computed(() => {
   const allInvoices: InvoiceRow[] = []
   
   employeesStore.employees.forEach(emp => {
-    if (emp.materialHistory) {
+    if (emp && emp.materialHistory) {
       emp.materialHistory.forEach(inv => {
-        if (inv.orderNumber === orderNumber) {
+        if (inv && inv.orderNumber === orderNumber) {
           allInvoices.push({
             ...inv,
+            id: inv.id || `inv-${Math.random().toString(36).substr(2, 9)}`,
             employeeName: emp.name,
             employeeId: emp.id,
             employeePosition: emp.position
@@ -392,7 +405,42 @@ const orderInvoices = computed(() => {
 })
 
 // Настройка колонок для реестра накладных внутри заказа
-const invoiceRegistryColumns = [
+const invoiceRegistryColumns: any[] = [
+  {
+    type: 'expand',
+    expandAble: () => true,
+    renderExpand: (row: InvoiceRow) => {
+      const items = row.items || []
+      return h('div', { 
+        class: 'p-4 bg-[rgba(255,255,255,0.02)] border-t border-gray-800',
+        style: 'display: block !important; width: 100%' 
+      }, [
+        h(NTable, { 
+          singleLine: false, 
+          size: 'small', 
+          striped: true,
+          style: 'margin-bottom: 0'
+        }, {
+          default: () => [
+            h('thead', [
+              h('tr', [
+                h('th', 'Артикул'),
+                h('th', 'Наименование'),
+                h('th', { class: 'text-right' }, { default: () => 'Количество' }),
+                h('th', { class: 'text-right' }, { default: () => 'Ед. изм.' })
+              ])
+            ]),
+            h('tbody', items.map((item: any) => h('tr', [
+              h('td', item.article || '—'),
+              h('td', item.productName),
+              h('td', { class: 'text-right' }, item.quantity),
+              h('td', { class: 'text-right' }, item.unit)
+            ])))
+          ]
+        })
+      ])
+    }
+  },
   {
     title: 'ID Накладной',
     key: 'id',

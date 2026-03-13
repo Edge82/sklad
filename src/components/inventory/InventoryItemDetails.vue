@@ -153,7 +153,7 @@
             <div class="mb-4">
               <n-space>
                 <n-date-picker v-model:value="historyDateRange" type="daterange" clearable placeholder="Период"
-                  style="width: 300px" />
+                  class="w-75" />
                 <n-button @click="loadHistory">
                   <template #icon>
                     <n-icon>
@@ -418,7 +418,4 @@ const loadHistory = () => {
 </script>
 
 <style scoped>
-.item-details {
-  max-width: 100%;
-}
 </style>
