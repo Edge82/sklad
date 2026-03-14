@@ -212,7 +212,7 @@ watch(() => props.show, (newShow) => {
       if (tool) {
         // Очищаем форму от старых данных перед заполнением
         Object.keys(formData).forEach(key => {
-          (formData as any)[key] = undefined
+          (formData as Record<string, unknown>)[key] = undefined
         })
         
         // Устанавливаем значения по умолчанию

@@ -539,6 +539,17 @@ export const useInventoryStore = defineStore('inventory', () => {
     items.value.filter(item => item.status === 'out_of_stock').length
   )
 
+  // Индексы для сверхбыстрого поиска O(1) при тысячах товаров
+  const itemsMap = computed(() => {
+    const map = new Map<string, InventoryItem>()
+    items.value.forEach(item => {
+      if (item.id) map.set(item.id, item)
+      if (item.sku) map.set(item.sku, item)
+      if (item.barcode) map.set(item.barcode, item)
+    })
+    return map
+  })
+
   const inventoryStats = computed<InventoryStats>(() => {
     const categoryConsumption: Record<string, number> = {}
 
@@ -873,6 +884,7 @@ export const useInventoryStore = defineStore('inventory', () => {
     categories,
     suppliers,
     items,
+    itemsMap,
     transactions,
 
     // Computed

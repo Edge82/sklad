@@ -203,11 +203,19 @@ import {
   AnalyticsOutline
 } from '@vicons/ionicons5'
 import { useEmployeesStore } from '@/stores/employees'
+import type { Employee, MaterialInvoice, MaterialInvoiceItem } from '@/types'
+import type { DataTableColumns } from 'naive-ui'
 
 const employeesStore = useEmployeesStore()
 const searchQuery = ref('')
 const filterDestination = ref('all')
-const selectedInvoice = ref<any>(null)
+
+interface InvoiceWithWorker extends MaterialInvoice {
+  workerName: string
+  workerId: string
+}
+
+const selectedInvoice = ref<InvoiceWithWorker | null>(null)
 const expandedKeys = ref<string[]>([])
 
 const destinationOptions = [
@@ -222,15 +230,15 @@ const pagination = {
 
 // Собираем все накладные из всех сотрудников
 const allInvoices = computed(() => {
-  const invoices: any[] = []
+  const invoices: InvoiceWithWorker[] = []
   if (!employeesStore.employees) return invoices
 
-  employeesStore.employees.forEach((emp: any) => {
+  employeesStore.employees.forEach((emp: Employee) => {
     if (emp && emp.materialHistory) {
-      emp.materialHistory.forEach((history: any) => {
+      emp.materialHistory.forEach((history: MaterialInvoice) => {
         // Рассчитываем сумму накладной сразу при сборке
         const calculatedTotal = Number(history.totalAmount) || 
-          (history.items ? history.items.reduce((acc: number, item: any) => 
+          (history.items ? history.items.reduce((acc: number, item: MaterialInvoiceItem) => 
             acc + (Number(item.price) || 0) * (Number(item.quantity) || 0), 0) : 0)
         
         invoices.push({
@@ -251,7 +259,7 @@ const allInvoices = computed(() => {
 })
 
 // Обработка клика по строке - теперь только сворачивание/разворачивание
-const rowProps = (row: any) => {
+const rowProps = (row: InvoiceWithWorker) => {
   return {
     style: 'cursor: pointer',
     onClick: () => {
@@ -293,17 +301,17 @@ const filteredInvoices = computed(() => {
     list = list.filter(inv => 
       inv.orderNumber.toLowerCase().includes(q) ||
       inv.workerName.toLowerCase().includes(q) ||
-      inv.items.some((i: any) => i.productName.toLowerCase().includes(q) || (i.article && i.article.toLowerCase().includes(q)))
+      inv.items.some((i: MaterialInvoiceItem) => i.productName.toLowerCase().includes(q) || (i.article && i.article.toLowerCase().includes(q)))
     )
   }
   return list
 })
 
-const columns: any[] = [
+const columns: DataTableColumns<InvoiceWithWorker> = [
   {
     type: 'expand',
-    expandAble: () => true,
-    renderExpand: (row: any) => {
+    expandable: () => true,
+    renderExpand: (row) => {
       const items = row.items || []
       return h('div', { class: 'p-4 bg-[rgba(255,255,255,0.02)] border-t border-gray-800' }, [
         h(NH3, { class: 'mb-4' }, { default: () => 'Состав накладной' }),
@@ -318,7 +326,7 @@ const columns: any[] = [
                 h('th', { class: 'text-right' }, { default: () => 'Сумма' })
               ])
             ]),
-            h('tbody', items.map((item: any) => h('tr', [
+            h('tbody', items.map(item => h('tr', [
               h('td', item.article || '—'),
               h('td', item.productName),
               h('td', { class: 'text-right' }, (item.price || 0).toLocaleString() + ' ₽'),
@@ -333,13 +341,13 @@ const columns: any[] = [
   {
     title: 'Дата и время',
     key: 'date',
-    render: (row: any) => new Date(row.date).toLocaleString(),
-    sorter: (a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime()
+    render: (row) => new Date(row.date).toLocaleString(),
+    sorter: (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
   },
   {
     title: 'Назначение',
     key: 'destination',
-    render: (row: any) => {
+    render: (row) => {
       const isClient = row.destination === 'Клиент'
       return h(NTag, { 
         type: isClient ? 'success' : 'info', 
@@ -354,24 +362,24 @@ const columns: any[] = [
   {
     title: 'Заказ',
     key: 'orderNumber',
-    render: (row: any) => h(NText, { depth: 2, strong: true }, { default: () => row.orderNumber || '—' })
+    render: (row) => h(NText, { depth: 2, strong: true }, { default: () => row.orderNumber || '—' })
   },
   {
     title: 'Ответственный',
     key: 'workerName'
   },
   {
-    title: 'Сумма',
-    key: 'totalAmount',
-    render: (row: any) => {
-      const amount = row.totalAmount || row.items.reduce((sum: number, i: any) => sum + (i.price || 0) * i.quantity, 0)
-      return h(NText, { type: 'success', strong: true }, { default: () => amount.toLocaleString() + ' ₽' })
-    }
-  },
-  {
     title: 'Позиций',
     key: 'itemsCount',
-    render: (row: any) => row.items.length
+    render: (row) => row.items.length
+  },
+  {
+    title: 'Сумма',
+    key: 'totalAmount',
+    render: (row) => {
+      const amount = row.totalAmount || row.items.reduce((sum, i) => sum + (i.price || 0) * i.quantity, 0)
+      return h(NText, { type: 'success', strong: true }, { default: () => amount.toLocaleString() + ' ₽' })
+    }
   }
 ]
 </script>

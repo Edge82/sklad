@@ -233,9 +233,6 @@ const message = useMessage()
 // Получаем историю накладных текущего пользователя
 const myInvoices = computed(() => {
   const employee = employeesStore.employees.find(e => e.userId === userStore.user?.id)
-  console.log('Current User ID:', userStore.user?.id)
-  console.log('Found Employee:', employee?.name)
-  console.log('History length:', employee?.materialHistory?.length)
   return employee?.materialHistory || []
 })
 

@@ -445,7 +445,7 @@
 import { ref, reactive, computed, h } from 'vue'
 import { useInventoryStore } from '@/stores/inventory'
 import { useOrdersStore } from '@/stores/orders'
-import type { InventoryItem, InventoryTransaction } from '@/types'
+import type { InventoryItem, InventoryTransaction, MaterialInvoice } from '@/types'
 import type { DataTableColumns, SelectOption } from 'naive-ui'
 import {
   NH1,
@@ -1078,7 +1078,8 @@ const handleItemSubmit = (itemData: Partial<InventoryItem>) => {
     
     // Если изменилась цена закупки, создаем запись о корректировке в истории
     if (oldItem && itemData.purchasePrice !== undefined && oldItem.purchasePrice !== itemData.purchasePrice) {
-      const historyItem = {
+      const historyItem: MaterialInvoice = {
+        id: `PRICE-${Date.now()}`,
         date: new Date(),
         orderNumber: 'ИЗМЕНЕНИЕ ЦЕНЫ',
         destination: 'Корректировка ТМЦ',
@@ -1091,7 +1092,6 @@ const handleItemSubmit = (itemData: Partial<InventoryItem>) => {
           price: itemData.purchasePrice || 0,
           scannedAt: new Date()
         }],
-        remarks: `Цена изменена с ${oldItem.purchasePrice} на ${itemData.purchasePrice} ₽`
       }
 
       if (userStore.user?.id) {
@@ -1110,7 +1110,8 @@ const handleItemSubmit = (itemData: Partial<InventoryItem>) => {
     
     // Добавляем запись в "Движение материалов" о создании новой карточки
     if (newItem) {
-      const historyItem = {
+      const historyItem: MaterialInvoice = {
+        id: `NEW-${Date.now()}`,
         date: new Date(),
         orderNumber: 'НОВАЯ КАРТОЧКА',
         destination: 'Регистрация ТМЦ',
@@ -1149,7 +1150,8 @@ const handleTransactionSubmit = (transactionData: Partial<InventoryTransaction>)
     // Добавляем запись в общую историю движений для "Движения материалов"
     const item = inventoryStore.items.find(i => i.id === itemId)
     if (item) {
-      const historyItem = {
+      const historyItem: MaterialInvoice = {
+        id: `TR-${Date.now()}`,
         date: new Date(),
         orderNumber: type === 'incoming' ? 'ПРИХОД (СКЛАД)' : (type === 'outgoing' ? 'РАСХОД (СКЛАД)' : 'КОРРЕКТИРОВКА'),
         destination: type === 'incoming' ? 'Основной склад' : 'Выдача/Списание',

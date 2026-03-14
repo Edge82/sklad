@@ -295,7 +295,7 @@ const filteredHistory = computed(() => {
 
   if (historyDateRange.value) {
     const [start, end] = historyDateRange.value
-    history = history.filter(transaction => {
+    history = history.filter((transaction: InventoryTransaction) => {
       const date = new Date(transaction.createdAt).getTime()
       return date >= start && date <= end
     })

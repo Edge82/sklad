@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import type { Employee, Department } from '@/types'
+import type { Employee, Department, MaterialInvoice } from '@/types'
 import { useUserStore } from '@/stores/user'
 
 export const useEmployeesStore = defineStore('employees', () => {
@@ -236,8 +236,6 @@ export const useEmployeesStore = defineStore('employees', () => {
 
   // Computed
   const allEmployees = computed(() => {
-    // Внутренняя переменная для отслеживания изменений в employees.value
-    console.log('Recalculating allEmployees, current employees count:', employees.value.length)
     if (userStore.isWorker) {
       return employees.value.filter(emp => emp.userId === userStore.user?.id)
     }
@@ -369,7 +367,7 @@ export const useEmployeesStore = defineStore('employees', () => {
     return colorMap[status] || 'default'
   }
 
-  const addMaterialHistory = (userId: string, historyItem: any) => {
+  const addMaterialHistory = (userId: string, historyItem: MaterialInvoice) => {
     // 1. Поиск по ID
     let employee = employees.value.find(emp => emp.userId === userId || emp.id === userId)
     
@@ -389,11 +387,7 @@ export const useEmployeesStore = defineStore('employees', () => {
       if (!employee.materialHistory) {
         employee.materialHistory = []
       }
-      employee.materialHistory.unshift({
-        id: Math.random().toString(36).substring(2, 9),
-        date: new Date(),
-        ...historyItem
-      })
+      employee.materialHistory.unshift(historyItem)
       // Принудительно обновляем массив для реактивности
       employees.value = [...employees.value]
     } else {

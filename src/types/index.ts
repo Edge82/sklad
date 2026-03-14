@@ -342,6 +342,8 @@ export interface InventoryItem {
   // Статус
   status: 'in_stock' | 'low_stock' | 'out_of_stock' | 'reserved' | 'on_order' | 'blocked';
 
+  isVirtual?: boolean;
+
   // Тип
   type?: 'material' | 'product';
 

@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import type { QRCode, QRCodeStatus } from '@/types'
 
 export const useQRCodesStore = defineStore('qrCodes', () => {
@@ -118,8 +118,19 @@ export const useQRCodesStore = defineStore('qrCodes', () => {
     return qrCodes.value.filter(q => q.orderId === orderId && q.productId === productId)
   }
 
+  // Индекс для мгновенного поиска QR-кода O(1)
+  const qrCodesMap = computed(() => {
+    const map = new Map<string, QRCode>()
+    qrCodes.value.forEach(qr => {
+      if (qr.id) map.set(qr.id, qr)
+      if (qr.code) map.set(qr.code, qr)
+    })
+    return map
+  })
+
   return {
     qrCodes,
+    qrCodesMap,
     generateQRCodes,
     getQRCodeByCode,
     updateQRCodeStatus,

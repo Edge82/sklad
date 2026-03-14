@@ -161,7 +161,6 @@
 
 <script setup lang="ts">
 import { ref, computed, h } from 'vue'
-import { useThemeVars } from 'naive-ui'
 import { useInventoryStore } from '@/stores/inventory'
 import { useEmployeesStore } from '@/stores/employees'
 import { useToolsStore } from '@/stores/tools'
@@ -181,14 +180,12 @@ import {
   NIcon, NH1, NText, NGrid, NGi, NCard, NH3, 
   NDatePicker, NDataTable, NProgress, NList, NListItem,
   NThing, NAvatar, NTag, NH2, NStatistic, NTable, NEmpty, NModal,
-  NSpace
+  NSpace, type DataTableColumns
 } from 'naive-ui'
 
 const inventoryStore = useInventoryStore()
 const employeesStore = useEmployeesStore()
 const toolsStore = useToolsStore()
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-const themeVars = useThemeVars()
 
 const dateRange = ref<[number, number] | null>(null)
 const activeTab = ref('main')
@@ -196,37 +193,18 @@ const selectedEmployee = ref<Employee | null>(null)
 const showEmployeeModal = ref(false)
 const expandedOrderKeys = ref<string[]>([])
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-const orderConsumptionColumns: any[] = [
-  { title: 'Материал', key: 'productName' },
-  { 
-    title: 'Артикул', 
-    key: 'article',
-    render: (row: MaterialInvoiceItem) => h(NText, { depth: 3, code: true }, { default: () => row.article || '—' })
-  },
-  { 
-    title: 'Цена', 
-    key: 'price',
-    render: (row: MaterialInvoiceItem) => `${(row.price || 0).toLocaleString('ru-RU')} ₽`
-  },
-  { 
-    title: 'Кол-во', 
-    key: 'quantity',
-    render: (row: MaterialInvoiceItem) => h(NText, { strong: true, type: 'primary' }, { default: () => `${row.quantity} ${row.unit}` })
-  },
-  { 
-    title: 'Сумма', 
-    key: 'amount',
-    render: (row: MaterialInvoiceItem) => h(NText, { strong: true }, { default: () => `${((row.price || 0) * row.quantity).toLocaleString('ru-RU')} ₽` })
-  }
-]
+interface OrderReportEntry {
+  orderNumber: string
+  items: MaterialInvoiceItem[]
+  employees: Set<string>
+}
 
 // Колонки основной таблицы отчета по заказам
-const ordersReportColumns: any[] = [
+const ordersReportColumns: DataTableColumns<OrderReportEntry> = [
   {
     type: 'expand',
-    expandAble: () => true,
-    renderExpand: (row: OrderReportEntry) => {
+    expandable: () => true,
+    renderExpand: (row) => {
       return h('div', { class: 'p-4 bg-[rgba(255,255,255,0.02)] border-t border-gray-800' }, [
         h(NTable, { size: 'small', singleLine: false, striped: true }, {
           default: () => [
@@ -366,7 +344,7 @@ const ordersReport = computed(() => {
 const topEmployees = computed(() => 
   employeesStore.employees
     .map((emp: Employee) => ({ ...emp, operations: (emp.materialHistory?.length || 0) }))
-    .sort((a: any, b: any) => b.operations - a.operations)
+    .sort((a, b) => b.operations - a.operations)
     .slice(0, 5)
 )
 

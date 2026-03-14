@@ -4,7 +4,7 @@
     @update:show="$emit('close')"
     preset="card"
     :title="`Управление QR-кодами заказа: ${orderNumber}`"
-    class="w-225"
+    class="w-200!"
     :auto-focus="false"
   >
     <n-tabs type="line" animated>
@@ -39,7 +39,7 @@
             <tbody>
               <tr v-for="code in orderCodes" :key="code.id">
                 <td>
-                  <n-text code>{{ code.id.substring(0, 8) }}...</n-text>
+                  <n-text code>{{ code.id }}</n-text>
                 </td>
                 <td>{{ code.productName || '—' }}</td>
                 <td>
@@ -272,7 +272,7 @@ const getStatusLabel = (status: string) => {
   return map[status] || status
 }
 
-const formatDate = (date: any) => {
+const formatDate = (date: string | number | Date) => {
   if (!date) return '-'
   return new Intl.DateTimeFormat('ru-RU', {
     day: '2-digit',
@@ -431,7 +431,7 @@ async function handleGenerate() {
     lastGeneratedCodes.value = newCodes
     message.success(`Сгенерировано ${genForm.value.count} кодов`)
     emit('updated')
-  } catch (e) {
+  } catch {
     message.error('Ошибка при генерации')
   } finally {
     isGenerating.value = false

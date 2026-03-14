@@ -234,7 +234,7 @@ import { ref, h, watch, computed, reactive } from 'vue'
 import { useOrdersStore } from '@/stores/orders'
 import { useEmployeesStore } from '@/stores/employees'
 import { useQRCodesStore } from '@/stores/qrCodes'
-import type { Order } from '@/types'
+import type { Order, MaterialInvoiceItem } from '@/types'
 import { 
   NButton, 
   NIcon, 
@@ -252,7 +252,8 @@ import {
   NProgress,
   NInput,
   NSelect,
-  NTable
+  NTable,
+  type DataTableColumns
 } from 'naive-ui'
 import {
   AddCircleOutline,
@@ -405,10 +406,9 @@ const orderInvoices = computed(() => {
 })
 
 // Настройка колонок для реестра накладных внутри заказа
-const invoiceRegistryColumns: any[] = [
+const invoiceRegistryColumns: DataTableColumns<InvoiceRow> = [
   {
     type: 'expand',
-    expandAble: () => true,
     renderExpand: (row: InvoiceRow) => {
       const items = row.items || []
       return h('div', { 
@@ -430,7 +430,7 @@ const invoiceRegistryColumns: any[] = [
                 h('th', { class: 'text-right' }, { default: () => 'Ед. изм.' })
               ])
             ]),
-            h('tbody', items.map((item: any) => h('tr', [
+            h('tbody', items.map((item: MaterialInvoiceItem) => h('tr', [
               h('td', item.article || '—'),
               h('td', item.productName),
               h('td', { class: 'text-right' }, item.quantity),
