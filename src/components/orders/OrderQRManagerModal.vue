@@ -173,10 +173,11 @@ import {
 import { 
   PrintOutline, TrashOutline, QrCodeOutline 
 } from '@vicons/ionicons5'
+import QRCode from 'qrcode'
 import QRPrintModal from '@/components/common/QRPrintModal.vue'
 import { useQRCodesStore } from '@/stores/qrCodes'
 import { useUserStore } from '@/stores/user'
-import type { OrderItem, QRCode } from '@/types'
+import type { OrderItem, QRCode as QRType } from '@/types'
 
 const props = defineProps<{
   show: boolean
@@ -193,7 +194,7 @@ const dialog = useDialog()
 const message = useMessage()
 
 const isGenerating = ref(false)
-const lastGeneratedCodes = ref<QRCode[]>([])
+const lastGeneratedCodes = ref<QRType[]>([])
 
 // Форма генерации
 const genForm = ref({
@@ -282,7 +283,7 @@ const formatDate = (date: string | number | Date) => {
   }).format(new Date(date))
 }
 
-const handleRemove = (code: QRCode) => {
+const handleRemove = (code: QRType) => {
   dialog.warning({
     title: 'Удаление кода',
     content: `Вы уверены, что хотите удалить код для ${code.productName}?`,
@@ -295,7 +296,7 @@ const handleRemove = (code: QRCode) => {
   })
 }
 
-const handlePrint = (code: QRCode) => {
+const handlePrint = (code: QRType) => {
   // Выводим инфо только если оно заполнено и отличается от названия детали
   const hasExtraInfo = code.label?.info && code.label.info.trim() !== '' && code.label.info !== code.productName
   
@@ -307,7 +308,7 @@ const handlePrint = (code: QRCode) => {
   showSinglePrintModal.value = true
 }
 
-const handlePrintAll = () => {
+const handlePrintAll = async () => {
   if (orderCodes.value.length === 0) return
   
   const printWindow = window.open('', '_blank')
@@ -316,83 +317,53 @@ const handlePrintAll = () => {
     return
   }
 
-  const itemsHtml = orderCodes.value.map(code => {
-    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(code.code)}`
+  // Генерируем QR-коды локально в DataURL
+  const itemsHtml = await Promise.all(orderCodes.value.map(async code => {
+    const qrDataUrl = await QRCode.toDataURL(code.code, { 
+      width: 300, 
+      margin: 1,
+      color: { dark: '#000000', light: '#ffffff' }
+    })
     
-    // Проверяем наличие доп. информации, отличной от названия
     const info = code.label?.info ? code.label.info.trim() : ''
     const showInfo = info !== '' && info !== code.productName
     
     return `
       <div class="qr-label">
-        <img src="${qrUrl}" class="qr-image" />
+        <img src="${qrDataUrl}" class="qr-image" />
         <div class="label-title">${code.orderNumber}</div>
         <div class="qr-product-name">${code.productName || ''}</div>
         ${showInfo ? `<div class="qr-description">${info}</div>` : ''}
       </div>
     `
-  }).join('<div class="page-break"></div>')
+  }))
+
+  const finalHtml = itemsHtml.join('<div class="page-break"></div>')
 
   printWindow.document.write(`
     <html>
       <head>
         <title>Печать всех QR-кодов заказа ${props.orderNumber}</title>
         <style>
-          body { 
-            font-family: sans-serif; 
-            margin: 0; 
-            padding: 0;
-          }
+          @page { margin: 0; size: auto; }
+          body { font-family: sans-serif; margin: 0; padding: 0; background: white; color: black; }
           .qr-label { 
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            text-align: center; 
-            padding: 10px; 
-            width: 280px;
-            height: 380px;
-            margin: 0 auto;
-            box-sizing: border-box;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            text-align: center; padding: 5px; width: 100%; height: 100vh; box-sizing: border-box;
           }
-          .qr-image { 
-            width: 250px; 
-            height: 250px; 
-            margin-bottom: 10px; 
-          }
-          .label-title { 
-            font-size: 18px; 
-            font-weight: bold; 
-            margin-bottom: 5px;
-            width: 100%;
-          }
-          .qr-product-name {
-            font-size: 16px;
-            font-weight: bold;
-            margin-bottom: 5px;
-          }
-          .qr-description { 
-            font-family: monospace;
-            font-size: 14px; 
-            font-weight: normal;
-          }
-          .page-break {
-            page-break-after: always;
-          }
-          @media print {
-            .qr-label {
-              height: 100vh;
-              width: 100vw;
-            }
-          }
+          .qr-image { width: 70%; max-width: 250px; height: auto; margin-bottom: 5px; }
+          .label-title { font-size: 16px; font-weight: bold; margin-bottom: 2px; }
+          .qr-product-name { font-size: 14px; font-weight: bold; margin-bottom: 2px; }
+          .qr-description { font-size: 12px; font-weight: normal; font-family: monospace; }
+          .page-break { page-break-after: always; }
         </style>
       </head>
       <body>
-        ${itemsHtml}
+        ${finalHtml}
         <script>
           window.onload = () => {
             window.print();
-            window.close();
+            window.setTimeout(() => window.close(), 500);
           };
         <\/script>
       </body>
@@ -401,13 +372,75 @@ const handlePrintAll = () => {
   printWindow.document.close()
 }
 
-const handlePrintLastGenerated = () => {
-  const code = lastGeneratedCodes.value[0]
-  if (lastGeneratedCodes.value.length === 1 && code) {
-    handlePrint(code)
-  } else if (lastGeneratedCodes.value.length > 1) {
-    message.info(`Отправка пачки на печать: ${lastGeneratedCodes.value.length} шт.`)
+const handlePrintLastGenerated = async () => {
+  const codes = lastGeneratedCodes.value
+  if (codes.length === 0) return
+
+  if (codes.length === 1) {
+    handlePrint(codes[0])
+    return
   }
+
+  // Печать пачки кодов локально
+  const printWindow = window.open('', '_blank')
+  if (!printWindow) {
+    message.error('Заблокировано всплывающее окно. Разрешите его для печати.')
+    return
+  }
+
+  const itemsHtml = await Promise.all(codes.map(async code => {
+    const qrDataUrl = await QRCode.toDataURL(code.code, { 
+      width: 300, 
+      margin: 1,
+      color: { dark: '#000000', light: '#ffffff' }
+    })
+
+    const info = code.label?.info ? code.label.info.trim() : ''
+    const showInfo = info !== '' && info !== code.productName
+    
+    return `
+      <div class="qr-label">
+        <img src="${qrDataUrl}" class="qr-image" />
+        <div class="label-title">${code.orderNumber}</div>
+        <div class="qr-product-name">${code.productName || ''}</div>
+        ${showInfo ? `<div class="qr-description">${info}</div>` : ''}
+      </div>
+    `
+  }))
+
+  const finalHtml = itemsHtml.join('<div class="page-break"></div>')
+
+  printWindow.document.write(`
+    <html>
+      <head>
+        <title>Печать QR-кодов (${codes.length} шт.)</title>
+        <style>
+          @page { margin: 0; size: auto; }
+          body { font-family: sans-serif; margin: 0; padding: 0; background: white; color: black; }
+          .qr-label { 
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            text-align: center; padding: 5px; width: 100%; height: 100vh; box-sizing: border-box;
+          }
+          .qr-image { width: 70%; max-width: 250px; height: auto; margin-bottom: 5px; }
+          .label-title { font-size: 16px; font-weight: bold; margin-bottom: 2px; }
+          .qr-product-name { font-size: 14px; font-weight: bold; margin-bottom: 2px; }
+          .qr-description { font-size: 12px; font-weight: normal; font-family: monospace; }
+          .page-break { page-break-after: always; }
+        </style>
+      </head>
+      <body>
+        ${finalHtml}
+        <script>
+          window.onload = () => {
+            window.print();
+            window.setTimeout(() => window.close(), 500);
+          };
+        <\/script>
+      </body>
+    </html>
+  `)
+  printWindow.document.close()
+  message.success(`Отправлено на печать: ${codes.length} шт.`)
 }
 
 async function handleGenerate() {

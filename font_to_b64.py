@@ -1,35 +1,35 @@
 import base64
 import os
 
-# Путь к локальным ресурсам, где может быть шрифт.
-# Часто в проектах Vue/Vite шрифты лежат в public/fonts или src/assets/fonts.
-# Но так как мы их не нашли, попробуем поискать в node_modules что-то .ttf
-search_dirs = [
-    '/home/alex/sklad/sklad/node_modules'
+def convert_font_to_base64(font_path, output_path):
+    if not os.path.exists(font_path):
+        print(f"Error: {font_path} not found")
+        return False
+    
+    with open(font_path, "rb") as font_file:
+        encoded_string = base64.b64encode(font_file.read()).decode('utf-8')
+    
+    # Мы используем имя экспорта fontBase64, который ожидается в Inventory.vue
+    with open(output_path, "w") as ts_file:
+        ts_file.write(f"export const fontBase64 = '{encoded_string}';\n")
+    
+    return True
+
+# Попробуем найти стандартные пути к шрифтам в Linux
+possible_fonts = [
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+    "/usr/share/fonts/truetype/freefont/FreeSans.ttf"
 ]
 
-found_fonts = []
-for sd in search_dirs:
-    for root, dirs, files in os.walk(sd):
-        for file in files:
-            if file.endswith(".ttf") and "cyrillic" in file.lower():
-                found_fonts.append(os.path.join(root, file))
+font_found = False
+output_file = "/home/alex/sklad/sklad/src/assets/font-base64.ts"
 
-if found_fonts:
-    font_path = found_fonts[0]
-    with open(font_path, "rb") as f:
-        encoded = base64.b64encode(f.read()).decode("utf-8")
-        with open('/home/alex/sklad/sklad/src/assets/font-base64.ts', "w") as out:
-            out.write(f"export const robotoFont = '{encoded}';")
-        print(f"Font {font_path} converted successfully")
-else:
-    # План Б: Если TTF нет, используем системный шрифт (если он есть в Linux контейнере)
-    system_font = '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'
-    if os.path.exists(system_font):
-        with open(system_font, "rb") as f:
-            encoded = base64.b64encode(f.read()).decode("utf-8")
-            with open('/home/alex/sklad/sklad/src/assets/font-base64.ts', "w") as out:
-                out.write(f"export const robotoFont = '{encoded}';")
-            print("System font converted successfully")
-    else:
-        print("No suitable font found")
+for font in possible_fonts:
+    if convert_font_to_base64(font, output_file):
+        print(f"Successfully converted {font}")
+        font_found = True
+        break
+
+if not font_found:
+    print("No suitable system font found to convert.")

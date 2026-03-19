@@ -310,6 +310,7 @@ export interface InventoryItem {
   categoryId: string;
   description?: string;
   unit: string; // шт, м, кг, литр, м²
+  image?: string; // base64 или URL
   currentStock: number;
   minStock: number;
   maxStock: number;
@@ -338,6 +339,9 @@ export interface InventoryItem {
   lastIssued?: Date;
   totalConsumed: number;
   popularity: number; // 1-10
+  
+  // Количество в пути
+  onOrderQuantity?: number;
 
   // Статус
   status: 'in_stock' | 'low_stock' | 'out_of_stock' | 'reserved' | 'on_order' | 'blocked';

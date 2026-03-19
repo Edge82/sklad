@@ -122,6 +122,34 @@
             striped />
         </n-card>
       </n-tab-pane>
+
+      <!-- Накладные и документы -->
+      <n-tab-pane name="shipments" tab="Накладные и документы">
+        <n-card title="Производственная активность и отгрузки" class="mb-4">
+          <n-space vertical>
+            <div class="flex gap-4 mb-4">
+              <n-date-picker v-model:value="reportParams.shipments.dateRange" type="daterange" clearable
+                placeholder="Период" class="w-75" />
+              <n-button type="primary" @click="generateShipmentReport">
+                <template #icon>
+                  <n-icon>
+                    <RefreshOutline />
+                  </n-icon>
+                </template>
+                Обновить
+              </n-button>
+            </div>
+
+            <n-data-table 
+              :columns="orderShipmentColumns" 
+              :data="orderShipmentData" 
+              :pagination="{ pageSize: 10 }"
+              v-model:expanded-row-keys="expandedRowKeys"
+              striped 
+            />
+          </n-space>
+        </n-card>
+      </n-tab-pane>
     </n-tabs>
 
     <div class="flex justify-end gap-3 mt-6">
@@ -131,9 +159,11 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, computed, h } from 'vue'
+import { reactive, computed, h, ref } from 'vue'
 import { useInventoryStore } from '@/stores/inventory'
-import type { InventoryItem } from '@/types'
+import { useOrdersStore } from '@/stores/orders'
+import { useShipmentsStore } from '@/stores/shipments'
+import type { InventoryItem, Order, OrderShipment } from '@/types'
 import type { DataTableColumns } from 'naive-ui'
 import {
   NModal,
@@ -153,6 +183,7 @@ import {
   NGrid,
   NGi,
   NTag,
+  NEmpty,
   useMessage
 } from 'naive-ui'
 import {
@@ -203,12 +234,17 @@ const emit = defineEmits<{
 }>()
 
 const inventoryStore = useInventoryStore()
+const ordersStore = useOrdersStore()
+const shipmentsStore = useShipmentsStore()
 const message = useMessage()
 
 const showModal = computed({
   get: () => props.show,
   set: (value) => emit('update:show', value)
 })
+
+// Состояние развернутых строк
+const expandedRowKeys = ref<string[]>([])
 
 // Параметры отчетов
 const reportParams = reactive({
@@ -219,6 +255,9 @@ const reportParams = reactive({
   movement: {
     dateRange: null as [number, number] | null,
     type: null as string | null
+  },
+  shipments: {
+    dateRange: null as [number, number] | null
   }
 })
 
@@ -238,6 +277,81 @@ const transactionTypeOptions = [
   { label: 'Резервирование', value: 'reservation' },
   { label: 'Списание', value: 'write_off' }
 ]
+
+// Отчет по поставкам и накладным
+const orderShipmentColumns: DataTableColumns<Order> = [
+  {
+    type: 'expand',
+    renderExpand: (row) => {
+      const shipments = shipmentsStore.shipments.filter(s => s.orderId === row.id)
+      if (shipments.length === 0) return h(NEmpty, { description: 'Накладные отсутствуют' })
+      
+      return h(NDataTable, {
+        size: 'small',
+        columns: [
+          { title: '№ Накладной', key: 'shipmentNumber', width: 150 },
+          { title: 'Дата', key: 'createdAt', width: 150, render: (s) => (s as OrderShipment).createdAt ? formatDate(new Date((s as OrderShipment).createdAt)) : '-' },
+          { title: 'Статус', key: 'status', width: 120, render: (s) => h(NTag, { size: 'small', type: (s as OrderShipment).status === 'completed' ? 'success' : 'warning' }, { default: () => (s as OrderShipment).status === 'completed' ? 'Отгружена' : 'В процессе' }) },
+          { title: 'Пункт назначения', key: 'destination', width: 200 },
+          { title: 'Водитель', key: 'driverName', width: 150 }
+        ],
+        data: shipments
+      })
+    }
+  },
+  { title: '№ Заказа', key: 'orderNumber', width: 120 },
+  { title: 'Клиент', key: 'customerName', width: 200 },
+  { 
+    title: 'Статус', 
+    key: 'status', 
+    width: 150,
+    render: (row) => h(NTag, { 
+      type: row.status === 'ready' ? 'success' : row.status === 'shipped' ? 'info' : 'warning',
+      size: 'small' 
+    }, { default: () => getOrderStatusLabel(row.status) })
+  },
+  { title: 'Срок', key: 'deadline', width: 120, render: (row) => row.deadline ? formatDate(new Date(row.deadline)) : '-' },
+  {
+    title: 'Прогресс',
+    key: 'progress',
+    render: (row) => {
+      const items = row.items || []
+      const total = items.length
+      const ready = items.filter(i => (i.actualQuantity || 0) >= (i.plannedQuantity || 1)).length
+      return h('div', { class: 'flex items-center gap-2' }, [
+        h('span', `${ready}/${total}`),
+        h(NTag, { size: 'tiny', disabled: total === 0 }, { default: () => `${total > 0 ? Math.round((ready/total)*100) : 0}%` })
+      ])
+    }
+  }
+]
+
+const orderShipmentData = computed(() => {
+  let filtered = ordersStore.orders
+  if (reportParams.shipments.dateRange) {
+    const [start, end] = reportParams.shipments.dateRange
+    filtered = filtered.filter(o => {
+      const date = new Date(o.createdAt).getTime()
+      return date >= start && date <= end
+    })
+  }
+  return filtered
+})
+
+const getOrderStatusLabel = (status: string) => {
+  const map: Record<string, string> = {
+    'new': 'Новый',
+    'in_progress': 'В работе',
+    'ready': 'Готов',
+    'shipped': 'Отгружен',
+    'cancelled': 'Отменен'
+  }
+  return map[status] || status
+}
+
+const generateShipmentReport = () => {
+  message.success('Данные по накладным обновлены')
+}
 
 // Отчет по остаткам
 const stockReportColumns: DataTableColumns<StockReportRow> = [

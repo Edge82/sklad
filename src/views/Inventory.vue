@@ -284,6 +284,18 @@
             <n-icon><SearchOutline /></n-icon>
           </template>
         </n-input>
+        <n-button @click="exportToExcel" secondary type="success">
+          <template #icon>
+            <n-icon><DownloadOutline /></n-icon>
+          </template>
+          Excel
+        </n-button>
+        <n-button @click="exportToPDF" secondary type="error">
+          <template #icon>
+            <n-icon><DownloadOutline /></n-icon>
+          </template>
+          PDF
+        </n-button>
         <n-button @click="resetFilters" quaternary type="warning">
           Сбросить
         </n-button>
@@ -443,6 +455,10 @@
 
 <script setup lang="ts">
 import { ref, reactive, computed, h } from 'vue'
+import * as XLSX from 'xlsx'
+import { jsPDF } from 'jspdf'
+import autoTable from 'jspdf-autotable'
+import { fontBase64 } from '@/assets/font-base64'
 import { useInventoryStore } from '@/stores/inventory'
 import { useOrdersStore } from '@/stores/orders'
 import type { InventoryItem, InventoryTransaction, MaterialInvoice } from '@/types'
@@ -460,13 +476,15 @@ import {
   NInputNumber,
   NFormItem,
   NDataTable,
+  NImage,
   NList,
   NListItem,
   NThing,
   NTag,
   NAvatar,
   NH3,
-  NCollapseTransition
+  NCollapseTransition,
+  NPopover
 } from 'naive-ui'
 import {
   DownloadOutline,
@@ -656,8 +674,13 @@ const filteredItems = computed(() => {
   }
 
   // Фильтр по статусу (если это не наш специальный статус)
-  if (filters.status && !['ready_to_ship', 'awaiting_shipment', 'in_work', 'reserved', 'all_products'].includes(filters.status)) {
+  if (filters.status && !['ready_to_ship', 'awaiting_shipment', 'in_work', 'reserved', 'all_products', 'on_order'].includes(filters.status)) {
     result = result.filter(item => item.status === filters.status)
+  }
+
+  // Фильтр по статусу "В пути"
+  if (filters.status === 'on_order') {
+    result = result.filter(item => item.status === 'on_order')
   }
 
   // Фильтр по резерву
@@ -697,12 +720,12 @@ const filteredOutOfStockCount = computed(() => {
   return baseItemsForStats.value.filter(item => item.status === 'out_of_stock').length
 })
 
-const filteredReservedCount = computed(() => {
-  return baseItemsForStats.value.reduce((sum, item) => sum + (item.reserved || 0), 0)
-})
-
 const filteredOnOrderCount = computed(() => {
   return baseItemsForStats.value.filter(item => item.status === 'on_order').length
+})
+
+const filteredReservedCount = computed(() => {
+  return baseItemsForStats.value.reduce((sum, item) => sum + (item.reserved || 0), 0)
 })
 
 const averageReadiness = computed(() => {
@@ -809,6 +832,76 @@ const tableData = computed<InventoryTableRow[]>(() => {
   return result
 })
 
+const exportToExcel = () => {
+  const dataToExport = filteredItems.value.map(item => ({
+    'Название': item.name,
+    'Артикул': item.sku,
+    'Категория': item.category,
+    'Остаток': item.currentStock,
+    'Ед. изм.': item.unit,
+    'Резерв': item.reserved || 0,
+    'Доступно': (item.currentStock - (item.reserved || 0)),
+    'Статус': inventoryStore.getStatusLabel(item.status),
+    'Место': item.location || '-',
+    'Цена (за ед.)': item.averagePrice || 0,
+    'Общая стоимость': (item.currentStock * (item.averagePrice || 0))
+  }))
+
+  const ws = XLSX.utils.json_to_sheet(dataToExport)
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, ws, 'Склад')
+  
+  const fileName = props.mode === 'product' ? 'Sklad_Produkcia.xlsx' : 'Sklad_Materialy.xlsx'
+  XLSX.writeFile(wb, fileName)
+  message.success('Данные успешно экспортированы в Excel')
+}
+
+const exportToPDF = () => {
+  const doc = new jsPDF()
+  
+  // Добавляем шрифт с поддержкой кириллицы
+  // Регистрируем его и как normal, и как bold, чтобы избежать ошибок jspdf-autotable
+  doc.addFileToVFS('customFont.ttf', fontBase64)
+  doc.addFont('customFont.ttf', 'customFont', 'normal')
+  doc.addFont('customFont.ttf', 'customFont', 'bold')
+  doc.setFont('customFont')
+  
+  const title = props.mode === 'product' ? 'Отчет по готовой продукции' : 'Отчет по складским остаткам'
+  doc.text(title, 14, 15)
+  
+  const tableRows = filteredItems.value.map(item => [
+    item.name,
+    item.sku,
+    item.currentStock,
+    item.unit,
+    inventoryStore.getStatusLabel(item.status),
+    item.location || '-'
+  ])
+
+  autoTable(doc, {
+    head: [['Наименование', 'Артикул', 'Остаток', 'Ед.', 'Статус', 'Место']],
+    body: tableRows,
+    startY: 25,
+    styles: { 
+      font: 'customFont',
+      fontStyle: 'normal',
+      fontSize: 8 
+    },
+    headStyles: { 
+      font: 'customFont',
+      fontStyle: 'bold',
+      fillColor: [66, 133, 244] 
+    },
+    didDrawPage: (data) => {
+      doc.setFont('customFont')
+    }
+  })
+
+  const fileName = props.mode === 'product' ? 'Sklad_Produkcia.pdf' : 'Sklad_Materialy.pdf'
+  doc.save(fileName)
+  message.success('Данные успешно экспортированы в PDF')
+}
+
 // Колонки таблицы
 const columns: DataTableColumns<InventoryTableRow> = [
   {
@@ -829,9 +922,16 @@ const columns: DataTableColumns<InventoryTableRow> = [
           isGrouped.value ? 'pl-8 border-l-2 border-blue-400/30 -ml-3' : ''
         ]
       }, [
-        h('div', { class: 'w-8 h-8 bg-gray-800 rounded flex items-center justify-center shrink-0' },
-          h(NIcon, { size: '16' }, () => getCategoryIcon(item.categoryId))
-        ),
+        item.image 
+          ? h(NImage, {
+              src: item.image,
+              width: 32,
+              height: 32,
+              class: 'rounded object-cover shrink-0 border'
+            })
+          : h('div', { class: 'w-8 h-8 bg-gray-800 rounded flex items-center justify-center shrink-0' },
+              h(NIcon, { size: '16' }, () => getCategoryIcon(item.categoryId))
+            ),
         h('div', [
           h('div', { class: 'font-medium' }, item.name),
           h('div', { class: 'text-xs text-gray-400' }, item.sku)
@@ -866,7 +966,17 @@ const columns: DataTableColumns<InventoryTableRow> = [
           h('span', { class: item.currentStock <= item.minStock ? 'text-yellow-500' : '' },
             `${item.currentStock} ${item.unit}`
           ),
-          item.reserved > 0 && h('span', { class: 'text-gray-500 ml-2' }, `(${item.reserved} резерв)`)
+          item.reserved > 0 && h('span', { class: 'text-gray-500 ml-2' }, `(${item.reserved} резерв)`),
+          item.onOrderQuantity && item.onOrderQuantity > 0 ? 
+            h(NPopover, { trigger: 'hover', placement: 'top' }, {
+              trigger: () => h('span', { class: 'text-blue-500 ml-2 cursor-help text-[11px] font-bold' }, `(+${item.onOrderQuantity} в пути)`),
+              default: () => h('div', { class: 'p-1' }, [
+                h('div', { class: 'font-bold mb-1 border-b pb-1 text-blue-600' }, 'Ожидаемая поставка'),
+                h('div', `Будет зачислено: ${item.onOrderQuantity} ${item.unit}`),
+                h('div', { class: 'text-[10px] text-gray-500 mt-1 italic' }, 'Данные о поставке отображаются всегда до момента фактического прихода')
+              ])
+            })
+            : null
         ]),
         h('div', { class: 'text-xs text-gray-500' },
           `Доступно: ${item.available} ${item.unit}`
@@ -1141,11 +1251,33 @@ const handleItemSubmit = (itemData: Partial<InventoryItem>) => {
   selectedItemId.value = null
 }
 
-const handleTransactionSubmit = (transactionData: Partial<InventoryTransaction>) => {
-  const { itemId, quantity, type, ...rest } = transactionData
-  if (itemId && quantity && type) {
-    // Обновляем остатки на складе
-    inventoryStore.updateStock(itemId, quantity, type, rest)
+const handleTransactionSubmit = (transactionData: Partial<InventoryTransaction> & { newStatus?: InventoryItem['status'] }) => {
+  const { itemId, quantity, type, newStatus, ...rest } = transactionData
+  if (itemId && (quantity !== undefined) && type) {
+    // Если передан новый статус (например, при приходе), обновляем его у товара до проведения транзакции
+    if (newStatus && type === 'incoming') {
+      const updates: Partial<InventoryItem> = { status: newStatus }
+      
+      // Если статус "В пути", записываем количество в специальное поле, не меняя остаток
+      if (newStatus === 'on_order') {
+        updates.onOrderQuantity = (inventoryStore.items.find(i => i.id === itemId)?.onOrderQuantity || 0) + quantity
+      }
+      
+      inventoryStore.updateItem(itemId, updates)
+    }
+
+    // Обновляем остатки на складе только если количество больше 0 и это не статус "В пути"
+    if (quantity > 0 && newStatus !== 'on_order') {
+      inventoryStore.updateStock(itemId, quantity, type, rest)
+      
+      // Если пришел товар, который был "в пути", очищаем это поле или уменьшаем его
+      const item = inventoryStore.items.find(i => i.id === itemId)
+      if (item && item.onOrderQuantity) {
+        inventoryStore.updateItem(itemId, { 
+          onOrderQuantity: Math.max(0, item.onOrderQuantity - quantity) 
+        })
+      }
+    }
     
     // Добавляем запись в общую историю движений для "Движения материалов"
     const item = inventoryStore.items.find(i => i.id === itemId)

@@ -21,9 +21,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { ref, watch } from 'vue'
 import { PrintOutline } from '@vicons/ionicons5'
 import { NModal, NButton, NSpace, NIcon } from 'naive-ui'
+import QRCode from 'qrcode'
 
 const props = defineProps<{
   show: boolean
@@ -34,9 +35,22 @@ const props = defineProps<{
 
 defineEmits(['update:show'])
 
-const qrUrl = computed(() => {
-  return `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(props.code)}`
-})
+const qrUrl = ref('')
+
+// Локально генерируем QR в формате DataURL
+watch(() => props.code, async (newCode) => {
+  if (newCode) {
+    try {
+      qrUrl.value = await QRCode.toDataURL(newCode, { 
+        width: 300, 
+        margin: 1,
+        color: { dark: '#000000', light: '#ffffff' }
+      })
+    } catch (err) {
+      console.error('Ошибка генерации QR:', err)
+    }
+  }
+}, { immediate: true })
 
 function handlePrint() {
   const printContents = document.getElementById('qr-print-content')?.innerHTML

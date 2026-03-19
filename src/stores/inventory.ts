@@ -655,6 +655,11 @@ export const useInventoryStore = defineStore('inventory', () => {
   }
 
   const updateItemStatus = (item: InventoryItem) => {
+    // If the status is 'on_order', we don't change it based on standard logic
+    if (item.status === 'on_order' && (Number(item.currentStock) || 0) === 0) {
+      return
+    }
+
     const stock = Number(item.currentStock) || 0
     const reserved = Number(item.reserved) || 0
     const price = Number(item.averagePrice) || 0

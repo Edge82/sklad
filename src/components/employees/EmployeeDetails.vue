@@ -102,7 +102,7 @@
     >
       <n-tab-pane name="document" tab="Накладные и документы">
         <div class="py-4 h-full bg-[#101014] overflow-y-auto">
-          <div v-if="!selectedInvoice" class="px-4">
+          <div class="px-4">
             <n-card title="Реестр производственных накладных" border-variant="dark" class="shadow-2xl">
               <template #header-extra>
                 <div class="flex items-center gap-2">
@@ -113,22 +113,17 @@
                 :columns="invoiceColumns" 
                 :data="currentEmployee.materialHistory || []" 
                 :pagination="{ pageSize: 10 }"
+                :row-key="(row) => row.id || row.orderNumber"
                 striped
                 :row-props="(row: any) => ({
                   style: 'cursor: pointer',
-                  onClick: () => { selectedInvoice = row },
-                  class: 'group'
+                  onClick: () => {
+                    handleRowClick(row.id || row.orderNumber)
+                  }
                 })"
+                v-model:expanded-row-keys="expandedInvoices"
               />
             </n-card>
-          </div>
-          <div v-else class="px-4">
-            <EmployeeProductionDocument 
-              :employee="currentEmployee"
-              :tools="[]"
-              :scannedItems="[]"
-              :materials="[selectedInvoice]"
-            />
           </div>
         </div>
       </n-tab-pane>
@@ -223,7 +218,8 @@ import {
   CashOutline,
   BuildOutline,
   TimeOutline,
-  LogInOutline
+  LogInOutline,
+  PrintOutline
 } from '@vicons/ionicons5'
 
 const props = withDefaults(defineProps<{
@@ -235,6 +231,15 @@ const props = withDefaults(defineProps<{
 
 import type { MaterialInvoice, Tool } from '@/types'
 const selectedInvoice = ref<MaterialInvoice | null>(null)
+const expandedInvoices = ref<string[]>([])
+
+const handleRowClick = (id: string) => {
+  if (expandedInvoices.value.includes(id)) {
+    expandedInvoices.value = expandedInvoices.value.filter(key => key !== id)
+  } else {
+    expandedInvoices.value = [...expandedInvoices.value, id]
+  }
+}
 
 // Используем сторы для получения самой актуальной копии данных
 const employeesStore = useEmployeesStore()
@@ -296,6 +301,24 @@ const confirmReturn = () => {
 }
 
 const invoiceColumns: DataTableColumns<MaterialInvoice> = [
+  {
+    type: 'expand',
+    renderExpand: (row) => {
+      return h('div', { class: 'p-0 bg-[#0c0c0e] rounded-lg overflow-hidden border border-gray-800 my-2' }, [
+        h(EmployeeProductionDocument, {
+          materials: [row],
+          tools: [],
+          scannedItems: []
+        }),
+        h('div', { class: 'p-4 bg-[#16161a] border-t border-gray-800 flex justify-end' }, [
+          h('div', { class: 'text-gray-400 text-sm flex items-center' }, [
+            h('span', 'Итоговая сумма комплектации: '),
+            h('span', { class: 'text-white font-bold text-lg ml-3 tracking-tight' }, formatCurrency(row.totalAmount || 0))
+          ])
+        ])
+      ])
+    }
+  },
   {
     title: 'Заказ №',
     key: 'orderNumber',

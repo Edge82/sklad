@@ -58,6 +58,14 @@
           </n-form-item>
         </n-gi>
 
+        <!-- Статус (для прихода) -->
+        <n-gi v-if="props.type === 'incoming'">
+          <n-form-item label="Статус после прихода" path="newStatus">
+            <n-select v-model:value="formData.newStatus" :options="statusOptions"
+              placeholder="Изменить статус материала" />
+          </n-form-item>
+        </n-gi>
+
         <!-- Тип документа -->
         <n-gi>
           <n-form-item label="Тип документа" path="documentType">
@@ -157,10 +165,20 @@ const formData = reactive({
   unitPrice: 0,
   documentNumber: '',
   documentType: undefined as InventoryTransaction['documentType'],
+  newStatus: 'in_stock' as InventoryItem['status'],
   reason: '',
   sourceLocation: '',
   destinationLocation: ''
 })
+
+const statusOptions = [
+  { label: 'В наличии', value: 'in_stock' },
+  { label: 'Мало осталось', value: 'low_stock' },
+  { label: 'Отсутствует', value: 'out_of_stock' },
+  { label: 'Зарезервировано', value: 'reserved' },
+  { label: 'В пути', value: 'on_order' },
+  { label: 'Заблокировано', value: 'blocked' }
+]
 
 // Опции для селектов
 const itemOptions = computed(() => {
@@ -228,6 +246,7 @@ const quantityHint = computed(() => {
 
 const minQuantity = computed(() => {
   if (props.type === 'adjustment') return -Infinity
+  if (props.type === 'incoming') return 0
   return 0.01
 })
 
@@ -236,7 +255,7 @@ const maxQuantity = computed(() => {
 
   switch (props.type) {
     case 'incoming':
-      return selectedItem.value.maxStock - selectedItem.value.currentStock
+      return Infinity // Убираем ограничение на максимальный запас при приходе
     case 'outgoing':
     case 'reservation':
       return selectedItem.value.available
@@ -309,8 +328,9 @@ const rules: FormRules = {
     { required: true, message: 'Введите количество', trigger: 'blur', type: 'number' },
     {
       validator: (_, value) => {
-        if (value <= 0) return new Error('Количество должно быть больше 0')
-        if (value > maxQuantity.value) {
+        if (value < 0) return new Error('Количество не может быть отрицательным')
+        if (props.type !== 'incoming' && value <= 0) return new Error('Количество должно быть больше 0')
+        if (value > maxQuantity.value && props.type !== 'incoming') {
           return new Error(`Максимально допустимое количество: ${maxQuantity.value}`)
         }
         return true
@@ -375,6 +395,7 @@ const handleCancel = () => {
     unitPrice: 0,
     documentNumber: '',
     documentType: '',
+    newStatus: 'in_stock',
     reason: '',
     sourceLocation: '',
     destinationLocation: ''
