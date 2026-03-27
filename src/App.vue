@@ -16,15 +16,32 @@
 <script setup lang="ts">
 import { darkTheme, ruRU, dateRuRU } from 'naive-ui'
 import { useUserStore } from '@/stores/user'
+import { useIntegrationStore } from '@/stores/integration'
+import { onMounted } from 'vue'
 import Layout from '@/components/layout/Layout.vue'
 
 const userStore = useUserStore()
+const integrationStore = useIntegrationStore()
 const theme = darkTheme
 
 import '@/assets/main.css'
 
 // Проверка сохраненной сессии
 userStore.checkAuth()
+
+// Автоматическая синхронизация при запуске
+onMounted(() => {
+  if (userStore.isAuthenticated) {
+    integrationStore.syncWith1C()
+  }
+  
+  // Интервал синхронизации (раз в час)
+  setInterval(() => {
+    if (userStore.isAuthenticated) {
+      integrationStore.syncWith1C()
+    }
+  }, 3600000)
+})
 </script>
 
 <style>

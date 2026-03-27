@@ -4,9 +4,27 @@
     <div class="flex justify-between items-center mb-6">
       <div>
         <n-h1>{{ pageTitle }}</n-h1>
-        <n-text depth="3">Управление материалами и запасами склада</n-text>
+        <div class="flex items-center gap-2">
+          <n-text depth="3">Управление материалами и запасами склада</n-text>
+          <n-divider vertical />
+          <n-text depth="3" class="text-xs">Последняя синхронизация с 1С: {{ formatLastSync(integrationStore.lastSyncTime) }}</n-text>
+        </div>
       </div>
       <div class="flex gap-3">
+        <n-button 
+          v-if="mode !== 'product'" 
+          @click="handleSync1C" 
+          :loading="integrationStore.loading"
+          secondary
+        >
+          <template #icon>
+            <n-icon><SyncOutline /></n-icon>
+          </template>
+          Синхронизация с 1С
+          <template v-if="integrationStore.syncProgress > 0">
+            ({{ integrationStore.syncProgress }}%)
+          </template>
+        </n-button>
         <n-button v-if="mode !== 'product'" @click="showReceiptModal = true" type="warning">
           <template #icon>
             <n-icon>
@@ -262,7 +280,16 @@
           placeholder="Все категории" 
           :options="categoryOptions" 
           clearable
-          class="w-56!" 
+          class="w-48!" 
+          :consistent-menu-width="false"
+        />
+        <n-select 
+          v-if="props.mode !== 'product'" 
+          v-model:value="filters.warehouse" 
+          placeholder="Все склады" 
+          :options="warehouseOptions" 
+          clearable
+          class="w-48!" 
           :consistent-menu-width="false"
         />
         <n-select 
@@ -271,7 +298,7 @@
           placeholder="Все статусы" 
           :options="statusOptions" 
           clearable
-          class="w-56!" 
+          class="w-44!" 
           :consistent-menu-width="false"
         />
         <n-input 
@@ -307,51 +334,7 @@
         >
           {{ isGrouped ? 'Разгруппировать' : 'Группировать по заказу' }}
         </n-button>
-        <n-button 
-          v-if="props.mode !== 'product'" 
-          quaternary
-          type="primary"
-          @click="showAdvancedFilters = !showAdvancedFilters"
-        >
-          {{ showAdvancedFilters ? 'Скрыть фильтры' : 'Расширенные фильтры' }}
-        </n-button>
       </n-space>
-
-      <!-- Расширенные фильтры -->
-      <n-collapse-transition v-if="props.mode !== 'product'" :show="showAdvancedFilters">
-        <div class="mt-4 pt-4 border-t border-gray-800">
-          <n-grid :cols="4" :x-gap="12">
-            <n-gi>
-              <n-form-item label="Минимальный остаток">
-                <n-input-number v-model:value="advancedFilters.minStock" :min="0" placeholder="От"
-                  class="w-full" />
-              </n-form-item>
-            </n-gi>
-            <n-gi>
-              <n-form-item label="Максимальный остаток">
-                <n-input-number v-model:value="advancedFilters.maxStock" :min="0" placeholder="До"
-                  class="w-full" />
-              </n-form-item>
-            </n-gi>
-            <n-gi>
-              <n-form-item label="Цена от">
-                <n-input-number v-model:value="advancedFilters.minPrice" :min="0" placeholder="Мин цена"
-                  class="w-full">
-                  <template #suffix>₽</template>
-                </n-input-number>
-              </n-form-item>
-            </n-gi>
-            <n-gi>
-              <n-form-item label="Цена до">
-                <n-input-number v-model:value="advancedFilters.maxPrice" :min="0" placeholder="Макс цена"
-                  class="w-full">
-                  <template #suffix>₽</template>
-                </n-input-number>
-              </n-form-item>
-            </n-gi>
-          </n-grid>
-        </div>
-      </n-collapse-transition>
     </n-card>
 
     <!-- Таблица -->
@@ -454,7 +437,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, h } from 'vue'
+import { ref, reactive, computed, h, watch } from 'vue'
 import * as XLSX from 'xlsx'
 import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
@@ -515,6 +498,8 @@ import QRPrintModal from '@/components/common/QRPrintModal.vue'
 import { useDialog, useMessage } from 'naive-ui'
 import { useUserStore } from '@/stores/user'
 import { useEmployeesStore } from '@/stores/employees'
+import { useIntegrationStore } from '@/stores/integration'
+import { SyncOutline } from '@vicons/ionicons5'
 
 const props = defineProps<{
   mode?: 'material' | 'product'
@@ -524,8 +509,24 @@ const inventoryStore = useInventoryStore()
 const ordersStore = useOrdersStore()
 const userStore = useUserStore()
 const employeesStore = useEmployeesStore()
+const integrationStore = useIntegrationStore()
 const dialog = useDialog()
 const message = useMessage()
+
+// Функции интеграции
+const handleSync1C = async () => {
+  await integrationStore.syncWith1C()
+  if (integrationStore.error) {
+    message.error(integrationStore.error)
+  } else {
+    message.success('Синхронизация с 1С завершена успешно')
+  }
+}
+
+const formatLastSync = (dateString: string | null) => {
+  if (!dateString) return 'Никогда'
+  return new Date(dateString).toLocaleString('ru-RU')
+}
 
 // Заголовок страницы
 const pageTitle = computed(() => {
@@ -552,9 +553,10 @@ const printData = reactive({
 const searchQuery = ref('')
 const showAdvancedFilters = ref(false)
 const filters = reactive({
-  category: null as string | null,
-  status: null as string | null,
-  supplier: null as string | null
+  category: undefined as string | undefined,
+  status: undefined as string | undefined,
+  supplier: undefined as string | undefined,
+  warehouse: undefined as string | undefined
 })
 
 const advancedFilters = reactive({
@@ -565,6 +567,7 @@ const advancedFilters = reactive({
 })
 
 // Пагинация
+const currentPage = ref(1)
 const itemsPerPage = ref(10)
 const pageSizeOptions = [
   { label: '10', value: 10 },
@@ -575,17 +578,22 @@ const pageSizeOptions = [
 
 const pagination = computed(() => ({
   pageSize: itemsPerPage.value,
-  page: 1,
+  page: currentPage.value,
   pageCount: Math.ceil(filteredItems.value.length / itemsPerPage.value),
   showSizePicker: true,
   pageSizes: [10, 25, 50, 100],
-  onChange: () => {
-    // Handle page change if needed
+  onChange: (page: number) => {
+    currentPage.value = page
   },
   onUpdatePageSize: (pageSize: number) => {
     itemsPerPage.value = pageSize
+    currentPage.value = 1
   }
 }))
+
+watch([searchQuery, filters, advancedFilters], () => {
+  currentPage.value = 1
+}, { deep: true })
 
 // Опции фильтров
 const categoryOptions = computed<SelectOption[]>(() => {
@@ -593,13 +601,19 @@ const categoryOptions = computed<SelectOption[]>(() => {
     ? inventoryStore.categories.filter(c => c.id === '99') 
     : inventoryStore.categories.filter(c => c.id !== '99')
     
-  return categories.map(cat => ({
+  const options = categories.map(cat => ({
     label: cat.name,
     value: cat.name
   }))
+
+  return [
+    { label: 'Все категории', value: undefined },
+    ...options
+  ]
 })
 
 const statusOptions: SelectOption[] = [
+  { label: 'Все статусы', value: undefined },
   { label: 'В наличии', value: 'in_stock' },
   { label: 'Мало осталось', value: 'low_stock' },
   { label: 'Отсутствует', value: 'out_of_stock' },
@@ -607,6 +621,29 @@ const statusOptions: SelectOption[] = [
   { label: 'В пути', value: 'on_order' },
   { label: 'Заблокировано', value: 'blocked' }
 ]
+
+const warehouseOptions = computed<SelectOption[]>(() => {
+  const warehouses = new Set<string>()
+  baseItemsForStats.value.forEach(item => {
+    if (item.location && item.location !== '—') {
+      // Разделяем, если в location несколько складов через запятую
+      item.location.split(',').forEach(loc => {
+        const trimmed = loc.trim()
+        if (trimmed) warehouses.add(trimmed)
+      })
+    }
+  })
+  
+  const options = Array.from(warehouses).sort().map(w => ({
+    label: w,
+    value: w
+  }))
+  
+  return [
+    { label: 'Все склады', value: undefined },
+    ...options
+  ]
+})
 
 // Базовые элементы для расчета статистики (фильтруются только по модулю: Материалы или Продукция)
 const baseItemsForStats = computed(() => {
@@ -673,6 +710,14 @@ const filteredItems = computed(() => {
     result = result.filter(item => item.category === filters.category)
   }
 
+  // Фильтр по складу
+  if (filters.warehouse) {
+    result = result.filter(item => {
+      if (!item.location || item.location === '—') return false
+      return item.location.includes(filters.warehouse!)
+    })
+  }
+
   // Фильтр по статусу (если это не наш специальный статус)
   if (filters.status && !['ready_to_ship', 'awaiting_shipment', 'in_work', 'reserved', 'all_products', 'on_order'].includes(filters.status)) {
     result = result.filter(item => item.status === filters.status)
@@ -709,7 +754,8 @@ const filteredItems = computed(() => {
 })
 
 const filteredTotalValue = computed(() => {
-  return filteredItems.value.reduce((sum, item) => sum + (Number(item.currentStock) * Number(item.averagePrice || 0)), 0)
+  const sum = filteredItems.value.reduce((s, item) => s + (Number(item.currentStock) * Number(item.averagePrice || 0)), 0)
+  return Number(sum.toFixed(2))
 })
 
 const filteredLowStockCount = computed(() => {
@@ -725,7 +771,8 @@ const filteredOnOrderCount = computed(() => {
 })
 
 const filteredReservedCount = computed(() => {
-  return baseItemsForStats.value.reduce((sum, item) => sum + (item.reserved || 0), 0)
+  const sum = baseItemsForStats.value.reduce((s, item) => s + (item.reserved || 0), 0)
+  return Number(sum.toFixed(3))
 })
 
 const averageReadiness = computed(() => {
@@ -963,10 +1010,12 @@ const columns: DataTableColumns<InventoryTableRow> = [
       const item = row as InventoryItem & { available: number; isLowStock: boolean }
       return h('div', [
         h('div', { class: 'font-medium' }, [
-          h('span', { class: item.currentStock <= item.minStock ? 'text-yellow-500' : '' },
-            `${item.currentStock} ${item.unit}`
+          h('span', { class: item.currentStock <= item.minStock ? 'text-yellow-500 font-bold' : 'font-bold' },
+            `${item.available} ${item.unit} `
           ),
-          item.reserved > 0 && h('span', { class: 'text-gray-500 ml-2' }, `(${item.reserved} резерв)`),
+          item.reserved > 0 ? h('span', { 
+            class: 'text-gray-400 ml-6 font-medium', 
+          }, `(резерв ${item.reserved} ${item.unit})`) : null,
           item.onOrderQuantity && item.onOrderQuantity > 0 ? 
             h(NPopover, { trigger: 'hover', placement: 'top' }, {
               trigger: () => h('span', { class: 'text-blue-500 ml-2 cursor-help text-[11px] font-bold' }, `(+${item.onOrderQuantity} в пути)`),
@@ -978,10 +1027,28 @@ const columns: DataTableColumns<InventoryTableRow> = [
             })
             : null
         ]),
-        h('div', { class: 'text-xs text-gray-500' },
-          `Доступно: ${item.available} ${item.unit}`
+        h('div', { class: 'text-xs mt-1.5' },
+          [
+            h('span', { class: 'text-gray-400' }, `Всего на складе: `),
+            h('span', { class: 'font-bold text-blue-600' }, `${item.currentStock} ${item.unit}`)
+          ]
         )
       ])
+    }
+  },
+  {
+    title: 'Цена за ед.',
+    key: 'averagePrice',
+    width: 130,
+    render: (row) => {
+      if ('isGroup' in row && row.isGroup && !('averagePrice' in row)) return null
+      const item = row as InventoryItem
+      return h('div', { class: 'font-medium' }, formatCurrency(item.averagePrice || 0))
+    },
+    sorter: (a, b) => {
+      const aPrice = 'averagePrice' in a ? (a.averagePrice || 0) : 0
+      const bPrice = 'averagePrice' in b ? (b.averagePrice || 0) : 0
+      return aPrice - bPrice
     }
   },
   {
@@ -1009,21 +1076,6 @@ const columns: DataTableColumns<InventoryTableRow> = [
         h(NIcon, { size: '14' }, () => h(LocationOutline)),
         h('span', item.location)
       ])
-    }
-  },
-  {
-    title: 'Цена',
-    key: 'price',
-    width: 100,
-    render: (row) => {
-      if ('isGroup' in row && row.isGroup && !('averagePrice' in row)) return null
-      const item = row as InventoryItem
-      return formatCurrency(item.averagePrice)
-    },
-    sorter: (a, b) => {
-      const aPrice = 'averagePrice' in a ? a.averagePrice : 0
-      const bPrice = 'averagePrice' in b ? b.averagePrice : 0
-      return aPrice - bPrice
     }
   },
   {
@@ -1136,9 +1188,10 @@ const getTransactionColor = (type: InventoryTransaction['type']) => {
 // Обработчики
 const resetFilters = () => {
   searchQuery.value = ''
-  filters.category = null
-  filters.status = null
-  filters.supplier = null
+  filters.category = undefined
+  filters.status = undefined
+  filters.supplier = undefined
+  filters.warehouse = undefined
   advancedFilters.minStock = null
   advancedFilters.maxStock = null
   advancedFilters.minPrice = null

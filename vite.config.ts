@@ -15,7 +15,14 @@ export default defineConfig({
   },
   server: {
     port: 3000,
-    open: true
+    open: true,
+    proxy: {
+      '/api-1c': {
+        target: 'https://msk1.1cfresh.com',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api-1c/, '')
+      }
+    }
   },
   build: {
     outDir: 'dist',

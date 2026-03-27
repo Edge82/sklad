@@ -912,6 +912,11 @@ export const useInventoryStore = defineStore('inventory', () => {
     getStatusColor,
     getTransactionsByItem,
     generateReport,
-    receiveFromProduction
+    receiveFromProduction,
+    replaceAll: (newItems: InventoryItem[]) => {
+      items.value = newItems;
+      localStorage.setItem('inventory_items', JSON.stringify(newItems));
+    }
   }
 })
+
