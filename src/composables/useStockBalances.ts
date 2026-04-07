@@ -26,7 +26,7 @@ export function useStockBalances() {
   const error = ref<string | null>(null);
 
   async function fetchOData(endpoint: string, params: Record<string, string> = {}) {
-    let allResults [] = [];
+    let allResults: any[] = [];
     let skip = 0;
     const top = 1000;
     let hasMore = true;
@@ -75,7 +75,7 @@ export function useStockBalances() {
       const items = await fetchOData('Catalog_Номенклатура', {
         '$select': 'Ref_Key,Description,Артикул,ЕдиницаИзмерения_Key,КатегорияНоменклатуры_Key,IsFolder'
       });
-      return items.map((item ) => ({
+      return items.map((item: any) => ({
         id: item.Ref_Key,
         name: item.Description,
         sku: item.Артикул || '',
@@ -96,7 +96,7 @@ export function useStockBalances() {
       const items = await fetchOData('Catalog_КатегорииНоменклатуры', {
         '$select': 'Ref_Key,Description'
       });
-      return items.map((cat ) => ({
+      return items.map((cat: any) => ({
         id: cat.Ref_Key,
         name: cat.Description
       }));
@@ -121,18 +121,18 @@ export function useStockBalances() {
           : { '$select': 'Номенклатура_Key,Цена,Period', '$orderby': 'Period desc', '$top': '5000' };
 
         const items = await fetchOData(register, params);
-        if (items && items.length > 0) {
-          const getNomId = (p ) => p.Номенклатура_Key || p.Номенклатура;
-          const getPrice = (p ) => p.Цена || 0;
+        if (Array.isArray(items) && items.length > 0) {
+          const getNomId = (p: any) => p.Номенклатура_Key || p.Номенклатура;
+          const getPrice = (p: any) => p.Цена || 0;
           
           if (isSliceLast) {
-            return items.map((price ) => ({
+            return items.map((price: any) => ({
               nomenclatureId: getNomId(price),
               value: getPrice(price)
             }));
           } else {
             const latestPrices = new Map();
-            items.forEach((p ) => {
+            items.forEach((p: any) => {
               const id = getNomId(p);
               if (id && !latestPrices.has(id)) latestPrices.set(id, getPrice(p));
             });
@@ -154,7 +154,7 @@ export function useStockBalances() {
         try {
           const items = await fetchOData(register, { '$select': 'Ref_Key,Description' });
           if (items && items.length > 0) {
-            return items.map((unit ) => ({ id: unit.Ref_Key, name: unit.Description }));
+            return items.map((unit: any) => ({ id: unit.Ref_Key, name: unit.Description }));
           }
         } catch (e) { continue; }
       }
@@ -166,7 +166,7 @@ export function useStockBalances() {
     try {
       const records = await fetchOData('AccumulationRegister_ЗапасыНаСкладах', { '$orderby': 'Period desc' });
       const movements: Movement[] = [];
-      records.forEach((item ) => {
+      records.forEach((item: any) => {
         const itemId = item.Номенклатура_Key || item.Item_Key;
         if (!itemId) return;
         const type = String(item.RecordType);
@@ -187,7 +187,7 @@ export function useStockBalances() {
     try {
       const records = await fetchOData('AccumulationRegister_Запасы', { '$top': '50000' });
       const reserveMap = new Map<string, number>();
-      records.forEach((item ) => {
+      records.forEach((item: any) => {
         const itemId = item.Номенклатура_Key;
         if (!itemId) return;
         const hasOrder = (item.ЗаказПокупателя_Key && item.ЗаказПокупателя_Key !== '00000000-0000-0000-0000-000000000000') ||
@@ -228,14 +228,14 @@ export function useStockBalances() {
   async function fetchWarehouses() {
     try {
       const items = await fetchOData('Catalog_СтруктурныеЕдиницы', { '$select': 'Ref_Key,Description' });
-      return items.map((w ) => ({ id: w.Ref_Key, name: w.Description }));
+      return items.map((w: any) => ({ id: w.Ref_Key, name: w.Description }));
     } catch (err) { return []; }
   }
 
   async function fetchPartners() {
     try {
       const items = await fetchOData('Catalog_Контрагенты', { '$select': 'Ref_Key,Description' });
-      return items.map((p ) => ({ id: p.Ref_Key, name: p.Description }));
+      return items.map((p: any) => ({ id: p.Ref_Key, name: p.Description }));
     } catch (err) { return []; }
   }
 
@@ -250,7 +250,7 @@ export function useStockBalances() {
           '$expand': 'Запасы'
         });
         
-        return (orders || []).map((order ) => ({
+        return (orders || []).map((order: any) => ({
           id: order.Ref_Key,
           number: order.Number,
           date: order.Date,
@@ -259,7 +259,7 @@ export function useStockBalances() {
           amount: order.СуммаДокумента || 0,
           statusKey: order.СостояниеЗаказа,
           statusDescription: order.СостояниеЗаказа____Presentation, // Используем готовый статус
-          items: (order.Запасы || []).map((item ) => ({
+          items: (order.Запасы || []).map((item: any) => ({
             id: item.LineNumber || String(Math.random()),
             productId: item.Номенклатура_Key,
             productName: item.Номенклатура____Presentation, // Если 1С прокинет это в expand
@@ -278,7 +278,7 @@ export function useStockBalances() {
           '$select': 'Ref_Key,Number,Date,СуммаДокумента,СостояниеЗаказа,СостояниеЗаказа____Presentation,Контрагент_Key,Контрагент____Presentation'
         });
         
-        return (orders || []).map((order ) => ({
+        return (orders || []).map((order: any) => ({
           id: order.Ref_Key,
           number: order.Number,
           date: order.Date,
@@ -307,7 +307,7 @@ export function useStockBalances() {
       try {
         const items = await fetchOData(catalog, { '$select': 'Ref_Key,Description' });
         if (items && items.length > 0) {
-          return items.map((s ) => ({ id: s.Ref_Key, name: s.Description }));
+          return items.map((s: any) => ({ id: s.Ref_Key, name: s.Description }));
         }
       } catch (err) {
         continue;
@@ -344,9 +344,9 @@ export function useStockBalances() {
 
       const data = await response.json();
       const rawItems = data.value || [];
-      return rawItems.map(mapItem);
+      return rawItems.map((item: any) => mapItem(item));
 
-      function mapItem(item ) {
+      function mapItem(item: any) {
         return {
           id: item.LineNumber || String(Math.random()),
           productId: item.Номенклатура_Key || item.Номенклатура,

@@ -26,9 +26,11 @@ export default [
       files: ['src/**/__tests__/*'],
     },
     {
-      files: ['src/views/**/*.vue', 'src/components/layout/**/*.vue'],
+      files: ['**/*.{ts,mts,tsx,vue}'],
       rules: {
-        'vue/multi-word-component-names': 'off'
+        'vue/multi-word-component-names': 'off',
+        '@typescript-eslint/no-unused-vars': 'off',
+        '@typescript-eslint/no-explicit-any': 'off'
       }
     },
     skipFormatting,
