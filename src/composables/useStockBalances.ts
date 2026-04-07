@@ -26,7 +26,7 @@ export function useStockBalances() {
   const error = ref<string | null>(null);
 
   async function fetchOData(endpoint: string, params: Record<string, string> = {}) {
-    let allResults: any[] = [];
+    let allResults [] = [];
     let skip = 0;
     const top = 1000;
     let hasMore = true;
@@ -75,7 +75,7 @@ export function useStockBalances() {
       const items = await fetchOData('Catalog_Номенклатура', {
         '$select': 'Ref_Key,Description,Артикул,ЕдиницаИзмерения_Key,КатегорияНоменклатуры_Key,IsFolder'
       });
-      return items.map((item: any) => ({
+      return items.map((item ) => ({
         id: item.Ref_Key,
         name: item.Description,
         sku: item.Артикул || '',
@@ -96,7 +96,7 @@ export function useStockBalances() {
       const items = await fetchOData('Catalog_КатегорииНоменклатуры', {
         '$select': 'Ref_Key,Description'
       });
-      return items.map((cat: any) => ({
+      return items.map((cat ) => ({
         id: cat.Ref_Key,
         name: cat.Description
       }));
@@ -109,7 +109,8 @@ export function useStockBalances() {
     const priceRegisters = [
       'InformationRegister_ЦеныНоменклатуры_SliceLast',
       'InformationRegister_ЦеныНоменклатуры',
-      'InformationRegister_ЦеныНоменклатурыИХарактеристик_SliceLast'
+      'InformationRegister_ЦеныНоменклатурыИХарактеристик_SliceLast',
+      'InformationRegister_ЦеныНоменклатурыИХарактеристик'
     ];
 
     for (const register of priceRegisters) {
@@ -117,21 +118,21 @@ export function useStockBalances() {
         const isSliceLast = register.endsWith('SliceLast');
         const params: Record<string, string> = isSliceLast 
           ? { '$select': 'Номенклатура_Key,Цена' }
-          : { '$select': 'Номенклатура_Key,Цена,Period', '$orderby': 'Period desc' };
+          : { '$select': 'Номенклатура_Key,Цена,Period', '$orderby': 'Period desc', '$top': '5000' };
 
         const items = await fetchOData(register, params);
         if (items && items.length > 0) {
-          const getNomId = (p: any) => p.Номенклатура_Key || p.Номенклатура;
-          const getPrice = (p: any) => p.Цена || 0;
+          const getNomId = (p ) => p.Номенклатура_Key || p.Номенклатура;
+          const getPrice = (p ) => p.Цена || 0;
           
           if (isSliceLast) {
-            return items.map((price: any) => ({
+            return items.map((price ) => ({
               nomenclatureId: getNomId(price),
               value: getPrice(price)
             }));
           } else {
             const latestPrices = new Map();
-            items.forEach((p: any) => {
+            items.forEach((p ) => {
               const id = getNomId(p);
               if (id && !latestPrices.has(id)) latestPrices.set(id, getPrice(p));
             });
@@ -153,7 +154,7 @@ export function useStockBalances() {
         try {
           const items = await fetchOData(register, { '$select': 'Ref_Key,Description' });
           if (items && items.length > 0) {
-            return items.map((unit: any) => ({ id: unit.Ref_Key, name: unit.Description }));
+            return items.map((unit ) => ({ id: unit.Ref_Key, name: unit.Description }));
           }
         } catch (e) { continue; }
       }
@@ -165,7 +166,7 @@ export function useStockBalances() {
     try {
       const records = await fetchOData('AccumulationRegister_ЗапасыНаСкладах', { '$orderby': 'Period desc' });
       const movements: Movement[] = [];
-      records.forEach((item: any) => {
+      records.forEach((item ) => {
         const itemId = item.Номенклатура_Key || item.Item_Key;
         if (!itemId) return;
         const type = String(item.RecordType);
@@ -186,7 +187,7 @@ export function useStockBalances() {
     try {
       const records = await fetchOData('AccumulationRegister_Запасы', { '$top': '50000' });
       const reserveMap = new Map<string, number>();
-      records.forEach((item: any) => {
+      records.forEach((item ) => {
         const itemId = item.Номенклатура_Key;
         if (!itemId) return;
         const hasOrder = (item.ЗаказПокупателя_Key && item.ЗаказПокупателя_Key !== '00000000-0000-0000-0000-000000000000') ||
@@ -227,32 +228,68 @@ export function useStockBalances() {
   async function fetchWarehouses() {
     try {
       const items = await fetchOData('Catalog_СтруктурныеЕдиницы', { '$select': 'Ref_Key,Description' });
-      return items.map((w: any) => ({ id: w.Ref_Key, name: w.Description }));
+      return items.map((w ) => ({ id: w.Ref_Key, name: w.Description }));
     } catch (err) { return []; }
   }
 
   async function fetchPartners() {
     try {
       const items = await fetchOData('Catalog_Контрагенты', { '$select': 'Ref_Key,Description' });
-      return items.map((p: any) => ({ id: p.Ref_Key, name: p.Description }));
+      return items.map((p ) => ({ id: p.Ref_Key, name: p.Description }));
     } catch (err) { return []; }
   }
 
   async function fetchCustomerOrders() {
     try {
-      const orders = await fetchOData('Document_ЗаказПокупателя', {
-        '$orderby': 'Date desc',
-        '$top': '500'
-      });
-      
-      return (orders || []).map((order: any) => ({
-        id: order.Ref_Key,
-        number: order.Number,
-        date: order.Date,
-        customerRef: order.Контрагент_Key,
-        amount: order.СуммаДокумента || 0,
-        statusKey: order.СостояниеЗаказа
-      }));
+      // Пытаемся получить заказы с текстовыми представлениями через ____Presentation
+      try {
+        const orders = await fetchOData('Document_ЗаказПокупателя', {
+          '$orderby': 'Date desc',
+          '$top': '500',
+          '$select': 'Ref_Key,Number,Date,СуммаДокумента,СостояниеЗаказа,СостояниеЗаказа____Presentation,Контрагент_Key,Контрагент____Presentation',
+          '$expand': 'Запасы'
+        });
+        
+        return (orders || []).map((order ) => ({
+          id: order.Ref_Key,
+          number: order.Number,
+          date: order.Date,
+          customerRef: order.Контрагент_Key,
+          customerName: order.Контрагент____Presentation, // Используем готовое имя
+          amount: order.СуммаДокумента || 0,
+          statusKey: order.СостояниеЗаказа,
+          statusDescription: order.СостояниеЗаказа____Presentation, // Используем готовый статус
+          items: (order.Запасы || []).map((item ) => ({
+            id: item.LineNumber || String(Math.random()),
+            productId: item.Номенклатура_Key,
+            productName: item.Номенклатура____Presentation, // Если 1С прокинет это в expand
+            quantity: item.Количество || 0,
+            price: item.Цена || 0,
+            total: item.Сумма || 0,
+            unitId: item.ЕдиницаИзмерения_Key
+          }))
+        }));
+      } catch (expandErr ) {
+        console.warn('1C OData Does not support $expand for orders, falling back to basic fetch');
+        
+        const orders = await fetchOData('Document_ЗаказПокупателя', {
+          '$orderby': 'Date desc',
+          '$top': '500',
+          '$select': 'Ref_Key,Number,Date,СуммаДокумента,СостояниеЗаказа,СостояниеЗаказа____Presentation,Контрагент_Key,Контрагент____Presentation'
+        });
+        
+        return (orders || []).map((order ) => ({
+          id: order.Ref_Key,
+          number: order.Number,
+          date: order.Date,
+          customerRef: order.Контрагент_Key,
+          customerName: order.Контрагент____Presentation,
+          amount: order.СуммаДокумента || 0,
+          statusKey: order.СостояниеЗаказа,
+          statusDescription: order.СостояниеЗаказа____Presentation,
+          items: []
+        }));
+      }
     } catch (err) { 
       console.error('Error fetching orders:', err);
       return [];
@@ -270,13 +307,60 @@ export function useStockBalances() {
       try {
         const items = await fetchOData(catalog, { '$select': 'Ref_Key,Description' });
         if (items && items.length > 0) {
-          return items.map((s: any) => ({ id: s.Ref_Key, name: s.Description }));
+          return items.map((s ) => ({ id: s.Ref_Key, name: s.Description }));
         }
       } catch (err) {
         continue;
       }
     }
     return [];
+  }
+
+  async function fetchOrderItems(orderId: string) {
+    try {
+      // Пытаемся получить табличную часть через прямой запрос к коллекции Запасы
+      // 1С OData часто ожидает путь вида Document_ЗаказПокупателя(guid'...')/Запасы
+      // API 1С Fresh часто возвращает данные в свойстве Номенклатура_Presentation (без 4 подчеркиваний)
+      // или требует явного перечисления в $select
+      const selectFields = 'LineNumber,Номенклатура_Key,Номенклатура____Presentation,Номенклатура_Presentation,Количество,Цена,Сумма,ЕдиницаИзмерения_Key';
+      const url = `${baseURL}/odata/standard.odata/Document_ЗаказПокупателя(guid'${orderId}')/Запасы?$format=json&$select=${selectFields}`;
+      
+      const response = await fetch(url, {
+        headers: {
+          'Authorization': authToken,
+          'Accept': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+        // Если прямой путь не сработал, пробуем через $filter (старый способ)
+        console.warn(`Direct path failed (${response.status}), falling back to filter...`);
+        const items = await fetchOData('Document_ЗаказПокупателя_Запасы', {
+          '$filter': `Ref_Key eq guid'${orderId}'`,
+          '$select': selectFields
+        });
+        return (items || []).map(mapItem);
+      }
+
+      const data = await response.json();
+      const rawItems = data.value || [];
+      return rawItems.map(mapItem);
+
+      function mapItem(item ) {
+        return {
+          id: item.LineNumber || String(Math.random()),
+          productId: item.Номенклатура_Key || item.Номенклатура,
+          productName: item.Номенклатура____Presentation || item.Номенклатура_Presentation || 'Неизвестный товар',
+          quantity: item.Количество || 0,
+          price: item.Цена || 0,
+          total: item.Сумма || 0,
+          unitId: item.ЕдиницаИзмерения_Key || item.ЕдиницаИзмерения
+        };
+      }
+    } catch (err) {
+      console.error(`Error fetching items for order ${orderId}:`, err);
+      return [];
+    }
   }
 
   return {
@@ -293,6 +377,7 @@ export function useStockBalances() {
     fetchWarehouses,
     fetchCustomerOrders,
     fetchPartners,
-    fetchOrderStates
+    fetchOrderStates,
+    fetchOrderItems
   };
 }

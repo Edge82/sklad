@@ -8,12 +8,12 @@
         <div>
           <n-h1 class="mb-0!">
              <span v-if="viewMode === 'list'">Заказы</span>
-             <span v-else-if="viewMode === 'invoices'">Реестр накладных заказа {{ selectedOrderForInvoices?.orderNumber }}</span>
+             <span v-else-if="viewMode === 'invoices'">Заказ {{ selectedOrderForInvoices?.orderNumber }}</span>
              <span v-else-if="viewMode === 'details'">Накладная {{ selectedInvoiceDetail?.id }}</span>
           </n-h1>
           <n-text depth="3">
              <span v-if="viewMode === 'list'">Управление заказами клиентов и WMS</span>
-             <span v-else-if="viewMode === 'invoices'">Сводный список всех отпусков материалов по данному заказу</span>
+             <span v-else-if="viewMode === 'invoices'">Просмотр состава заказа из 1С</span>
              <span v-else-if="viewMode === 'details'">Детальный состав списания от сотрудника: {{ selectedInvoiceDetail?.employeeName }}</span>
           </n-text>
         </div>
@@ -170,18 +170,31 @@
 
     <!-- Режим списка накладных конкретного заказа -->
     <div v-if="viewMode === 'invoices'">
-       <n-card border-variant="dark">
-          <n-data-table 
-             :columns="invoiceRegistryColumns" 
-             :data="orderInvoices" 
-             :row-key="(row: InvoiceRow) => row.id"
-             v-model:expanded-row-keys="expandedInvoiceKeys"
-             :row-props="(row: InvoiceRow) => ({
-                class: 'cursor-pointer',
-                onClick: () => handleInvoiceRowClick(row)
-             })"
-          />
-       </n-card>
+      <n-card border-variant="dark" :title="`Заказ ${selectedOrderForInvoices?.orderNumber || ''}`" class="mb-4">
+        <div v-if="loadingDetails" class="flex flex-col items-center justify-center py-8 gap-3">
+          <n-spin size="large" />
+          <n-text depth="3">Загрузка состава заказа...</n-text>
+        </div>
+        <n-table v-else-if="selectedOrderForInvoices?.items?.length" striped size="small">
+          <thead>
+            <tr>
+              <th class="w-16 text-left!">№</th>
+              <th class="text-left!">Наименование</th>
+              <th class="w-32 text-right!">Кол-во</th>
+              <th class="w-40 text-right!">Сумма</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="(item, idx) in selectedOrderForInvoices.items" :key="item.id">
+              <td class="text-left!">{{ idx + 1 }}</td>
+              <td class="font-bold text-green-500 text-left!">{{ item.productName }}</td>
+              <td class="text-right! px-4">{{ item.quantity }} {{ item.unit }}</td>
+              <td class="text-right! font-mono px-4">{{ formatCurrency(item.totalPrice || 0) }}</td>
+            </tr>
+          </tbody>
+        </n-table>
+        <n-empty v-else description="Позиции не найдены" />
+      </n-card>
     </div>
 
     <!-- Режим детального просмотра конкретной накладной -->
@@ -228,13 +241,17 @@
       title="Детали заказа"
       class="w-225!"
     >
-      <OrderDetails v-if="selectedOrderForDetails" :order="selectedOrderForDetails" />
+      <OrderDetails 
+        v-if="selectedOrderForDetails" 
+        :order="selectedOrderForDetails" 
+        :loading="loadingDetails"
+      />
     </n-modal>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, h, watch, computed, reactive } from 'vue'
+import { ref, h, watch, computed, reactive, onMounted } from 'vue'
 import { useOrdersStore } from '@/stores/orders'
 import { useEmployeesStore } from '@/stores/employees'
 import { useQRCodesStore } from '@/stores/qrCodes'
@@ -298,24 +315,32 @@ interface InvoiceRow {
 
 const ordersStore = useOrdersStore()
 const integrationStore = useIntegrationStore()
-const employeesStore = useEmployeesStore()
 const qrCodesStore = useQRCodesStore()
 const message = useMessage()
 const dialog = useDialog()
 
+// Состояние синхронизации
 const isSyncingOrders = ref(false)
 
 const handleSyncOrders = async () => {
   isSyncingOrders.value = true
   try {
     await integrationStore.syncOrders()
-    message.success('Заказы успешно синхронизированы с 1С')
+    message.success('Заказы успешно загружены из 1С')
   } catch (err: any) {
     message.error(`Ошибка синхронизации: ${err.message}`)
   } finally {
     isSyncingOrders.value = false
   }
 }
+
+// Автоматическая загрузка данных при инициализации (один раз)
+onMounted(async () => {
+  if (ordersStore.orders.length === 0) {
+    handleSyncOrders()
+  }
+})
+
 const showCreateModal = ref(false)
 const showQRModal = ref(false)
 const showDetailsModal = ref(false)
@@ -325,6 +350,7 @@ const selectedOrderForDetails = ref<Order | null>(null)
 const selectedOrderForEdit = ref<Order | null>(null)
 const selectedOrderForInvoices = ref<Order | null>(null)
 const selectedInvoiceDetail = ref<InvoiceRow | null>(null)
+const loadingDetails = ref(false)
 
 // Для управления раскрытыми строками в реестре накладных
 const expandedInvoiceKeys = ref<string[]>([])
@@ -420,54 +446,61 @@ const formatCurrency = (amount: number) => {
   }).format(amount)
 }
 
-const handleRowClick = (row: Order) => {
-  handleViewInvoices(row)
-}
-
-const handleViewInvoices = (row: Order) => {
-  selectedOrderForInvoices.value = row
-  viewMode.value = 'invoices'
-  // Свернуто по умолчанию
-  expandedInvoiceKeys.value = []
-}
-
-const handleInvoiceRowClick = (row: InvoiceRow) => {
-  const index = expandedInvoiceKeys.value.indexOf(row.id)
-  if (index > -1) {
-    expandedInvoiceKeys.value.splice(index, 1)
-  } else {
-    expandedInvoiceKeys.value.push(row.id)
+const handleShowDetails = async (order: Order) => {
+  selectedOrderForDetails.value = order
+  showDetailsModal.value = true
+  
+  // Если у заказа нет позиций, пробуем загрузить их из 1С
+  if (!order.items || order.items.length === 0) {
+    loadingDetails.value = true
+    try {
+      await integrationStore.syncOrderDetails(order.id)
+      // Обновляем ссылку на заказ, чтобы UI увидел новые данные
+      const updatedOrder = ordersStore.orders.find(o => o.id === order.id)
+      if (updatedOrder) {
+        selectedOrderForDetails.value = { ...updatedOrder }
+      }
+    } finally {
+      loadingDetails.value = false
+    }
   }
 }
 
-// Собираем все накладные по всем сотрудникам для выбранного заказа
-const orderInvoices = computed(() => {
-  if (!selectedOrderForInvoices.value) return []
-  
-  const orderNumber = selectedOrderForInvoices.value.orderNumber
-  const allInvoices: InvoiceRow[] = []
-  
-  employeesStore.employees.forEach(emp => {
-    if (emp && emp.materialHistory) {
-      emp.materialHistory.forEach(inv => {
-        if (inv && inv.orderNumber === orderNumber) {
-          allInvoices.push({
-            ...inv,
-            id: inv.id || `inv-${Math.random().toString(36).substr(2, 9)}`,
-            employeeName: emp.name,
-            employeeId: emp.id,
-            employeePosition: emp.position
-          })
-        }
-      })
+const handleRowClick = async (row: Order) => {
+  selectedOrderForInvoices.value = row
+  viewMode.value = 'invoices'
+  expandedInvoiceKeys.value = []
+
+  // Если у заказа нет позиций, подгружаем их из 1С
+  if (!row.items || row.items.length === 0) {
+    loadingDetails.value = true
+    try {
+      await integrationStore.syncOrderDetails(row.id)
+      const updated = ordersStore.orders.find(o => o.id === row.id)
+      if (updated) {
+        selectedOrderForInvoices.value = { ...updated }
+      }
+    } finally {
+      loadingDetails.value = false
     }
-  })
-  
-  return allInvoices.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+  }
+}
+
+const handleViewInvoices = (row: Order) => {
+  handleRowClick(row)
+}
+
+const handleInvoiceRowClick = (row: InvoiceRow) => {
+  // Not used in simplified view
+}
+
+// Собираем все накладные по всем сотрудникам для выбранного заказа
+const _unused_orderInvoices = computed(() => {
+  return [] // Simplified view
 })
 
 // Настройка колонок для реестра накладных внутри заказа
-const invoiceRegistryColumns: DataTableColumns<InvoiceRow> = [
+const _unused_invoiceRegistryColumns: DataTableColumns<InvoiceRow> = [
   {
     type: 'expand',
     renderExpand: (row: InvoiceRow) => {
@@ -678,8 +711,7 @@ const columns = [
             quaternary: true,
             onClick: (e) => {
               e.stopPropagation()
-              selectedOrderForDetails.value = row
-              showDetailsModal.value = true
+              handleShowDetails(row)
             }
           }, { icon: () => h(NIcon, null, { default: () => h(EyeOutline) }) }),
           h(NButton, { 

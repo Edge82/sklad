@@ -1,7 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
 import { useStockBalances } from '@/composables/useStockBalances';
-import type { Movement } from '@/composables/useStockBalances';
 import { useInventoryStore } from './inventory';
 import { useOrdersStore } from './orders';
 import type { InventoryItem, Order, OrderStatus } from '@/types';
@@ -20,21 +19,24 @@ export const useIntegrationStore = defineStore('integration', () => {
     loading.value = true;
     error.value = null;
     try {
-      // Загружаем заказы, партнеров и справочник состояний параллельно
-      const [odataOrders, partners, statusCatalog] = await Promise.all([
+      // Загружаем заказы, партнеров, справочник состояний и номенклатуру параллельно
+      const [odataOrders, partners, statusCatalog, nomenclature] = await Promise.all([
         stockBalances.fetchCustomerOrders(),
         stockBalances.fetchPartners(),
-        stockBalances.fetchOrderStates()
+        stockBalances.fetchOrderStates(),
+        stockBalances.fetchNomenclature()
       ]);
       
       const partnerMap = new Map(partners.map(p => [p.id, p.name]));
       const stateMap = new Map(statusCatalog.map((s: any) => [s.id, s.name]));
+      const nomMap = new Map(nomenclature.map(n => [n.id, n]));
       
       const mappedOrders: Order[] = odataOrders.map(o => {
-        // Получаем имя статуса из справочника по ключу
-        let stateName = stateMap.get((o as any).statusKey) || '';
+        // Используем ____Presentation, если 1С прислала текстовое значение, 
+        // иначе берем из справочника
+        let stateName = (o as any).statusDescription || stateMap.get((o as any).statusKey) || '';
         
-        // Очищаем название от номеров (например, "1. Не обработан" -> "Не обработан")
+        // Очищаем название от номеров
         if (stateName.match(/^\d+\.\s*/)) {
           stateName = stateName.replace(/^\d+\.\s*/, '');
         }
@@ -42,19 +44,40 @@ export const useIntegrationStore = defineStore('integration', () => {
         let localStatus: OrderStatus = 'new';
         const name = stateName.toLowerCase();
         
-        // Маппинг состояний из 1С в локальные статусы приложения
+        // Маппинг состояний
         if (name.includes('завершен') || name.includes('выполнен') || name.includes('отгружен') || name.includes('готов')) {
           localStatus = 'ready';
         } else if (name.includes('в работе') || name.includes('на выполнении') || name.includes('производств') || name.includes('сборк')) {
           localStatus = 'in_progress';
         } else if (name.includes('счет') || name.includes('оплачен')) {
-          localStatus = 'in_progress'; // Или оставить 'new', зависит от логики
+          localStatus = 'in_progress';
         }
+
+        const items: OrderItem[] = ((o as any).items || []).map((item: any) => {
+          const product = nomMap.get(item.productId);
+          return {
+            id: item.id,
+            orderId: o.id,
+            productId: item.productId,
+            productName: item.productName || product?.name || 'Неизвестный товар',
+            itemName: item.productName || product?.name || 'Неизвестный товар',
+            productArticle: product?.sku || '',
+            quantity: item.quantity,
+            unitPrice: item.price,
+            totalPrice: item.total,
+            plannedQuantity: item.quantity,
+            actualQuantity: 0,
+            remainingQuantity: item.quantity,
+            unit: 'шт'
+          };
+        });
+
+        const totalPlanned = items.reduce((sum, item) => sum + (item.plannedQuantity || 0), 0);
 
         return {
           id: o.id,
           orderNumber: o.number,
-          customerName: partnerMap.get(o.customerRef) || 'Неизвестный клиент',
+          customerName: (o as any).customerName || partnerMap.get(o.customerRef) || 'Неизвестный клиент',
           customerPhone: '',
           orderDate: new Date(o.date),
           deadline: new Date(o.date),
@@ -64,10 +87,10 @@ export const useIntegrationStore = defineStore('integration', () => {
           createdBy: '1C Integration',
           status: localStatus,
           notes: stateName ? `1С: ${stateName}` : '',
-          items: [],
-          plannedQuantity: 0,
+          items: items,
+          plannedQuantity: totalPlanned,
           actualQuantity: 0,
-          remainingQuantity: 0,
+          remainingQuantity: totalPlanned,
           shipments: [],
           partialShipmentAllowed: true,
           odata_id: o.id
@@ -92,7 +115,10 @@ export const useIntegrationStore = defineStore('integration', () => {
             customerName: newOrder.customerName || exists.customerName,
             odata_id: newOrder.odata_id || exists.odata_id,
             status: newOrder.status, // Обновляем статус из 1С
-            notes: newOrder.notes
+            notes: newOrder.notes,
+            items: newOrder.items,
+            plannedQuantity: newOrder.plannedQuantity,
+            remainingQuantity: newOrder.remainingQuantity
           };
         }
       });
@@ -103,6 +129,62 @@ export const useIntegrationStore = defineStore('integration', () => {
       throw err;
     } finally {
       loading.value = false;
+    }
+  }
+
+  async function syncOrderDetails(orderId: string) {
+    if (!orderId) return;
+    
+    try {
+      const items = await stockBalances.fetchOrderItems(orderId);
+      console.log('DEBUG: Raw items from 1C for order', orderId, items);
+      
+      if (!items || items.length === 0) return;
+
+      const order = ordersStore.orders.find(o => o.id === orderId);
+      if (order) {
+        const nomenclatureMap = new Map();
+        const needsNomenclature = items.some(i => !i.productName || i.productName === 'Неизвестный товар');
+        
+        if (needsNomenclature) {
+          console.log('DEBUG: Fetching nomenclature catalog to match IDs...');
+          const nomData = await stockBalances.fetchNomenclature();
+          console.log('DEBUG: Nomenclature catalog size:', nomData.length);
+          console.log('DEBUG: First 3 items from catalog:', nomData.slice(0, 3));
+          nomData.forEach(n => nomenclatureMap.set(n.id, n.name));
+        }
+
+        const mappedItems: OrderItem[] = items.map(item => {
+          const nameFromCatalog = nomenclatureMap.get(item.productId);
+          console.log(`DEBUG: Mapping item ${item.productId}. From order: ${item.productName}, From catalog: ${nameFromCatalog}`);
+          
+          const finalName = item.productName && item.productName !== 'Неизвестный товар' 
+            ? item.productName 
+            : (nameFromCatalog || 'Неизвестный товар');
+
+          return {
+            id: item.id,
+            orderId: orderId,
+            productId: item.productId,
+            productName: finalName,
+            itemName: finalName,
+            productArticle: '', 
+            quantity: item.quantity,
+            unitPrice: item.price,
+            totalPrice: item.total,
+            plannedQuantity: item.quantity,
+            actualQuantity: 0,
+            remainingQuantity: item.quantity,
+            unit: 'шт'
+          };
+        });
+
+        order.items = mappedItems;
+        order.plannedQuantity = mappedItems.reduce((sum, i) => sum + (i.plannedQuantity || 0), 0);
+        order.remainingQuantity = order.plannedQuantity;
+      }
+    } catch (err) {
+      console.error('Ошибка загрузки деталей заказа:', err);
     }
   }
 
@@ -174,7 +256,7 @@ export const useIntegrationStore = defineStore('integration', () => {
           warehouseName = 'Основной склад';
         }
         
-        let price = Number(priceMap.get(itemId) || lastPriceMap.get(itemId) || 0);
+        const price = Number(priceMap.get(itemId) || lastPriceMap.get(itemId) || 0);
         
         return {
           id: itemId,
@@ -245,7 +327,8 @@ export const useIntegrationStore = defineStore('integration', () => {
     lastSyncTime,
     syncProgress,
     syncWith1C,
-    syncOrders
+    syncOrders,
+    syncOrderDetails
   };
 });
 

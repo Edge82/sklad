@@ -67,7 +67,11 @@
 
     <!-- Позиции заказа -->
     <n-card title="Позиции заказа" class="mb-4">
-      <n-table striped>
+      <div v-if="loading" class="flex flex-col items-center justify-center py-12 gap-3">
+        <n-spin size="large" />
+        <n-text depth="3">Загрузка позиций из 1С...</n-text>
+      </div>
+      <n-table v-else-if="order.items && order.items.length > 0" striped>
         <thead>
           <tr>
             <th>№</th>
@@ -113,6 +117,9 @@
           </tr>
         </tfoot>
       </n-table>
+      <div v-else class="py-12">
+        <n-empty description="В этом заказе пока нет позиций" />
+      </div>
     </n-card>
 
     <!-- Примечания и действия -->
@@ -208,7 +215,9 @@ import {
   NListItem,
   NThing,
   useMessage,
-  NProgress
+  NProgress,
+  NSpin,
+  NEmpty
 } from 'naive-ui'
 import {
   PrintOutline,
@@ -222,6 +231,7 @@ import { useOrdersStore } from '@/stores/orders'
 
 const props = defineProps<{
   order: Order
+  loading?: boolean
 }>()
 
 const qrStore = useQRCodesStore()

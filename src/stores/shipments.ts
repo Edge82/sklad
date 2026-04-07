@@ -5,22 +5,7 @@ import { useUserStore } from '@/stores/user'
 
 export const useShipmentsStore = defineStore('shipments', () => {
   const userStore = useUserStore()
-  const shipments = ref<OrderShipment[]>([
-    {
-      id: '1',
-      shipmentNumber: 'SHIP-2024-001',
-      orderId: '1',
-      orderNumber: 'ORD-2024-001',
-      createdAt: new Date(),
-      createdBy: 'Администратор',
-      status: 'completed',
-      items: [],
-      qrCodes: ['QR-001', 'QR-002'],
-      destination: 'Склад №2',
-      driverName: 'Иванов И.И.',
-      vehicleInfo: 'ГАЗель А123БВ'
-    }
-  ])
+  const shipments = ref<OrderShipment[]>([])
 
   const getAllShipments = computed(() => {
     if (userStore.isWorker) {

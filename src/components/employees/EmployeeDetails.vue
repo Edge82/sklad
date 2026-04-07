@@ -218,8 +218,7 @@ import {
   CashOutline,
   BuildOutline,
   TimeOutline,
-  LogInOutline,
-  PrintOutline
+  LogInOutline
 } from '@vicons/ionicons5'
 
 const props = withDefaults(defineProps<{

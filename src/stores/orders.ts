@@ -3,39 +3,7 @@ import { ref, computed } from 'vue'
 import type { Order, OrderStatus, OrderShipment, QRCode } from '@/types'
 
 export const useOrdersStore = defineStore('orders', () => {
-  const orders = ref<Order[]>([
-    {
-      id: '1',
-      orderNumber: 'ORD-2024-001',
-      customerName: 'Иван Иванов',
-      customerPhone: '+7 (900) 123-45-67',
-      orderDate: new Date('2024-01-15'),
-      deadline: new Date('2024-02-15'),
-      priority: 'medium',
-      totalAmount: 55000,
-      createdAt: new Date('2024-01-15'),
-      createdBy: 'Администратор',
-      status: 'in_progress',
-      items: [
-        {
-          id: '1-1',
-          orderId: '1',
-          productId: 'p1',
-          productName: 'Шкаф купе "Люкс"',
-          quantity: 10,
-          plannedQuantity: 10,
-          actualQuantity: 5,
-          remainingQuantity: 10,
-          unit: 'шт'
-        }
-      ],
-      plannedQuantity: 10,
-      actualQuantity: 5,
-      remainingQuantity: 10,
-      shipments: [],
-      partialShipmentAllowed: true
-    }
-  ])
+  const orders = ref<Order[]>([])
 
   const totalOrders = computed(() => orders.value.length)
   const pendingOrders = computed(() => orders.value.filter(o => o.status === 'new' || o.status === 'in_progress').length)

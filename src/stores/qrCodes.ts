@@ -3,59 +3,7 @@ import { ref, computed } from 'vue'
 import type { QRCode, QRCodeStatus } from '@/types'
 
 export const useQRCodesStore = defineStore('qrCodes', () => {
-  const qrCodes = ref<QRCode[]>([
-    {
-      id: 'qr-1',
-      code: 'WD-001-A',
-      orderId: '1',
-      orderNumber: 'ORD-2024-001',
-      productId: 'p1',
-      productName: 'Шкаф купе "Люкс"',
-      label: {
-        order: 'ORD-2024-001',
-        info: 'Боковая панель',
-      },
-      status: 'generated' as QRCodeStatus,
-      isActive: true,
-      version: 1,
-      generatedAt: new Date('2024-01-15'),
-      generatedBy: 'Админ'
-    },
-    {
-      id: 'qr-2',
-      code: 'WD-001-B',
-      orderId: '1',
-      orderNumber: 'ORD-2024-001',
-      productId: 'p1',
-      productName: 'Шкаф купе "Люкс"',
-      label: {
-        order: 'ORD-2024-001',
-        info: 'Полка внутренняя',
-      },
-      status: 'generated' as QRCodeStatus,
-      isActive: true,
-      version: 1,
-      generatedAt: new Date('2024-01-15'),
-      generatedBy: 'Админ'
-    },
-    ...Array.from({ length: 8 }).map((_, i) => ({
-      id: `qr-extra-${i}`,
-      code: `WD-001-${i + 3}`,
-      orderId: '1',
-      orderNumber: 'ORD-2024-001',
-      productId: 'p1',
-      productName: 'Шкаф купе "Люкс"',
-      label: {
-        order: 'ORD-2024-001',
-        info: `Комплект №${i + 3}`,
-      },
-      status: 'generated' as QRCodeStatus,
-      isActive: true,
-      version: 1,
-      generatedAt: new Date('2024-01-15'),
-      generatedBy: 'Админ'
-    }))
-  ])
+  const qrCodes = ref<QRCode[]>([])
 
   function generateQRCodes(params: {
     orderId: string,
