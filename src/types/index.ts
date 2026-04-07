@@ -43,7 +43,7 @@ export interface Order {
   // Даты
   plannedDate?: Date;            // Плановая дата готовности
   completedAt?: Date;            // Дата полной готовности
-  shippedAt?: Date;              // Дата полной отгрузки
+  odata_id?: string;            // Поле для хранения ID из 1С
 }
 
 // Позиция заказа

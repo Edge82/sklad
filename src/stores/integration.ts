@@ -3,16 +3,108 @@ import { ref } from 'vue';
 import { useStockBalances } from '@/composables/useStockBalances';
 import type { Movement } from '@/composables/useStockBalances';
 import { useInventoryStore } from './inventory';
-import type { InventoryItem } from '@/types';
+import { useOrdersStore } from './orders';
+import type { InventoryItem, Order, OrderStatus } from '@/types';
 
 export const useIntegrationStore = defineStore('integration', () => {
   const stockBalances = useStockBalances();
   const inventoryStore = useInventoryStore();
+  const ordersStore = useOrdersStore();
   
   const loading = ref(false);
   const error = ref<string | null>(null);
   const lastSyncTime = ref<string | null>(localStorage.getItem('1c_last_sync'));
   const syncProgress = ref(0);
+
+  async function syncOrders() {
+    loading.value = true;
+    error.value = null;
+    try {
+      // Загружаем заказы, партнеров и справочник состояний параллельно
+      const [odataOrders, partners, statusCatalog] = await Promise.all([
+        stockBalances.fetchCustomerOrders(),
+        stockBalances.fetchPartners(),
+        stockBalances.fetchOrderStates()
+      ]);
+      
+      const partnerMap = new Map(partners.map(p => [p.id, p.name]));
+      const stateMap = new Map(statusCatalog.map((s: any) => [s.id, s.name]));
+      
+      const mappedOrders: Order[] = odataOrders.map(o => {
+        // Получаем имя статуса из справочника по ключу
+        let stateName = stateMap.get((o as any).statusKey) || '';
+        
+        // Очищаем название от номеров (например, "1. Не обработан" -> "Не обработан")
+        if (stateName.match(/^\d+\.\s*/)) {
+          stateName = stateName.replace(/^\d+\.\s*/, '');
+        }
+
+        let localStatus: OrderStatus = 'new';
+        const name = stateName.toLowerCase();
+        
+        // Маппинг состояний из 1С в локальные статусы приложения
+        if (name.includes('завершен') || name.includes('выполнен') || name.includes('отгружен') || name.includes('готов')) {
+          localStatus = 'ready';
+        } else if (name.includes('в работе') || name.includes('на выполнении') || name.includes('производств') || name.includes('сборк')) {
+          localStatus = 'in_progress';
+        } else if (name.includes('счет') || name.includes('оплачен')) {
+          localStatus = 'in_progress'; // Или оставить 'new', зависит от логики
+        }
+
+        return {
+          id: o.id,
+          orderNumber: o.number,
+          customerName: partnerMap.get(o.customerRef) || 'Неизвестный клиент',
+          customerPhone: '',
+          orderDate: new Date(o.date),
+          deadline: new Date(o.date),
+          priority: 'medium',
+          totalAmount: Number(o.amount) || 0,
+          createdAt: new Date(o.date),
+          createdBy: '1C Integration',
+          status: localStatus,
+          notes: stateName ? `1С: ${stateName}` : '',
+          items: [],
+          plannedQuantity: 0,
+          actualQuantity: 0,
+          remainingQuantity: 0,
+          shipments: [],
+          partialShipmentAllowed: true,
+          odata_id: o.id
+        };
+      });
+
+      // Обновляем стор только новыми заказами (которых еще нет в списке)
+      mappedOrders.forEach(newOrder => {
+        const exists = ordersStore.orders.find(existing => 
+          (newOrder.odata_id && existing.odata_id === newOrder.odata_id) || 
+          existing.id === newOrder.id ||
+          existing.orderNumber === newOrder.orderNumber
+        );
+        
+        if (!exists) {
+          ordersStore.orders.unshift(newOrder);
+        } else {
+          const index = ordersStore.orders.indexOf(exists);
+          ordersStore.orders[index] = {
+            ...exists,
+            totalAmount: newOrder.totalAmount || exists.totalAmount,
+            customerName: newOrder.customerName || exists.customerName,
+            odata_id: newOrder.odata_id || exists.odata_id,
+            status: newOrder.status, // Обновляем статус из 1С
+            notes: newOrder.notes
+          };
+        }
+      });
+
+      return true;
+    } catch (err: any) {
+      error.value = err.message || 'Ошибка синхронизации заказов';
+      throw err;
+    } finally {
+      loading.value = false;
+    }
+  }
 
   async function syncWith1C() {
     loading.value = true;
@@ -67,19 +159,6 @@ export const useIntegrationStore = defineStore('integration', () => {
         const stock = Number((totalStockRaw + (resValue < 0 ? Math.abs(resValue) : 0)).toFixed(3));
         const available = Number((stock - reserved).toFixed(3));
 
-        // DEBUG: Логируем Ножку при формировании объекта для стора
-        if (itemId.includes('efc175de-002f-11f1-9078-fa163e5c9fa8')) {
-          console.log('--- NOSHKA FINAL SYNC DATA ---', {
-            id: itemId,
-            name: n.name || n.Description,
-            totalStockRaw,
-            resValue,
-            stock, // Должно стать 40
-            reserved, // Должно стать 6
-            available // Должно стать 34
-          });
-        }
-        
         const warehouseIds = warehouseMap.get(itemId);
         let warehouseName = '—'; 
         
@@ -165,7 +244,8 @@ export const useIntegrationStore = defineStore('integration', () => {
     error,
     lastSyncTime,
     syncProgress,
-    syncWith1C
+    syncWith1C,
+    syncOrders
   };
 });
 

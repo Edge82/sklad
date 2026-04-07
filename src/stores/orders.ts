@@ -96,6 +96,7 @@ export const useOrdersStore = defineStore('orders', () => {
       actualQuantity: 0,
       remainingQuantity: 0,
       partialShipmentAllowed: true,
+      status: 'new',
       ...orderData
     } as Order
     orders.value.unshift(newOrder)

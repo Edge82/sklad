@@ -19,6 +19,15 @@
         </div>
       </div>
       <div v-if="viewMode === 'list'" class="flex gap-2 m-2">
+        <n-button 
+          secondary 
+          type="info" 
+          :loading="isSyncingOrders" 
+          @click="handleSyncOrders"
+        >
+          <template #icon><n-icon><SyncOutline /></n-icon></template>
+          Синхронизация с 1С
+        </n-button>
         <n-button type="primary" @click="showCreateModal = true">
           <template #icon><n-icon><AddCircleOutline /></n-icon></template>
           Новый заказ
@@ -62,7 +71,7 @@
                 <AppsOutline />
               </n-icon>
               <div>
-                <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">Новые</n-text>
+                <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">Не обработанные</n-text>
                 <n-h3 class="m-0 leading-none">{{ newOrdersCount }}</n-h3>
               </div>
             </div>
@@ -81,7 +90,7 @@
                 <TimeOutline />
               </n-icon>
               <div>
-                <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">В производстве</n-text>
+                <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">В работе</n-text>
                 <n-h3 class="m-0 leading-none">{{ inProgressOrdersCount }}</n-h3>
               </div>
             </div>
@@ -100,7 +109,7 @@
                 <CheckmarkDoneOutline />
               </n-icon>
               <div>
-                <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">Готовы к выдаче</n-text>
+                <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">Завершен</n-text>
                 <n-h3 class="m-0 leading-none">{{ readyOrdersCount }}</n-h3>
               </div>
             </div>
@@ -111,7 +120,7 @@
             <div class="flex items-center gap-3 py-1">
               <n-icon size="28" color="#18a058" :component="CashOutline" />
               <div>
-                <n-text depth="3" class="revenue-label block mb-1">Выручка в работе</n-text>
+                <n-text depth="3" class="revenue-label block mb-1">Стоимость заказов</n-text>
                 <n-h3 class="m-0 leading-none revenue-value text-[22px]">{{ formatCurrency(revenueInWork) }}</n-h3>
               </div>
             </div>
@@ -136,12 +145,7 @@
           <n-select 
             v-model:value="filters.status" 
             placeholder="Все статусы" 
-            :options="[
-              { label: 'Новый', value: 'new' },
-              { label: 'В работе', value: 'in_progress' },
-              { label: 'Готов', value: 'ready' },
-              { label: 'Отгружен', value: 'shipped' }
-            ]" 
+            :options="orderStatusOptions" 
             clearable 
             class="w-56!" 
           />
@@ -267,8 +271,10 @@ import {
   TimeOutline,
   CheckmarkDoneOutline,
   CashOutline,
-  AppsOutline
+  AppsOutline,
+  SyncOutline
 } from '@vicons/ionicons5'
+import { useIntegrationStore } from '@/stores/integration'
 import OrderQRManagerModal from '@/components/orders/OrderQRManagerModal.vue'
 import OrderForm from '@/components/orders/OrderForm.vue'
 import OrderDetails from '@/components/orders/OrderDetails.vue'
@@ -291,10 +297,25 @@ interface InvoiceRow {
 }
 
 const ordersStore = useOrdersStore()
+const integrationStore = useIntegrationStore()
 const employeesStore = useEmployeesStore()
 const qrCodesStore = useQRCodesStore()
 const message = useMessage()
 const dialog = useDialog()
+
+const isSyncingOrders = ref(false)
+
+const handleSyncOrders = async () => {
+  isSyncingOrders.value = true
+  try {
+    await integrationStore.syncOrders()
+    message.success('Заказы успешно синхронизированы с 1С')
+  } catch (err: any) {
+    message.error(`Ошибка синхронизации: ${err.message}`)
+  } finally {
+    isSyncingOrders.value = false
+  }
+}
 const showCreateModal = ref(false)
 const showQRModal = ref(false)
 const showDetailsModal = ref(false)
@@ -326,7 +347,8 @@ const resetFilters = () => {
 const totalOrdersCount = computed(() => ordersStore.orders.length)
 const newOrdersCount = computed(() => ordersStore.orders.filter(o => o.status === 'new').length)
 const inProgressOrdersCount = computed(() => ordersStore.orders.filter(o => o.status === 'in_progress').length)
-const readyOrdersCount = computed(() => ordersStore.orders.filter(o => o.status === 'ready').length)
+const readyOrdersCount = computed(() => ordersStore.orders.filter(o => o.status === 'ready' || o.status === 'shipped' || o.status === 'completed').length)
+
 const revenueInWork = computed(() => {
   return filteredOrders.value
     .filter(o => o.status !== 'shipped' && o.status !== 'completed')
@@ -344,11 +366,50 @@ const filteredOrders = computed(() => {
     const query = searchQuery.value.toLowerCase()
     result = result.filter(o => 
       o.orderNumber.toLowerCase().includes(query) ||
-      o.customerName.toLowerCase().includes(query)
+      o.customerName.toLowerCase().includes(query) ||
+      (o.notes && o.notes.toLowerCase().includes(query))
     )
   }
 
   return result
+})
+
+const orderStatusOptions = computed(() => {
+  const statuses = new Set<string>()
+  ordersStore.orders.forEach(o => {
+    if (o.status) statuses.add(o.status)
+  })
+  
+  const options = Array.from(statuses).map(status => {
+    // Получаем label для этого статуса точно так же, как в колонке таблицы
+    let label = status as string
+    
+    // Сначала проверяем 1С-овское наименование из первого попавшегося заказа с таким статусом
+    const sampleOrder = ordersStore.orders.find(o => o.status === status)
+    if (sampleOrder?.notes?.startsWith('1С: ')) {
+      label = sampleOrder.notes.replace('1С: ', '')
+    } else {
+      // Если нет заметки из 1С, используем стандартные переводы
+      if (status === 'new') label = 'Не обработанные'
+      else if (status === 'in_progress') label = 'В работе'
+      else if (status === 'ready') label = 'Завершен'
+      else if (status === 'shipped') label = 'Отгружен'
+      else if (status === 'completed') label = 'Выполнен'
+    }
+    
+    return { label, value: status }
+  })
+
+  // Сортируем для удобства (например, Новый всегда в начале)
+  const order = ['new', 'in_progress', 'ready', 'shipped', 'completed']
+  return options.sort((a, b) => {
+    const idxA = order.indexOf(a.value)
+    const idxB = order.indexOf(b.value)
+    if (idxA !== -1 && idxB !== -1) return idxA - idxB
+    if (idxA !== -1) return -1
+    if (idxB !== -1) return 1
+    return a.label.localeCompare(b.label)
+  })
 })
 
 const formatCurrency = (amount: number) => {
@@ -527,7 +588,7 @@ const columns = [
   },
   { title: 'Клиент', key: 'customerName', width: 200 },
   {
-    title: 'Готовность (склад)',
+    title: 'Дата',
     key: 'qrProgress',
     width: 220,
     render(row: Order) {
@@ -559,7 +620,43 @@ const columns = [
     title: 'Статус', 
     key: 'status',
     render(row: Order) {
-      return h(NTag, { type: 'info' }, { default: () => row.status })
+      let type: 'info' | 'success' | 'warning' | 'error' = 'info'
+      let label = row.status as string
+      
+      if (row.status === 'new') {
+        type = 'info'
+        label = 'Не обработанные'
+      } else if (row.status === 'in_progress') {
+        type = 'warning'
+        label = 'В работе'
+      } else if (row.status === 'ready') {
+        type = 'success'
+        label = 'Завершен'
+      } else if (row.status === 'shipped') {
+        type = 'success'
+        label = 'Отгружен'
+      } else if (row.status === 'completed') {
+        type = 'success'
+        label = 'Выполнен'
+      }
+
+      // Если в notes пришел текст из 1С ("1С: В работе"), показываем его вместо стандартного label
+      const statusFrom1C = row.notes?.startsWith('1С: ') ? row.notes.replace('1С: ', '') : null;
+      const displayLabel = statusFrom1C || label;
+
+      return h(NSpace, { vertical: true, size: 'small', align: 'center' }, {
+        default: () => [
+          h(NTag, { type, round: true, bordered: false }, { default: () => displayLabel })
+        ]
+      })
+    }
+  },
+  {
+    title: 'Сумма',
+    key: 'totalAmount',
+    width: 120,
+    render(row: Order) {
+      return formatCurrency(row.totalAmount || 0)
     }
   },
   {
