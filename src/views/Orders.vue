@@ -466,6 +466,25 @@ const handleShowDetails = async (order: Order) => {
   }
 }
 
+const handleShowQR = async (order: Order) => {
+  selectedOrderForQR.value = order
+  showQRModal.value = true
+  
+  // Если у заказа нет позиций, подгружаем их из 1С (аналогично глазу)
+  if (!order.items || order.items.length === 0) {
+    loadingDetails.value = true
+    try {
+      await integrationStore.syncOrderDetails(order.id)
+      const updated = ordersStore.orders.find(o => o.id === order.id)
+      if (updated) {
+        selectedOrderForQR.value = { ...updated }
+      }
+    } finally {
+      loadingDetails.value = false
+    }
+  }
+}
+
 const handleRowClick = async (row: Order) => {
   selectedOrderForInvoices.value = row
   viewMode.value = 'invoices'
@@ -702,8 +721,7 @@ const columns = [
             size: 'small',
             onClick: (e) => {
               e.stopPropagation()
-              selectedOrderForQR.value = row
-              showQRModal.value = true
+              handleShowQR(row)
             }
           }, { icon: () => h(NIcon, null, { default: () => h(QrCodeOutline) }), default: () => 'QR' }),
           h(NButton, { 

@@ -1,11 +1,23 @@
 <template>
+  <!-- Модальное окно самой печати (превью и отправка на принтер) -->
+  <QRPrintModal
+    :show="showSinglePrintModal"
+    @update:show="handleClosePrint"
+    :title="singlePrintData.title"
+    :code="singlePrintData.code"
+    :description="singlePrintData.description"
+  />
+
   <n-modal
+    id="qr-manager-modal"
     :show="show"
     @update:show="$emit('close')"
     preset="card"
     :title="`Управление QR-кодами заказа: ${orderNumber}`"
     class="w-200!"
     :auto-focus="false"
+    :display-directive="'show'"
+    :mask-closable="false"
   >
     <n-tabs type="line" animated>
       <!-- Вкладка со списком существующих кодов -->
@@ -91,19 +103,29 @@
           <n-form :model="genForm" label-placement="left" label-width="120">
             <n-form-item label="Позиция">
               <n-select 
-                v-model:value="genForm.productId" 
+                v-model:value="displayProductId" 
                 :options="productOptions" 
                 placeholder="Выберите позицию из заказа" 
+                filterable
               />
             </n-form-item>
             <n-form-item label="Количество">
               <n-input-number v-model:value="genForm.count" :min="1" :max="1000" />
             </n-form-item>
             <n-form-item label="Название детали">
-              <n-input v-model:value="genForm.productName" placeholder="Название для системы" />
+              <n-input 
+                v-model:value="genForm.productName" 
+                placeholder="Название для системы" 
+                class="product-name-input"
+              />
             </n-form-item>
             <n-form-item label="Инфо на этикетке">
-              <n-input v-model:value="genForm.labelInfo" placeholder="Дополнительная информация" />
+              <n-input 
+                v-model:value="genForm.labelInfo" 
+                placeholder="Дополнительная информация" 
+                clearable
+                class="label-info-input"
+              />
             </n-form-item>
             
             <n-divider>Предпросмотр надписи</n-divider>
@@ -132,8 +154,9 @@
                 <n-button 
                   type="info" 
                   size="large"
-                  @click="handlePrintLastGenerated" 
-                  :disabled="!canPrintLast"
+                  @click="handleGenerateAndPrint" 
+                  :disabled="!genForm.productId"
+                  :loading="isGenerating"
                 >
                   <template #icon>
                     <n-icon><PrintOutline /></n-icon>
@@ -154,17 +177,12 @@
     </template>
   </n-modal>
 
-  <!-- Модальное окно самой печати (превью и отправка на принтер) -->
-  <QRPrintModal
-    v-model:show="showSinglePrintModal"
-    :title="singlePrintData.title"
-    :code="singlePrintData.code"
-    :description="singlePrintData.description"
-  />
+  <!-- Скрытый iframe для тихой печати, чтобы не открывать новые вкладки -->
+  <iframe id="print-iframe" style="position: absolute; width: 0; height: 0; border: none; visibility: hidden;"></iframe>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { 
   NModal, NTabs, NTabPane, NTable, NText, NTag, NButton, 
   NSpace, NIcon, NInputNumber, NForm, NFormItem, NSelect, 
@@ -195,6 +213,27 @@ const message = useMessage()
 
 const isGenerating = ref(false)
 const lastGeneratedCodes = ref<QRType[]>([])
+
+const handleClosePrint = (val: boolean) => {
+  showSinglePrintModal.value = val
+}
+
+const restoreFocus = () => {
+  const inputs = document.querySelectorAll('.product-name-input input, .label-info-input input')
+  inputs.forEach(el => {
+    if (el instanceof HTMLInputElement) {
+      el.blur()
+      setTimeout(() => el.focus(), 10)
+    }
+  })
+}
+
+// Следим за возвращением фокуса во вкладку
+const handleVisibilityChange = () => {
+  if (document.visibilityState === 'visible' && props.show) {
+    setTimeout(restoreFocus, 300)
+  }
+}
 
 // Форма генерации
 const genForm = ref({
@@ -236,6 +275,22 @@ const productOptions = computed(() =>
   }))
 )
 
+// Обрабатываем ситуацию, когда в productId попадает некрасивый ID (UUID) вместо названия
+const displayProductId = computed({
+  get: () => {
+    const id = genForm.value.productId
+    if (!id) return null
+    // Если id есть в списке опций, возвращаем его (Naive UI сам подставит label)
+    if (productOptions.value.some(opt => opt.value === id)) return id
+    // Если id нет в списке, ищем его в props.items и берем нормальное имя
+    const item = props.items.find(i => (i.productId || i.id) === id)
+    return item ? (item.productName || item.itemName) : id
+  },
+  set: (val) => {
+    genForm.value.productId = val
+  }
+})
+
 // Название для предпросмотра
 const previewName = computed(() => {
   return genForm.value.productName || '...'
@@ -243,12 +298,33 @@ const previewName = computed(() => {
 
 // Авто-выбор если позиция одна
 onMounted(() => {
+  document.addEventListener('visibilitychange', handleVisibilityChange)
+  window.addEventListener('focus', restoreFocus)
+
   if (props.items.length === 1) {
     const item = props.items[0]
     if (item) {
       genForm.value.productId = item.productId || item.id
       genForm.value.productName = item.productName || item.itemName || ''
       genForm.value.labelInfo = ''
+    }
+  }
+})
+
+// При открытии модалки (props.show становится true) сбрасываем форму
+watch(() => props.show, (isShown) => {
+  if (isShown) {
+    genForm.value.productId = null
+    genForm.value.productName = ''
+    genForm.value.labelInfo = ''
+    genForm.value.count = 1
+    lastGeneratedCodes.value = []
+
+    // Если в заказе всего одна позиция, выбираем её сразу
+    if (props.items.length === 1) {
+      const item = props.items[0]
+      genForm.value.productId = item.productId || item.id
+      genForm.value.productName = item.productName || item.itemName || ''
     }
   }
 })
@@ -296,16 +372,60 @@ const handleRemove = (code: QRType) => {
   })
 }
 
-const handlePrint = (code: QRType) => {
-  // Выводим инфо только если оно заполнено и отличается от названия детали
-  const hasExtraInfo = code.label?.info && code.label.info.trim() !== '' && code.label.info !== code.productName
+onUnmounted(() => {
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
+  window.removeEventListener('focus', restoreFocus)
+})
+
+const handlePrint = async (code: QRType) => {
+  const isExtraInfo = code.label?.info && code.label.info.trim() !== '' && code.label.info !== code.productName
+  const infoText = isExtraInfo ? code.label.info : ''
   
-  singlePrintData.value = {
-    title: code.orderNumber,
-    code: code.code,
-    description: hasExtraInfo ? `${code.productName}\n${code.label.info}` : code.productName
-  }
-  showSinglePrintModal.value = true
+  const qrDataUrl = await QRCode.toDataURL(code.code, { 
+    width: 300, 
+    margin: 1,
+    color: { dark: '#000000', light: '#ffffff' }
+  })
+
+  const printIframe = document.getElementById('print-iframe') as HTMLIFrameElement
+  if (!printIframe) return
+
+  const doc = printIframe.contentWindow?.document
+  if (!doc) return
+
+  doc.open()
+  doc.write(`
+    <html>
+      <head>
+        <style>
+          @page { margin: 0; size: auto; }
+          body { font-family: sans-serif; margin: 0; padding: 10px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+          .qr-image { width: 200px; height: 200px; }
+          .label-title { font-size: 16px; font-weight: bold; margin-top: 5px; }
+          .product-name { font-size: 14px; margin-top: 2px; }
+          .info { font-size: 12px; font-family: monospace; margin-top: 2px; }
+        </style>
+      </head>
+      <body>
+        <img src="${qrDataUrl}" class="qr-image" />
+        <div class="label-title">${code.orderNumber}</div>
+        <div class="product-name">${code.productName}</div>
+        ${infoText ? `<div class="info">${infoText}</div>` : ''}
+        <script>
+          window.onload = () => {
+            window.print();
+          };
+        <\/script>
+      </body>
+    </html>
+  `)
+  doc.close()
+
+  // Принудительно возвращаем фокус сразу после отправки на печать
+  setTimeout(() => {
+    const inputEl = document.querySelector('.label-info-input input') as HTMLInputElement
+    if (inputEl) inputEl.focus()
+  }, 500)
 }
 
 const handlePrintAll = async () => {
@@ -433,7 +553,6 @@ const handlePrintLastGenerated = async () => {
         <script>
           window.onload = () => {
             window.print();
-            window.setTimeout(() => window.close(), 500);
           };
         <\/script>
       </body>
@@ -441,6 +560,40 @@ const handlePrintLastGenerated = async () => {
   `)
   printWindow.document.close()
   message.success(`Отправлено на печать: ${codes.length} шт.`)
+}
+
+async function handleGenerateAndPrint() {
+  if (!genForm.value.productId) return
+  
+  const item = props.items.find(i => (i.productId || i.id) === genForm.value.productId)
+  if (!item) return
+
+  isGenerating.value = true
+  try {
+    const newCodes = await qrStore.generateQRCodes({
+      orderId: props.orderId,
+      orderNumber: props.orderNumber,
+      productId: genForm.value.productId,
+      productName: genForm.value.productName || item?.productName || item?.itemName || 'Без названия',
+      labelInfo: genForm.value.labelInfo,
+      count: genForm.value.count,
+      generatedBy: userStore.user?.name || 'Система'
+    })
+    
+    lastGeneratedCodes.value = newCodes
+    
+    if (newCodes.length > 0) {
+      if (newCodes.length === 1) {
+        handlePrint(newCodes[0])
+      } else {
+        handlePrintLastGenerated()
+      }
+    }
+  } catch (err) {
+    message.error('Ошибка при генерации')
+  } finally {
+    isGenerating.value = false
+  }
 }
 
 async function handleGenerate() {
@@ -462,6 +615,8 @@ async function handleGenerate() {
     })
     
     lastGeneratedCodes.value = newCodes
+    // Убрал автоматическую очистку поля, так как пользователь хочет очищать её сам крестиком
+    
     message.success(`Сгенерировано ${genForm.value.count} кодов`)
     emit('updated')
   } catch {
@@ -483,5 +638,16 @@ async function handleGenerate() {
 .preview-line {
   font-weight: bold;
   margin-bottom: 4px;
+}
+
+/* Принудительно разрешаем взаимодействие для инпутов, если они перекрыты */
+:deep(.n-input) {
+  pointer-events: auto !important;
+  z-index: 100 !important;
+}
+
+:deep(.n-input__input-el) {
+  pointer-events: auto !important;
+  z-index: 101 !important;
 }
 </style>

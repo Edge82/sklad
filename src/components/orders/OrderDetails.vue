@@ -11,11 +11,6 @@
           <n-tag :type="getStatusColor(order.status)" size="large">
             {{ getStatusLabel(order.status) }}
           </n-tag>
-          <div class="mt-2">
-            <n-tag :type="getPriorityColor(order.priority)">
-              {{ getPriorityLabel(order.priority) }}
-            </n-tag>
-          </div>
         </div>
       </div>
     </div>
@@ -123,7 +118,7 @@
     </n-card>
 
     <!-- Примечания и действия -->
-    <n-grid :cols="2" :x-gap="16">
+    <n-grid :cols="2" :x-gap="16" class="print-hidden">
       <n-gi>
         <n-card title="Примечания">
           <n-text v-if="order.notes">{{ order.notes }}</n-text>
@@ -141,29 +136,13 @@
               </template>
               Печать заказа
             </n-button>
-            <n-button block @click="changeStatus" type="warning">
-              <template #icon>
-                <n-icon>
-                  <SyncOutline />
-                </n-icon>
-              </template>
-              Изменить статус
-            </n-button>
-            <n-button block @click="sendNotification" type="info">
-              <template #icon>
-                <n-icon>
-                  <NotificationsOutline />
-                </n-icon>
-              </template>
-              Уведомить клиента
-            </n-button>
           </n-space>
         </n-card>
       </n-gi>
     </n-grid>
 
     <!-- История изменений -->
-    <n-card title="История изменений" class="mt-4">
+    <n-card title="История изменений" class="mt-4 print-hidden">
       <n-list>
         <n-list-item>
           <template #prefix>
@@ -208,21 +187,16 @@ import {
   NGrid,
   NGi,
   NTable,
-  NButton,
   NIcon,
-  NSpace,
   NList,
   NListItem,
   NThing,
-  useMessage,
   NProgress,
   NSpin,
   NEmpty
 } from 'naive-ui'
 import {
   PrintOutline,
-  SyncOutline,
-  NotificationsOutline,
   CreateOutline,
   TimeOutline
 } from '@vicons/ionicons5'
@@ -236,7 +210,10 @@ const props = defineProps<{
 
 const qrStore = useQRCodesStore()
 const ordersStore = useOrdersStore()
-const message = useMessage()
+
+const printOrder = () => {
+  window.print()
+}
 
 const getQRCount = (item: OrderItem) => {
   return qrStore.qrCodes.filter(q => q.orderId === props.order.id && q.productId === item.productId).length
@@ -327,44 +304,26 @@ const getStatusColor = (status: Order['status']) => {
   }
   return colorMap[status] || 'default'
 }
-
-const getPriorityLabel = (priority: Order['priority']) => {
-  if (!priority) return 'Не указан'
-  const priorityMap: Record<string, string> = {
-    'low': 'Низкий',
-    'medium': 'Средний',
-    'high': 'Высокий',
-    'urgent': 'Срочный'
-  }
-  return priorityMap[priority] || priority
-}
-
-const getPriorityColor = (priority: Order['priority']) => {
-  if (!priority) return 'default'
-  const colorMap: Record<string, 'default' | 'error' | 'primary' | 'info' | 'success' | 'warning'> = {
-    'low': 'success',
-    'medium': 'warning',
-    'high': 'error',
-    'urgent': 'error'
-  }
-  return colorMap[priority] || 'default'
-}
-
-const printOrder = () => {
-  message.info('Печать заказа')
-}
-
-const changeStatus = () => {
-  message.info('Изменение статуса')
-}
-
-const sendNotification = () => {
-  message.success('Уведомление отправлено клиенту')
-}
 </script>
 
 <style scoped>
 .order-details {
   max-width: 100%;
+}
+
+@media print {
+  .print-hidden {
+    display: none !important;
+  }
+  
+  :deep(.n-card) {
+    border: none !important;
+  }
+
+  /* Чтобы модальное окно Naive UI правильно печаталось */
+  :deep(.n-modal-container) {
+    position: static !important;
+    display: block !important;
+  }
 }
 </style>
