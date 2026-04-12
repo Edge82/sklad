@@ -80,6 +80,46 @@
       </n-gi>
 
       <n-gi>
+        <n-card 
+          size="small" 
+          hoverable
+          class="metric-card h-full flex flex-col justify-center" 
+          :class="{ 'active': filterDestination === 'Производство' }"
+          @click="filterDestination = 'Производство'"
+        >
+          <div class="flex items-center gap-3 py-1">
+            <n-icon size="28" color="#2080f0">
+              <BusinessOutline />
+            </n-icon>
+            <div>
+              <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">Выдано в пр-во</n-text>
+              <n-h3 class="m-0 leading-none">{{ statsByType.production }}</n-h3>
+            </div>
+          </div>
+        </n-card>
+      </n-gi>
+
+      <n-gi>
+        <n-card 
+          size="small" 
+          hoverable
+          class="metric-card h-full flex flex-col justify-center" 
+          :class="{ 'active': filterDestination === 'Брак' }"
+          @click="filterDestination = 'Брак'"
+        >
+          <div class="flex items-center gap-3 py-1">
+            <n-icon size="28" color="#d03050">
+              <CloseCircleOutline />
+            </n-icon>
+            <div>
+              <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">Брак</n-text>
+              <n-h3 class="m-0 leading-none">{{ statsByType.defect }}</n-h3>
+            </div>
+          </div>
+        </n-card>
+      </n-gi>
+
+      <n-gi>
         <n-card border-variant="dark" class="metric-card revenue-card h-full flex flex-col justify-center" size="small">
           <div class="flex items-center gap-3 py-1">
             <n-icon size="28" color="#18a058" :component="AnalyticsOutline" />
@@ -221,7 +261,8 @@ const expandedKeys = ref<string[]>([])
 const destinationOptions = [
   { label: 'Все направления', value: 'all' },
   { label: 'Производство', value: 'Производство' },
-  { label: 'Клиент', value: 'Клиент' }
+  { label: 'Клиент', value: 'Клиент' },
+  { label: 'Брак', value: 'Брак' }
 ]
 
 const pagination = {
@@ -277,7 +318,8 @@ const rowProps = (row: InvoiceWithWorker) => {
 const statsByType = computed(() => {
   return {
     production: allInvoices.value.filter(inv => inv.destination === 'Производство').length,
-    client: allInvoices.value.filter(inv => inv.destination === 'Клиент').length
+    client: allInvoices.value.filter(inv => inv.destination === 'Клиент').length,
+    defect: allInvoices.value.filter(inv => inv.destination === 'Брак').length
   }
 })
 

@@ -213,13 +213,27 @@ export const useIntegrationStore = defineStore('integration', () => {
         stockBalances.fetchReserves()
       ]);
       
+      console.log('DEBUG: Movements received:', allMovements.length);
+      if (allMovements.length > 0) {
+        console.log('DEBUG: First movement sample:', allMovements[0]);
+      }
+      console.log('DEBUG: Reserves map size:', reserveMap.size);
+      
       syncProgress.value = 70;
 
       // 3. Высчитываем остатки
       const { balanceMap, lastPriceMap, warehouseMap } = stockBalances.calculateBalances(allMovements);
       
+      console.log('DEBUG: Calculated balances map size:', balanceMap.size);
+      // Выведем пару примеров из balanceMap если они есть
+      if (balanceMap.size > 0) {
+        const firstKey = balanceMap.keys().next().value;
+        console.log(`DEBUG: Sample balance: ID=${firstKey}, Qty=${balanceMap.get(firstKey)}`);
+      }
+
       // 3.1 Готовим карту цен
       const priceMap = new Map((prices as any[]).map(p => [p.nomenclatureId, p.value]));
+      console.log('DEBUG: Prices map size:', priceMap.size);
 
       // 4. Формируем новый список материалов
       const unitMap = new Map((units as any[]).map(u => [u.id, u.name]));
@@ -230,14 +244,9 @@ export const useIntegrationStore = defineStore('integration', () => {
         const itemId = n.id || n.Ref_Key;
         const totalStockRaw = balanceMap.get(itemId) || 0;
         
-        // В 1С:УНФ остаток в регистре 'Запасы' может быть УЖЕ за вычетом резерва или наоборот.
-        // Исходя из ваших данных: если 1С прислала -6 резерва, значит нам нужно его отобразить как +6,
-        // а реальный физический остаток на складе (stock) — это 40 (34 + 6).
         const resValue = reserveMap.get(itemId) || 0;
         const reserved = Math.abs(Number(resValue.toFixed(3)));
         
-        // stock — это ОБЩИЙ физический остаток (40)
-        // available — это СВОБОДНЫЙ остаток (34)
         const stock = Number((totalStockRaw + (resValue < 0 ? Math.abs(resValue) : 0)).toFixed(3));
         const available = Number((stock - reserved).toFixed(3));
 
@@ -258,7 +267,7 @@ export const useIntegrationStore = defineStore('integration', () => {
         
         const price = Number(priceMap.get(itemId) || lastPriceMap.get(itemId) || 0);
         
-        return {
+        const item: InventoryItem = {
           id: itemId,
           name: n.name || n.Description,
           sku: n.sku || n.Артикул || '',
@@ -267,11 +276,11 @@ export const useIntegrationStore = defineStore('integration', () => {
           categoryId: n.categoryId || '1',
           description: '',
           unit: unitMap.get(n.unitId) || n.unitName || 'шт',
-          currentStock: stock, // Это ОБЩИЙ остаток (40)
+          currentStock: stock,
           minStock: 0,
           maxStock: 1000,
-          reserved: reserved, // Это РЕЗЕРВ (6)
-          available: available, // Это ДОСТУПНО (34)
+          reserved: reserved,
+          available: available,
           location: warehouseName,
           purchasePrice: price,
           averagePrice: price,
@@ -284,10 +293,25 @@ export const useIntegrationStore = defineStore('integration', () => {
           totalConsumed: 0,
           popularity: 5,
           status: available > 0 ? 'in_stock' : (stock > 0 ? 'in_stock' : 'out_of_stock'),
-          type: 'material' as const,
+          type: (n.categoryId === '99' || (n.name && n.name.toLowerCase().includes('готовая'))) ? 'product' : 'material',
           createdAt: new Date(),
           updatedAt: new Date()
-        } as InventoryItem;
+        };
+
+        if (item.type === 'product' && (stock > 0 || price > 0)) {
+          console.log(`DEBUG: Product mapped: ${item.name}`, {
+            id: itemId,
+            rawStock: totalStockRaw,
+            resValue: resValue,
+            calculatedStock: stock,
+            calculatedAvailable: available,
+            price: price,
+            catId: n.categoryId,
+            type: item.type
+          });
+        }
+
+        return item;
       });
 
       // 5. Обновляем список категорий в inventoryStore (если нужно)

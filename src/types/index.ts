@@ -58,6 +58,7 @@ export interface OrderItem {
   unitPrice?: number;
   totalPrice?: number;
   materialUsed?: string;
+  paintUsed?: string;
   plannedQuantity: number;
   actualQuantity: number;
   remainingQuantity: number;

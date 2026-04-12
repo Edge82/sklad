@@ -75,6 +75,7 @@
             <th>QR Коды</th>
             <th>Цена за ед.</th>
             <th>Материалы</th>
+            <th>Краски</th>
             <th class="text-right">Сумма</th>
           </tr>
         </thead>
@@ -102,12 +103,13 @@
             </td>
             <td>{{ formatCurrency(item.unitPrice) }}</td>
             <td>{{ item.materialUsed || '-' }}</td>
-            <td>{{ formatCurrency(item.totalPrice) }}</td>
+            <td>{{ (item as any).paintUsed || '-' }}</td>
+            <td class="text-right">{{ formatCurrency(item.totalPrice) }}</td>
           </tr>
         </tbody>
         <tfoot>
           <tr>
-            <td colspan="6" class="text-right font-bold">Итого:</td>
+            <td colspan="7" class="text-right font-bold">Итого:</td>
             <td class="font-bold text-lg text-right">{{ formatCurrency(order.totalAmount) }}</td>
           </tr>
         </tfoot>

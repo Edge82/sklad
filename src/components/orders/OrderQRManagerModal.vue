@@ -112,13 +112,6 @@
             <n-form-item label="Количество">
               <n-input-number v-model:value="genForm.count" :min="1" :max="1000" />
             </n-form-item>
-            <n-form-item label="Название детали">
-              <n-input 
-                v-model:value="genForm.productName" 
-                placeholder="Название для системы" 
-                class="product-name-input"
-              />
-            </n-form-item>
             <n-form-item label="Инфо на этикетке">
               <n-input 
                 v-model:value="genForm.labelInfo" 
@@ -219,7 +212,7 @@ const handleClosePrint = (val: boolean) => {
 }
 
 const restoreFocus = () => {
-  const inputs = document.querySelectorAll('.product-name-input input, .label-info-input input')
+  const inputs = document.querySelectorAll('.label-info-input input')
   inputs.forEach(el => {
     if (el instanceof HTMLInputElement) {
       el.blur()

@@ -165,40 +165,90 @@ export function useStockBalances() {
   async function fetchMovements(): Promise<Movement[]> {
     try {
       const records = await fetchOData('AccumulationRegister_ЗапасыНаСкладах', { '$orderby': 'Period desc' });
+      console.log('DEBUG: OData Raw Records (Register_ЗапасыНаСкладах):', records ? records.length : 'NULL');
+      
       const movements: Movement[] = [];
-      records.forEach((item: any) => {
-        const itemId = item.Номенклатура_Key || item.Item_Key;
-        if (!itemId) return;
-        const type = String(item.RecordType);
-        movements.push({
-          period: item.Period,
-          itemId: itemId,
-          quantity: Number(item.Количество) || 0,
-          type: (type === 'Receipt' || type === '0' || type === 'true') ? 'Receipt' : 'Expense',
-          lineNumber: item.LineNumber,
-          warehouseId: item.Склад_Key || item.СтруктурнаяЕдиница_Key
+      
+      if (records && Array.isArray(records)) {
+        records.forEach((record: any) => {
+          // Если запись пришла в виде набора (RecordSet), как в вашем случае
+          if (record.RecordSet && Array.isArray(record.RecordSet)) {
+            record.RecordSet.forEach((item: any) => {
+              const itemId = item.Номенклатура_Key || item.Item_Key;
+              if (!itemId) return;
+              
+              const type = String(item.RecordType);
+              const isReceipt = type === 'Receipt' || type === '0' || type === 'true' || type === 'Active';
+              
+              movements.push({
+                period: item.Period,
+                itemId: itemId,
+                quantity: Number(item.Количество) || 0,
+                type: isReceipt ? 'Receipt' : 'Expense',
+                lineNumber: item.LineNumber,
+                warehouseId: item.Склад_Key || item.СтруктурнаяЕдиница_Key
+              });
+            });
+          } else {
+            // Если запись пришла плоским списком (стандартный формат)
+            const itemId = record.Номенклатура_Key || record.Item_Key;
+            if (!itemId) return;
+            
+            const type = String(record.RecordType);
+            const isReceipt = type === 'Receipt' || type === '0' || type === 'true' || type === 'Active';
+            
+            movements.push({
+              period: record.Period,
+              itemId: itemId,
+              quantity: Number(record.Количество) || 0,
+              type: isReceipt ? 'Receipt' : 'Expense',
+              lineNumber: record.LineNumber,
+              warehouseId: record.Склад_Key || record.СтруктурнаяЕдиница_Key
+            });
+          }
         });
-      });
+      }
+      
+      console.log('DEBUG: Parsed movements count:', movements.length);
+      if (movements.length > 0) {
+        console.log('DEBUG: First parsed movement:', movements[0]);
+      }
+      
       return movements;
-    } catch (err) { return []; }
+    } catch (err) { 
+      console.error('DEBUG: Error in fetchMovements:', err);
+      return []; 
+    }
   }
 
   async function fetchReserves(): Promise<Map<string, number>> {
     try {
       const records = await fetchOData('AccumulationRegister_Запасы', { '$top': '50000' });
       const reserveMap = new Map<string, number>();
-      records.forEach((item: any) => {
-        const itemId = item.Номенклатура_Key;
-        if (!itemId) return;
-        const hasOrder = (item.ЗаказПокупателя_Key && item.ЗаказПокупателя_Key !== '00000000-0000-0000-0000-000000000000') ||
-                         (item.Заказ_Key && item.Заказ_Key !== '00000000-0000-0000-0000-000000000000');
-        if (!hasOrder) return;
-        const qty = Number(item.Количество) || 0;
-        const type = String(item.RecordType);
-        const isPlus = type === 'Receipt' || type === '0' || type === 'true';
-        const current = reserveMap.get(itemId) || 0;
-        reserveMap.set(itemId, Number((current + (isPlus ? qty : -qty)).toFixed(3)));
-      });
+      
+      if (records && Array.isArray(records)) {
+        records.forEach((record: any) => {
+          // Обрабатываем как RecordSet, так и плоский формат
+          const items = (record.RecordSet && Array.isArray(record.RecordSet)) ? record.RecordSet : [record];
+          
+          items.forEach((item: any) => {
+            const itemId = item.Номенклатура_Key;
+            if (!itemId) return;
+            
+            const hasOrder = (item.ЗаказПокупателя_Key && item.ЗаказПокупателя_Key !== '00000000-0000-0000-0000-000000000000') ||
+                             (item.Заказ_Key && item.Заказ_Key !== '00000000-0000-0000-0000-000000000000');
+            
+            if (!hasOrder) return;
+            
+            const qty = Number(item.Количество) || 0;
+            const type = String(item.RecordType);
+            const isPlus = type === 'Receipt' || type === '0' || type === 'true' || type === 'Active';
+            
+            const current = reserveMap.get(itemId) || 0;
+            reserveMap.set(itemId, Number((current + (isPlus ? qty : -qty)).toFixed(3)));
+          });
+        });
+      }
       return reserveMap;
     } catch (err) { return new Map(); }
   }
@@ -211,7 +261,7 @@ export function useStockBalances() {
     movements.forEach(m => {
       const currentValue = balanceMap.get(m.itemId) || 0;
       const typeStr = String(m.type);
-      const isReceipt = typeStr === 'Receipt' || typeStr === '0' || typeStr === 'true';
+      const isReceipt = typeStr === 'Receipt' || typeStr === '0' || typeStr === 'true' || typeStr === 'Active';
       const qty = Number(m.quantity) || 0;
 
       if (m.warehouseId) {

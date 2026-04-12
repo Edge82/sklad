@@ -74,6 +74,12 @@
               </n-form-item>
             </n-gi>
 
+            <n-gi :span="2">
+              <n-form-item label="Краски" :path="`items[${index}].paintUsed`">
+                <n-input v-model:value="item.paintUsed" placeholder="Используемые краски" />
+              </n-form-item>
+            </n-gi>
+
             <n-gi>
               <n-form-item label="Итого" :path="`items[${index}].totalPrice`">
                 <n-input-number :value="item.quantity * item.unitPrice" disabled style="width: 100%">
@@ -174,7 +180,8 @@ const formData = reactive({
       productName: '',
       quantity: 1,
       unitPrice: 0,
-      materialUsed: ''
+      materialUsed: '',
+      paintUsed: ''
     }
   ],
   notes: props.initialData?.notes || ''
@@ -247,7 +254,8 @@ const addItem = () => {
     productName: '',
     quantity: 1,
     unitPrice: 0,
-    materialUsed: ''
+    materialUsed: '',
+    paintUsed: ''
   })
 }
 

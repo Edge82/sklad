@@ -59,8 +59,9 @@
           <n-form-item label="Режим работы" :show-feedback="false">
             <n-tabs type="segment" v-model:value="scanMode" size="large">
               <n-tab-pane name="ship" tab="Выдача / Отгрузка" />
-              <n-tab-pane name="receive" tab="Приёмка / Приход" />
-              <n-tab-pane name="defect" tab="Брак / Списание" />
+              <n-tab-pane name="receive" tab="Приход" />
+              <n-tab-pane name="defect" tab="Брак" />
+              <n-tab-pane name="write_off" tab="Списание" />
             </n-tabs>
           </n-form-item>
         </n-gi>
@@ -79,7 +80,7 @@
 
       <n-grid v-if="scanMode === 'receive'" :cols="24" :x-gap="16" class="mt-4">
         <n-gi :span="12">
-          <n-alert type="info">В режиме <b>Приёмка</b> товары будут добавлены на основной склад. Проверьте цены закупки в таблице ниже.</n-alert>
+          <n-alert type="info">В режиме <b>Приход</b> товары будут добавлены на основной склад. Проверьте цены закупки в таблице ниже.</n-alert>
         </n-gi>
       </n-grid>
 
@@ -88,6 +89,24 @@
           <n-form-item label="Причина списания" :show-feedback="false">
             <n-input v-model:value="defectReason" placeholder="Укажите причину (например: скол, ошибка раскроя...)" size="large" />
           </n-form-item>
+        </n-gi>
+      </n-grid>
+
+      <n-grid v-if="scanMode === 'write_off'" :cols="24" :x-gap="16" class="mt-4">
+        <n-gi :span="12">
+          <n-form-item label="Изделие для списания (необязательно)" :show-feedback="false">
+            <n-select
+              v-model:value="writeOffProduct"
+              placeholder="Выберите изделие, на которое списывается материал..."
+              :options="allInventoryOptions"
+              filterable
+              clearable
+              size="large"
+            />
+          </n-form-item>
+        </n-gi>
+        <n-gi :span="12">
+          <n-alert type="warning">В режиме <b>Списание</b> материалы будут безвозвратно списаны со склада.</n-alert>
         </n-gi>
       </n-grid>
     </n-card>
@@ -163,9 +182,10 @@ import { useEmployeesStore } from '@/stores/employees'
 import { useQRCodesStore } from '@/stores/qrCodes'
 import type { InventoryItem, MaterialInvoice, MaterialInvoiceItem } from '@/types'
 
-const scanMode = ref<'ship' | 'receive' | 'defect'>('ship')
+const scanMode = ref<'ship' | 'receive' | 'defect' | 'write_off'>('ship')
 const destinationType = ref<'production' | 'client'>('production')
 const defectReason = ref('')
+const writeOffProduct = ref<string | null>(null)
 const lastScannedCode = ref('')
 const scanInputRef = ref<InputInst | null>(null)
 const selectedOrderNumber = ref<string | null>(null)
@@ -209,18 +229,21 @@ const allInventoryOptions = computed(() => inventoryStore.items.map(item => ({
 const submitButtonText = computed(() => {
   if (scanMode.value === 'receive') return 'Оформить приход'
   if (scanMode.value === 'defect') return 'Списать брак'
+  if (scanMode.value === 'write_off') return 'Списать со склада'
   return 'Оформить выдачу'
 })
 
 const submitButtonType = computed(() => {
   if (scanMode.value === 'receive') return 'primary'
   if (scanMode.value === 'defect') return 'warning'
+  if (scanMode.value === 'write_off') return 'error'
   return 'primary'
 })
 
 const confirmModalTitle = computed(() => {
-  if (scanMode.value === 'receive') return 'Подтверждение приемки'
-  if (scanMode.value === 'defect') return 'Списание бракованного товара'
+  if (scanMode.value === 'receive') return 'Подтверждение прихода'
+  if (scanMode.value === 'defect') return 'Подтверждение записи брака'
+  if (scanMode.value === 'write_off') return 'Подтверждение списания материалов'
   if (shipmentWarning.value) return 'Предупреждение по заказу'
   return 'Подтверждение выдачи'
 })
@@ -259,6 +282,12 @@ const shipmentWarning = computed(() => {
 const confirmModalContent = computed(() => {
   if (scanMode.value === 'receive') return 'Добавить указанные товары на склад?'
   if (scanMode.value === 'defect') return 'Вы уверены, что хотите списать эти товары как брак? Это действие уменьшит остатки безвозвратно.'
+  if (scanMode.value === 'write_off') {
+    const productName = writeOffProduct.value 
+      ? inventoryStore.items.find(i => i.id === writeOffProduct.value)?.name 
+      : null
+    return `Списать выбранные материалы${productName ? ' для изделия "' + productName + '"' : ''}?`
+  }
   
   if (shipmentWarning.value) {
     return `${shipmentWarning.value}. Вы уверены, что хотите продолжить отгрузку?`
@@ -495,32 +524,46 @@ const processAction = () => {
 
     message.success('Приход успешно оформлен')
   } else {
-    // ВЫДАЧА / ОТГРУЗКА
+    // ВЫДАЧА / ОТГРУЗКА / СПИСАНИЕ / БРАК
     const isDefect = scanMode.value === 'defect'
+    const isWriteOff = scanMode.value === 'write_off'
     
     scannedItems.value.forEach(item => {
-      inventoryStore.updateStock(item.id, item.quantity || 0, isDefect ? 'write_off' : 'outgoing', {
+      let type: 'outgoing' | 'write_off' = 'outgoing'
+      if (isDefect || isWriteOff) {
+        type = 'write_off'
+      }
+
+      inventoryStore.updateStock(item.id, item.quantity || 0, type, {
         id: Math.random().toString(36).substring(2, 9),
         itemId: item.id,
-        type: isDefect ? 'write_off' : 'outgoing',
+        type: type,
         quantity: item.quantity || 0,
         unitPrice: item.price || 0,
         totalPrice: (item.quantity || 0) * (item.price || 0),
         createdBy: userStore.user?.name || 'System',
-        createdAt: new Date()
+        createdAt: new Date(),
+        reason: isDefect ? defectReason.value : (isWriteOff ? 'Списание на изделие' : undefined)
       })
 
       // Если это было сканирование QR-кода заказа, обновляем его статус
       if (item.qrCodeId) {
-        qrStore.updateQRCodeStatus(item.qrCodeId, isDefect ? 'generated' : 'shipped', userStore.user?.name)
+        qrStore.updateQRCodeStatus(item.qrCodeId, (isDefect || isWriteOff) ? 'generated' : 'shipped', userStore.user?.name)
       }
     })
     
-    if (selectedOrderNumber.value || isDefect || !isDefect) {
+    if (selectedOrderNumber.value || isDefect || isWriteOff || !isDefect) {
+      let destination = destinationType.value === 'production' ? 'Производство' : 'Клиент'
+      if (isDefect) destination = 'Брак'
+      if (isWriteOff) {
+        const product = inventoryStore.items.find(i => i.id === writeOffProduct.value)
+        destination = product ? `Списание: ${product.name}` : 'Списание (Общее)'
+      }
+
       const historyItem: Omit<MaterialInvoice, 'id'> = {
         date: new Date(),
-        orderNumber: selectedOrderNumber.value || (isDefect ? 'БРАК' : 'БЕЗ НОМЕРА'),
-        destination: isDefect ? 'Брак' : (destinationType.value === 'production' ? 'Производство' : 'Клиент'),
+        orderNumber: selectedOrderNumber.value || (isDefect ? 'БРАК' : (isWriteOff ? 'СПИСАНИЕ' : 'БЕЗ НОМЕРА')),
+        destination: destination,
         totalAmount: scannedItems.value.reduce((total, item) => total + ((item.quantity || 0) * (item.price || 0)), 0),
         items: scannedItems.value.map(item => ({
           productName: item.name,
@@ -544,6 +587,8 @@ const processAction = () => {
 
     if (isDefect) {
       message.warning(`Списано ${scannedItems.value.length} позиций брака.`)
+    } else if (isWriteOff) {
+      message.success(`Материалы успешно списаны.`)
     } else {
       message.success('Выдача успешно оформлена')
     }

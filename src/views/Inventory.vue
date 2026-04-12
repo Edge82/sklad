@@ -1,47 +1,82 @@
 <template>
   <div class="inventory-page p-6">
-    <!-- Заголовок и кнопки -->
-    <div class="flex justify-between items-center mb-6">
-      <div>
-        <n-h1>{{ pageTitle }}</n-h1>
-        <div class="flex items-center gap-2">
-          <n-text depth="3">Управление материалами и запасами склада</n-text>
-          <n-divider vertical />
-          <n-text depth="3" class="text-xs">Последняя синхронизация с 1С: {{ formatLastSync(integrationStore.lastSyncTime) }}</n-text>
-        </div>
+    <!-- Режим массового прихода (полноэкранный вид внутри страницы) -->
+    <div v-if="isBulkReceiptView">
+      <div class="flex items-center gap-4 mb-6">
+        <n-button @click="isBulkReceiptView = false" secondary circle>
+          <template #icon><n-icon><ArrowBack /></n-icon></template>
+        </n-button>
+        <n-h1 class="!mb-0">{{ props.mode === 'product' ? 'Приход изделий' : 'Приход материалов' }}</n-h1>
       </div>
-      <div class="flex gap-3">
-        <n-button 
-          v-if="mode !== 'product'" 
-          @click="handleSync1C" 
-          :loading="integrationStore.loading"
-          secondary
-        >
-          <template #icon>
-            <n-icon><SyncOutline /></n-icon>
-          </template>
-          Синхронизация с 1С
-          <template v-if="integrationStore.syncProgress > 0">
-            ({{ integrationStore.syncProgress }}%)
-          </template>
+      
+      <InventoryBulkReceiptModal 
+        :is-embed="true"
+        :mode="props.mode"
+        @submit="handleTransactionSubmit" 
+        @close="isBulkReceiptView = false"
+      />
+    </div>
+
+    <!-- Режим массового расхода -->
+    <div v-else-if="isBulkIssueView">
+      <div class="flex items-center gap-4 mb-6">
+        <n-button @click="isBulkIssueView = false" secondary circle>
+          <template #icon><n-icon><ArrowBack /></n-icon></template>
         </n-button>
-        <n-button v-if="mode !== 'product'" @click="showReceiptModal = true" type="warning">
-          <template #icon>
-            <n-icon>
-              <AddCircleOutline />
-            </n-icon>
-          </template>
-          Приход
-        </n-button>
-        <n-button v-if="mode !== 'product'" @click="showIssueModal = true" type="error">
-          <template #icon>
-            <n-icon>
-              <RemoveCircleOutline />
-            </n-icon>
-          </template>
-          Расход
-        </n-button>
-        <n-button @click="showCreateModal = true" type="primary">
+        <n-h1 class="!mb-0">{{ props.mode === 'product' ? 'Расход изделий' : 'Расход материалов' }}</n-h1>
+      </div>
+      
+      <InventoryBulkIssueModal 
+        :is-embed="true"
+        :mode="props.mode"
+        @submit="handleTransactionSubmit" 
+        @close="isBulkIssueView = false"
+      />
+    </div>
+
+    <!-- Основной контент страницы -->
+    <div v-else>
+      <!-- Заголовок и кнопки -->
+      <div class="flex justify-between items-center mb-6">
+        <div>
+          <n-h1>{{ pageTitle }}</n-h1>
+          <div class="flex items-center gap-2">
+            <n-text depth="3">Управление материалами и запасами склада</n-text>
+            <n-divider vertical />
+            <n-text depth="3" class="text-xs">Последняя синхронизация с 1С: {{ formatLastSync(integrationStore.lastSyncTime) }}</n-text>
+          </div>
+        </div>
+        <div class="flex gap-3">
+          <n-button 
+            @click="handleSync1C" 
+            :loading="integrationStore.loading"
+            secondary
+          >
+            <template #icon>
+              <n-icon><SyncOutline /></n-icon>
+            </template>
+            Синхронизация с 1С
+            <template v-if="integrationStore.syncProgress > 0">
+              ({{ integrationStore.syncProgress }}%)
+            </template>
+          </n-button>
+          <n-button v-if="props.mode !== 'product'" @click="isBulkReceiptView = true" type="warning">
+            <template #icon>
+              <n-icon>
+                <AddCircleOutline />
+              </n-icon>
+            </template>
+            Приход
+          </n-button>
+          <n-button v-if="props.mode !== 'product'" @click="isBulkIssueView = true" type="error">
+            <template #icon>
+              <n-icon>
+                <RemoveCircleOutline />
+              </n-icon>
+            </template>
+            Расход
+          </n-button>
+          <n-button @click="showCreateModal = true" type="primary">
           <template #icon>
             <n-icon>
               <AddOutline />
@@ -52,6 +87,7 @@
       </div>
     </div>
 
+    <!-- Режим Продукции (WMS) - Скрываем старую статистику, если нужно, или оставляем -->
     <!-- Статистика -->
     <n-grid :cols="6" :x-gap="12" :y-gap="12" class="mb-6 items-stretch py-2">
       <n-gi v-if="props.mode === 'product'">
@@ -244,16 +280,16 @@
           size="small" 
           hoverable
           class="metric-card h-full flex flex-col justify-center"
-          :class="{ 'active': filters.status === 'on_order' }"
-          @click="filters.status = 'on_order'"
+          :class="{ 'active': filters.status === 'in_stock' }"
+          @click="filters.status = 'in_stock'"
         >
           <div class="flex items-center gap-3 py-1">
             <n-icon size="28" color="#18a058">
-              <SwapHorizontalOutline />
+              <CheckmarkCircleOutline />
             </n-icon>
             <div>
-              <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">В пути (SKU)</n-text>
-              <n-h3 class="m-0 leading-none">{{ filteredOnOrderCount }}</n-h3>
+              <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">В наличии (SKU)</n-text>
+              <n-h3 class="m-0 leading-none">{{ filteredInStockCount }}</n-h3>
             </div>
           </div>
         </n-card>
@@ -403,14 +439,6 @@
     <InventoryReportModal v-model:show="showReportModal" />
 
     <InventoryTransactionModal 
-      v-model:show="showReceiptModal" 
-      type="incoming" 
-      :title="props.mode === 'product' ? 'Приход изделий' : 'Приход материалов'"
-      :mode="props.mode"
-      @submit="handleTransactionSubmit" 
-    />
-
-    <InventoryTransactionModal 
       v-model:show="showIssueModal" 
       type="outgoing" 
       :title="props.mode === 'product' ? 'Расход изделий' : 'Расход материалов'"
@@ -433,17 +461,19 @@
       :code="printData.code"
       :description="printData.description"
     />
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, h, watch } from 'vue'
+import { ref, reactive, computed, h, watch, onMounted } from 'vue'
 import * as XLSX from 'xlsx'
 import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { fontBase64 } from '@/assets/font-base64'
 import { useInventoryStore } from '@/stores/inventory'
 import { useOrdersStore } from '@/stores/orders'
+import { useQRCodesStore } from '@/stores/qrCodes'
 import type { InventoryItem, InventoryTransaction, MaterialInvoice } from '@/types'
 import type { DataTableColumns, SelectOption } from 'naive-ui'
 import {
@@ -486,13 +516,17 @@ import {
   ArrowDownOutline,
   ArrowUpOutline,
   SwapHorizontalOutline,
+  CheckmarkCircleOutline,
   TrashOutline,
   LocationOutline,
-  QrCodeOutline
+  QrCodeOutline,
+  ArrowBack
 } from '@vicons/ionicons5'
 import InventoryItemModal from '@/components/inventory/InventoryItemModal.vue'
 import InventoryReportModal from '@/components/inventory/InventoryReportModal.vue'
 import InventoryTransactionModal from '@/components/inventory/InventoryTransactionModal.vue'
+import InventoryBulkReceiptModal from '@/components/inventory/InventoryBulkReceiptModal.vue'
+import InventoryBulkIssueModal from '@/components/inventory/InventoryBulkIssueModal.vue'
 import InventoryItemDetails from '@/components/inventory/InventoryItemDetails.vue'
 import QRPrintModal from '@/components/common/QRPrintModal.vue'
 import { useDialog, useMessage } from 'naive-ui'
@@ -507,11 +541,28 @@ const props = defineProps<{
 
 const inventoryStore = useInventoryStore()
 const ordersStore = useOrdersStore()
+const qrCodesStore = useQRCodesStore()
 const userStore = useUserStore()
 const employeesStore = useEmployeesStore()
 const integrationStore = useIntegrationStore()
 const dialog = useDialog()
 const message = useMessage()
+
+onMounted(async () => {
+  // Автоматически синхронизируем данные при входе на страницу
+  if (inventoryStore.items.length === 0 || !integrationStore.lastSyncTime) {
+    await handleSync1C()
+  }
+  
+  // Загружаем заказы для возможности привязки в приходе/расходе
+  if (ordersStore.orders.length === 0) {
+    try {
+      await integrationStore.syncOrders()
+    } catch (err) {
+      console.error('Ошибка загрузки заказов:', err)
+    }
+  }
+})
 
 // Функции интеграции
 const handleSync1C = async () => {
@@ -541,7 +592,10 @@ const showIssueModal = ref(false)
 const showDetailsModal = ref(false)
 const showPrintModal = ref(false)
 const selectedItemId = ref<string | null>(null)
+const isBulkReceiptView = ref(false)
+const isBulkIssueView = ref(false)
 const isGrouped = ref(false)
+const showTransactionModal = ref(false)
 
 const printData = reactive({
   title: '',
@@ -648,10 +702,27 @@ const warehouseOptions = computed<SelectOption[]>(() => {
 // Базовые элементы для расчета статистики (фильтруются только по модулю: Материалы или Продукция)
 const baseItemsForStats = computed(() => {
   const result = inventoryStore.items
+  
+  console.log('DEBUG: Inventory Mode:', props.mode);
+  console.log('DEBUG: Total items in store:', result.length);
+  
   if (props.mode === 'product') {
-    return result.filter(item => item.type === 'product')
+    const products = result.filter(item => item.type === 'product' || item.categoryId === '99')
+    console.log('DEBUG: Found products:', products.length);
+    if (products.length > 0) {
+      console.log('DEBUG: First product sample:', {
+        name: products[0].name,
+        stock: products[0].currentStock,
+        price: products[0].averagePrice,
+        type: products[0].type
+      });
+    }
+    return products
   }
-  return result.filter(item => item.type !== 'product')
+  
+  const materials = result.filter(item => item.type !== 'product' && item.categoryId !== '99')
+  console.log('DEBUG: Found materials:', materials.length);
+  return materials
 })
 
 // Фильтрованные элементы для таблицы
@@ -750,6 +821,27 @@ const filteredItems = computed(() => {
     result = result.filter(item => item.averagePrice <= advancedFilters.maxPrice!)
   }
 
+  // Расчет дополнительных полей для отображения в таблице (остаток, доступно, стоимость, статус)
+  if (props.mode === 'product') {
+    return result.map(item => {
+      // Для режима продукции (WMS) считаем остаток на основе QR-кодов
+      const itemQrs = qrCodesStore.qrCodes.filter(q => q.productId === item.id)
+      const stock = itemQrs.length
+      const reserved = itemQrs.filter(q => q.status === 'shipped').length
+      const available = stock - reserved
+      const price = item.averagePrice || 0
+      
+      return {
+        ...item,
+        currentStock: stock,
+        reserved: reserved,
+        available: available,
+        totalValue: Number((stock * price).toFixed(2)),
+        status: (available > 0 ? 'in_stock' : (stock > 0 ? 'reserved' : 'out_of_stock')) as InventoryItem['status']
+      }
+    })
+  }
+
   return result
 })
 
@@ -766,6 +858,10 @@ const filteredOutOfStockCount = computed(() => {
   return baseItemsForStats.value.filter(item => item.status === 'out_of_stock').length
 })
 
+const filteredInStockCount = computed(() => {
+  return baseItemsForStats.value.filter(item => item.status === 'in_stock').length
+})
+
 const filteredOnOrderCount = computed(() => {
   return baseItemsForStats.value.filter(item => item.status === 'on_order').length
 })
@@ -776,7 +872,7 @@ const filteredReservedCount = computed(() => {
 })
 
 const averageReadiness = computed(() => {
-  const items = baseItemsForStats.value.filter(item => item.type === 'product')
+  const items = filteredItems.value.filter(item => item.type === 'product')
   if (items.length === 0) return 0
   const ready = items.filter(item => item.status === 'in_stock').length
   return Math.round((ready / items.length) * 100)
@@ -789,7 +885,7 @@ const readyToShipToday = computed(() => {
     .map(o => o.orderNumber)
 
   // Считаем количество уникальных изделий на складе, которые относятся к этим заказам
-  return baseItemsForStats.value.filter(item => 
+  return filteredItems.value.filter(item => 
     item.type === 'product' && 
     item.orderNumber && 
     readyOrderNumbers.includes(item.orderNumber) &&
@@ -805,7 +901,7 @@ const awaitingShipment = computed(() => {
 
   // Изделия, которые готовы (в наличии), но их заказ еще НЕ в статусе "Готов" 
   // (то есть они ждут, пока остальные позиции заказа доделаются)
-  return baseItemsForStats.value.filter(item => 
+  return filteredItems.value.filter(item => 
     item.type === 'product' && 
     item.currentStock > 0 && 
     (!item.orderNumber || !readyOrderNumbers.includes(item.orderNumber))
