@@ -1094,7 +1094,35 @@ const columns: DataTableColumns<InventoryTableRow> = [
         h('span', { class: 'text-green-500' }, item.orderNumber || '-')
       ])
     }
-  }] : []),
+  }] : [
+    {
+      title: 'Резерв под заказы',
+      key: 'reserveInfo',
+      width: 220,
+      render: (row: InventoryTableRow) => {
+        if ('isGroup' in row && row.isGroup) return null
+        const item = row as InventoryItem
+        if (!item.reserveDetails || item.reserveDetails.size === 0) return h('div', { class: 'text-gray-400' }, 'Нет резервов')
+
+        const ordersList: any[] = []
+        item.reserveDetails.forEach((qty, orderId) => {
+          if (qty === 0) return
+          const order = ordersStore.orders.find(o => o.id === orderId)
+          const orderLabel = order ? order.orderNumber : `Заказ ${orderId.substring(0, 6)}...`
+          
+          ordersList.push(h('div', { class: 'text-[11px] mb-0.5 whitespace-nowrap' }, [
+            h('span', { class: 'font-bold text-blue-500' }, orderLabel),
+            h('span', { class: 'text-gray-400 mx-1' }, '—'),
+            h('span', { class: 'font-medium' }, `${qty} ${item.unit}`)
+          ]))
+        })
+
+        if (ordersList.length === 0) return h('div', { class: 'text-gray-400' }, 'Нет резервов')
+        
+        return h('div', { class: 'max-h-20 overflow-y-auto' }, ordersList)
+      }
+    }
+  ]),
   {
     title: 'Остаток',
     key: 'stock',

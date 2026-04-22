@@ -68,11 +68,20 @@
                   <n-list-item>
                     <n-thing title="Текущий остаток">
                       <template #description>
-                        <div class="flex items-center gap-2">
-                          <n-text strong size="large">{{ item.currentStock }} {{ item.unit }}</n-text>
-                          <n-tag v-if="item.reserved > 0" type="info" size="small">
-                            {{ item.reserved }} в резерве
-                          </n-tag>
+                        <div class="flex flex-col gap-2">
+                          <div class="flex items-center gap-2">
+                            <n-text strong size="large">{{ item.currentStock }} {{ item.unit }}</n-text>
+                            <n-tag v-if="item.reserved > 0" type="info" size="small">
+                              {{ item.reserved }} в резерве
+                            </n-tag>
+                          </div>
+                          
+                          <!-- Детализация резервов -->
+                          <div v-if="reserveDetails.length > 0" class="reserve-details pl-4 border-l-2 border-blue-100 mt-1">
+                            <div v-for="res in reserveDetails" :key="res.orderId" class="text-xs text-gray-500 mb-1">
+                              <span class="font-medium">{{ res.orderNumber }}:</span> {{ res.quantity }} {{ item.unit }}
+                            </div>
+                          </div>
                         </div>
                       </template>
                     </n-thing>
@@ -234,6 +243,7 @@
 <script setup lang="ts">
 import { ref, computed, h } from 'vue'
 import { useInventoryStore } from '@/stores/inventory'
+import { useOrdersStore } from '@/stores/orders'
 import type {  InventoryTransaction } from '@/types'
 import type { DataTableColumns } from 'naive-ui'
 import {
@@ -277,12 +287,32 @@ const emit = defineEmits<{
 }>()
 
 const inventoryStore = useInventoryStore()
+const ordersStore = useOrdersStore()
 const message = useMessage()
 const historyDateRange = ref<[number, number] | null>(null)
 const showPrintModal = ref(false)
 
 const item = computed(() => {
   return props.itemId ? inventoryStore.getItemById(props.itemId) : null
+})
+
+const reserveDetails = computed(() => {
+  if (!item.value) return []
+  
+  if (!item.value.reserveDetails) return []
+  
+  const details: { orderId: string, orderNumber: string, quantity: number }[] = []
+  
+  item.value.reserveDetails.forEach((qty, orderId) => {
+    const order = ordersStore.orders.find(o => o.id === orderId)
+    details.push({
+      orderId,
+      orderNumber: order ? order.orderNumber : `Заказ ${orderId.substring(0, 8)}`,
+      quantity: qty
+    })
+  })
+  
+  return details.sort((a, b) => b.quantity - a.quantity)
 })
 
 const itemHistory = computed(() => {

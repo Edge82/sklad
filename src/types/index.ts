@@ -258,7 +258,7 @@ export interface Employee {
   phone: string;
   photo?: string;
   avatar?: string;
-  
+
   // Работа
   position: string;
   department: string;
@@ -312,6 +312,7 @@ export interface InventoryItem {
   description?: string;
   unit: string; // шт, м, кг, литр, м²
   image?: string; // base64 или URL
+  imageFileName?: string; // имя файла из UI
   currentStock: number;
   minStock: number;
   maxStock: number;
@@ -344,6 +345,10 @@ export interface InventoryItem {
   // Количество в пути
   onOrderQuantity?: number;
 
+  // 1C Integration
+  unitId?: string;
+  warehouseId?: string;
+  
   // Статус
   status: 'in_stock' | 'low_stock' | 'out_of_stock' | 'reserved' | 'on_order' | 'blocked';
 
@@ -366,6 +371,9 @@ export interface InventoryItem {
   // Ссылка на заказ (для готовой продукции)
   orderNumber?: string;
   orderId?: string;
+
+  // Резервы
+  reserveDetails?: Map<string, number>; // Документ_Key -> Количество
 
   createdAt?: Date;
   updatedAt?: Date;

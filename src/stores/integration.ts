@@ -3,7 +3,7 @@ import { ref } from 'vue';
 import { useStockBalances } from '@/composables/useStockBalances';
 import { useInventoryStore } from './inventory';
 import { useOrdersStore } from './orders';
-import type { InventoryItem, Order, OrderStatus } from '@/types';
+import type { InventoryItem, Order, OrderStatus, OrderItem } from '@/types';
 
 export const useIntegrationStore = defineStore('integration', () => {
   const stockBalances = useStockBalances();
@@ -137,26 +137,21 @@ export const useIntegrationStore = defineStore('integration', () => {
     
     try {
       const items = await stockBalances.fetchOrderItems(orderId);
-      console.log('DEBUG: Raw items from 1C for order', orderId, items);
       
       if (!items || items.length === 0) return;
 
       const order = ordersStore.orders.find(o => o.id === orderId);
       if (order) {
         const nomenclatureMap = new Map();
-        const needsNomenclature = items.some(i => !i.productName || i.productName === 'Неизвестный товар');
+        const needsNomenclature = items.some((i: any) => !i.productName || i.productName === 'Неизвестный товар');
         
         if (needsNomenclature) {
-          console.log('DEBUG: Fetching nomenclature catalog to match IDs...');
           const nomData = await stockBalances.fetchNomenclature();
-          console.log('DEBUG: Nomenclature catalog size:', nomData.length);
-          console.log('DEBUG: First 3 items from catalog:', nomData.slice(0, 3));
           nomData.forEach(n => nomenclatureMap.set(n.id, n.name));
         }
 
-        const mappedItems: OrderItem[] = items.map(item => {
+        const mappedItems: OrderItem[] = items.map((item: any) => {
           const nameFromCatalog = nomenclatureMap.get(item.productId);
-          console.log(`DEBUG: Mapping item ${item.productId}. From order: ${item.productName}, From catalog: ${nameFromCatalog}`);
           
           const finalName = item.productName && item.productName !== 'Неизвестный товар' 
             ? item.productName 
@@ -180,7 +175,7 @@ export const useIntegrationStore = defineStore('integration', () => {
         });
 
         order.items = mappedItems;
-        order.plannedQuantity = mappedItems.reduce((sum, i) => sum + (i.plannedQuantity || 0), 0);
+        order.plannedQuantity = mappedItems.reduce((sum, item: OrderItem) => sum + (item.plannedQuantity || 0), 0);
         order.remainingQuantity = order.plannedQuantity;
       }
     } catch (err) {
@@ -214,22 +209,12 @@ export const useIntegrationStore = defineStore('integration', () => {
       ]);
       
       console.log('DEBUG: Movements received:', allMovements.length);
-      if (allMovements.length > 0) {
-        console.log('DEBUG: First movement sample:', allMovements[0]);
-      }
       console.log('DEBUG: Reserves map size:', reserveMap.size);
       
       syncProgress.value = 70;
 
       // 3. Высчитываем остатки
       const { balanceMap, lastPriceMap, warehouseMap } = stockBalances.calculateBalances(allMovements);
-      
-      console.log('DEBUG: Calculated balances map size:', balanceMap.size);
-      // Выведем пару примеров из balanceMap если они есть
-      if (balanceMap.size > 0) {
-        const firstKey = balanceMap.keys().next().value;
-        console.log(`DEBUG: Sample balance: ID=${firstKey}, Qty=${balanceMap.get(firstKey)}`);
-      }
 
       // 3.1 Готовим карту цен
       const priceMap = new Map((prices as any[]).map(p => [p.nomenclatureId, p.value]));
@@ -244,7 +229,8 @@ export const useIntegrationStore = defineStore('integration', () => {
         const itemId = n.id || n.Ref_Key;
         const totalStockRaw = balanceMap.get(itemId) || 0;
         
-        const resValue = reserveMap.get(itemId) || 0;
+        const resData = reserveMap.get(itemId);
+        const resValue = resData ? resData.total : 0;
         const reserved = Math.abs(Number(resValue.toFixed(3)));
         
         const stock = Number((totalStockRaw + (resValue < 0 ? Math.abs(resValue) : 0)).toFixed(3));
@@ -294,22 +280,10 @@ export const useIntegrationStore = defineStore('integration', () => {
           popularity: 5,
           status: available > 0 ? 'in_stock' : (stock > 0 ? 'in_stock' : 'out_of_stock'),
           type: (n.categoryId === '99' || (n.name && n.name.toLowerCase().includes('готовая'))) ? 'product' : 'material',
+          reserveDetails: resData ? resData.details : new Map<string, number>(),
           createdAt: new Date(),
           updatedAt: new Date()
         };
-
-        if (item.type === 'product' && (stock > 0 || price > 0)) {
-          console.log(`DEBUG: Product mapped: ${item.name}`, {
-            id: itemId,
-            rawStock: totalStockRaw,
-            resValue: resValue,
-            calculatedStock: stock,
-            calculatedAvailable: available,
-            price: price,
-            catId: n.categoryId,
-            type: item.type
-          });
-        }
 
         return item;
       });
@@ -345,6 +319,115 @@ export const useIntegrationStore = defineStore('integration', () => {
     }
   }
 
+  async function syncAll() {
+    console.log('Запуск полной фоновой синхронизации (Заказы + Склад)...');
+    try {
+      // Синхронизируем заказы
+      await syncOrders();
+      // Синхронизируем склад
+      await syncWith1C();
+      console.log('Полная фоновая синхронизация завершена');
+    } catch (err) {
+      console.error('Ошибка при фоновой синхронизации:', err);
+    }
+  }
+
+  async function createNomenclature(item: Partial<InventoryItem>) {
+    if (!item.name) throw new Error('Наименование обязательно');
+    
+    loading.value = true;
+    error.value = null;
+    
+    try {
+      // 1. Подготовка данных для 1С (основная карточка)
+      const payload: any = {
+        Description: item.name,
+        Артикул: item.sku || '',
+        ЕдиницаИзмерения_Key: item.unitId || '00000000-0000-0000-0000-000000000000',
+        ТипНоменклатуры: 'Запас'
+      };
+
+      if (item.categoryId) {
+        payload.КатегорияНоменклатуры_Key = item.categoryId;
+      }
+
+      // Добавляем склад, если он выбран
+      if (item.warehouseId) {
+        payload.Склад_Key = item.warehouseId;
+      }
+
+      console.log('DEBUG: Объект передаваемый в 1С (Catalog_Номенклатура):', JSON.stringify(payload, null, 2));
+
+      // 2. Отправка в 1С (основная номенклатура)
+      let result;
+      if (item.image) {
+        let fileToSend: File | undefined = undefined;
+        if (typeof item.image === 'object' && item.image && 'name' in item.image && 'size' in item.image && 'type' in item.image) {
+          // Похож на File (например, загруженный через input или drag&drop)
+          fileToSend = item.image as File;
+        } else if (typeof item.image === 'string') {
+          // Преобразуем строку base64 в File
+          const arr = item.image.split(',');
+          let mime = 'image/jpeg';
+          if (arr[0] && arr[0].indexOf(':') !== -1 && arr[0].indexOf(';') !== -1) {
+            const match = arr[0].match(/:(.*?);/);
+            if (match && match[1]) mime = match[1];
+          }
+          const b64data = arr.length > 1 ? arr[1] : arr[0];
+          if (b64data) {
+            const bstr = atob(b64data);
+            let n = bstr.length;
+            const u8arr = new Uint8Array(n);
+            while (n--) {
+              u8arr[n] = bstr.charCodeAt(n);
+            }
+            fileToSend = new File([u8arr], (item.imageFileName || `${item.name}.jpg`), { type: mime });
+          }
+        }
+        if (fileToSend) {
+          result = await stockBalances.createMaterialWithImage(payload, fileToSend);
+        } else {
+          throw new Error('Не удалось преобразовать изображение в файл');
+        }
+      } else {
+        result = await stockBalances.createNomenclature(payload);
+      }
+      
+      console.log('Номенклатура успешно создана в 1С:', result);
+
+      // 3. Отправка цены, если она указана
+      if (item.averagePrice && item.averagePrice > 0) {
+        try {
+          await stockBalances.setPrice(result.id, item.averagePrice);
+          console.log('Цена для номенклатуры установлена в 1С:', item.averagePrice);
+        } catch (err) {
+          console.error('Не удалось установить цену в 1С:', err);
+        }
+      }
+
+      // 4. Оприходование на склад (установка начального остатка), если указаны склад и количество
+      if (item.warehouseId && item.currentStock && item.currentStock > 0) {
+        try {
+          // Пока просто логируем, так как реализация документа ввода остатков требует отдельного метода
+          console.log(`Начальный остаток ${item.currentStock} будет зафиксирован на складе ${item.warehouseId}`);
+        } catch (err) {
+          console.error('Не удалось задать начальный остаток в 1С:', err);
+        }
+      }
+
+
+      // 5. После создания запускаем частичную синхронизацию
+      await syncWith1C();
+      
+      return result;
+    } catch (err: any) {
+      error.value = err.message || 'Ошибка создания номенклатуры';
+      throw err;
+    } finally {
+      loading.value = false;
+    }
+  }
+
   return {
     loading,
     error,
@@ -352,7 +435,9 @@ export const useIntegrationStore = defineStore('integration', () => {
     syncProgress,
     syncWith1C,
     syncOrders,
-    syncOrderDetails
+    syncOrderDetails,
+    syncAll,
+    createNomenclature
   };
 });
 

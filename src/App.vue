@@ -32,13 +32,14 @@ userStore.checkAuth()
 // Автоматическая синхронизация при запуске
 onMounted(() => {
   if (userStore.isAuthenticated) {
-    integrationStore.syncWith1C()
+    // При запуске обновляем всё (заказы и склад)
+    integrationStore.syncAll()
   }
   
-  // Интервал синхронизации (раз в час)
+  // Интервал полной синхронизации (раз в час)
   setInterval(() => {
     if (userStore.isAuthenticated) {
-      integrationStore.syncWith1C()
+      integrationStore.syncAll()
     }
   }, 3600000)
 })
