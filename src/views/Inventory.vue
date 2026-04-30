@@ -1,29 +1,12 @@
 <template>
   <div class="inventory-page p-6">
-    <!-- Режим массового прихода (полноэкранный вид внутри страницы) -->
-    <div v-if="isBulkReceiptView">
-      <div class="flex items-center gap-4 mb-6">
-        <n-button @click="isBulkReceiptView = false" secondary circle>
-          <template #icon><n-icon><ArrowBack /></n-icon></template>
-        </n-button>
-        <n-h1 class="!mb-0">{{ props.mode === 'product' ? 'Приход изделий' : 'Приход материалов' }}</n-h1>
-      </div>
-      
-      <InventoryBulkReceiptModal 
-        :is-embed="true"
-        :mode="props.mode"
-        @submit="handleTransactionSubmit" 
-        @close="isBulkReceiptView = false"
-      />
-    </div>
-
     <!-- Режим массового расхода -->
-    <div v-else-if="isBulkIssueView">
+    <div v-if="isBulkIssueView">
       <div class="flex items-center gap-4 mb-6">
         <n-button @click="isBulkIssueView = false" secondary circle>
           <template #icon><n-icon><ArrowBack /></n-icon></template>
         </n-button>
-        <n-h1 class="!mb-0">{{ props.mode === 'product' ? 'Расход изделий' : 'Расход материалов' }}</n-h1>
+        <n-h1 class="mb-0!">{{ props.mode === 'product' ? 'Перемещение товара' : 'Перемещение товара' }}</n-h1>
       </div>
       
       <InventoryBulkIssueModal 
@@ -60,21 +43,13 @@
               ({{ integrationStore.syncProgress }}%)
             </template>
           </n-button>
-          <n-button v-if="props.mode !== 'product'" @click="isBulkReceiptView = true" type="warning">
-            <template #icon>
-              <n-icon>
-                <AddCircleOutline />
-              </n-icon>
-            </template>
-            Приход
-          </n-button>
           <n-button v-if="props.mode !== 'product'" @click="isBulkIssueView = true" type="error">
             <template #icon>
               <n-icon>
                 <RemoveCircleOutline />
               </n-icon>
             </template>
-            Расход
+            Перемещение товара
           </n-button>
           <n-button @click="showCreateModal = true" type="primary">
           <template #icon>
@@ -441,7 +416,7 @@
     <InventoryTransactionModal 
       v-model:show="showIssueModal" 
       type="outgoing" 
-      :title="props.mode === 'product' ? 'Расход изделий' : 'Расход материалов'"
+      :title="props.mode === 'product' ? 'Перемещение товара' : 'Перемещение товара'"
       :mode="props.mode"
       @submit="handleTransactionSubmit" 
     />
@@ -486,8 +461,6 @@ import {
   NCard,
   NSelect,
   NInput,
-  NInputNumber,
-  NFormItem,
   NDataTable,
   NImage,
   NList,
@@ -496,13 +469,11 @@ import {
   NTag,
   NAvatar,
   NH3,
-  NCollapseTransition,
   NPopover
 } from 'naive-ui'
 import {
   DownloadOutline,
   AnalyticsOutline,
-  AddCircleOutline,
   RemoveCircleOutline,
   AddOutline,
   CubeOutline,
@@ -525,7 +496,6 @@ import {
 import InventoryItemModal from '@/components/inventory/InventoryItemModal.vue'
 import InventoryReportModal from '@/components/inventory/InventoryReportModal.vue'
 import InventoryTransactionModal from '@/components/inventory/InventoryTransactionModal.vue'
-import InventoryBulkReceiptModal from '@/components/inventory/InventoryBulkReceiptModal.vue'
 import InventoryBulkIssueModal from '@/components/inventory/InventoryBulkIssueModal.vue'
 import InventoryItemDetails from '@/components/inventory/InventoryItemDetails.vue'
 import QRPrintModal from '@/components/common/QRPrintModal.vue'
@@ -587,15 +557,12 @@ const pageTitle = computed(() => {
 // Модальные окна
 const showCreateModal = ref(false)
 const showReportModal = ref(false)
-const showReceiptModal = ref(false)
 const showIssueModal = ref(false)
 const showDetailsModal = ref(false)
 const showPrintModal = ref(false)
 const selectedItemId = ref<string | null>(null)
-const isBulkReceiptView = ref(false)
 const isBulkIssueView = ref(false)
 const isGrouped = ref(false)
-const showTransactionModal = ref(false)
 
 const printData = reactive({
   title: '',
@@ -605,7 +572,6 @@ const printData = reactive({
 
 // Фильтры
 const searchQuery = ref('')
-const showAdvancedFilters = ref(false)
 const filters = reactive({
   category: undefined as string | undefined,
   status: undefined as string | undefined,
@@ -862,10 +828,6 @@ const filteredInStockCount = computed(() => {
   return baseItemsForStats.value.filter(item => item.status === 'in_stock').length
 })
 
-const filteredOnOrderCount = computed(() => {
-  return baseItemsForStats.value.filter(item => item.status === 'on_order').length
-})
-
 const filteredReservedCount = computed(() => {
   const sum = baseItemsForStats.value.reduce((s, item) => s + (item.reserved || 0), 0)
   return Number(sum.toFixed(3))
@@ -1035,7 +997,7 @@ const exportToPDF = () => {
       fontStyle: 'bold',
       fillColor: [66, 133, 244] 
     },
-    didDrawPage: (data) => {
+    didDrawPage: () => {
       doc.setFont('customFont')
     }
   })

@@ -23,6 +23,7 @@ export default defineConfig(({ mode }) => {
         '/api-1c': {
           target: env.VITE_1C_PROXY_TARGET || 'https://msk1.1cfresh.com',
           changeOrigin: true,
+          secure: false,
           rewrite: (path) => path.replace(/^\/api-1c/, '')
         }
       }

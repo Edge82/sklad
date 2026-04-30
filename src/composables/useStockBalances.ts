@@ -19,7 +19,9 @@ const baseURL = import.meta.env.VITE_1C_BASE_URL || '/api-1c';
 const authUser = import.meta.env.VITE_1C_USERNAME;
 const authPass = import.meta.env.VITE_1C_PASSWORD;
 const warehouseGuid = import.meta.env.VITE_1C_WAREHOUSE_GUID;
-const userGuid = '8f0ba0e0-2143-11f1-8d64-fa163e5c9fa8'; 
+const userGuid = 'd8da6724-e264-11f0-862e-fa163e5c9fa8';
+const defaultCurrencyKey = 'c26a4d87-c6e2-4aca-ab05-1b02be6ecaec';
+const defaultExpenseAccountKey = '601bca14-243e-11f1-8d81-fa163e5c9fa8';
 
 // Функция для безопасного создания B64 (поддержка кириллицы в логине/пароле если нужно)
 function getAuthToken() {
@@ -38,7 +40,7 @@ export function useStockBalances() {
   const loading = ref(false);
   const error = ref<string | null>(null);
 
-  async function fetchOData(endpoint: string, params: Record<string, string> = {}) {
+  async function fetchOData(endpoint: string, params: Record<string, string> = {}, suppressError = false) {
     let allResults: any[] = [];
     let skip = 0;
     const top = 1000;
@@ -66,7 +68,9 @@ export function useStockBalances() {
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error(`[1C Response Error]: ${response.status} ${response.statusText}`, errorText);
+        if (!suppressError) {
+          console.error(`[1C Response Error]: ${response.status} ${response.statusText}`, errorText);
+        }
         throw new Error(`1C Error: ${response.status} ${response.statusText}`);
       }
 
@@ -89,6 +93,24 @@ export function useStockBalances() {
     return allResults;
   }
 
+  async function fetchODataRaw(rawEndpoint: string) {
+    const url = `${baseURL}/odata/standard.odata/${rawEndpoint}`;
+    const encodedUrl = encodeURI(url);
+    const headers: Record<string, string> = {
+      'Accept': 'application/json'
+    };
+    if (authToken) headers['Authorization'] = authToken;
+
+    const response = await fetch(encodedUrl, { headers });
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`[1C Raw Response Error]: ${response.status} ${response.statusText}`, errorText);
+      throw new Error(`1C Error: ${response.status} ${response.statusText}`);
+    }
+    const data = await response.json();
+    return data.value || [];
+  }
+
   async function postOData(endpoint: string, data: any) {
     const url = `${baseURL}/odata/standard.odata/${endpoint}?$format=json`;
     
@@ -100,6 +122,10 @@ export function useStockBalances() {
     if (authToken) {
       headers['Authorization'] = authToken;
     }
+
+    console.log('DEBUG: POST URL', url);
+    console.log('DEBUG: POST headers', headers);
+    console.log('DEBUG: POST body', JSON.stringify(data, null, 2));
 
     const response = await fetch(url, {
       method: 'POST',
@@ -189,6 +215,108 @@ export function useStockBalances() {
     } catch (err) {
       console.error('Ошибка установки цены в 1С:', err);
     }
+  }
+
+  function buildCorrectTransferDocument() {
+    return {
+      Date: new Date().toISOString().split('.')[0],
+      Organization_Key: '407d850a-e233-11f0-862e-fa163e5c9fa8',
+      СтруктурнаяЕдиница_Key: '344cfb30-e233-11f0-862e-fa163e5c9fa8',
+      СтруктурнаяЕдиницаПолучатель_Key: '344cfab8-e233-11f0-862e-fa163e5c9fa8',
+      Автор_Key: 'd8da6724-e264-11f0-862e-fa163e5c9fa8',
+      ВидОперации: 'Перемещение',
+      ВалютаДокумента_Key: 'c26a4d87-c6e2-4aca-ab05-1b02be6ecaec',
+      Posted: true,
+      Запасы: [
+        {
+          Номенклатура_Key: '359dfae0-3f60-11f1-86da-fa163e5c9fa8',
+          Quantity: 1,
+          ЕдиницаИзмерения_Key: '3fd6ae88-e233-11f0-862e-fa163e5c9fa8',
+          Цена: 0,
+          Сумма: 0,
+          Всего: 0
+        }
+      ]
+    };
+  }
+
+  async function createMaterialTransferDocument(data: {
+    creationDate?: Date | string
+    organizationKey?: string
+    sourceWarehouseKey?: string
+    destinationWarehouseKey?: string
+    operationKey?: string
+    operationType?: string
+    currencyKey?: string
+    expenseAccountKey?: string
+    includeVAT?: boolean
+    authorKey?: string
+    items: Array<{
+      Номенклатура_Key: string
+      Quantity?: number
+      Количество?: number
+      Цена?: number
+      Сумма?: number
+      Всего?: number
+      ЕдиницаИзмерения?: string | null
+      unitId?: string
+      СтавкаНДС_Key?: string
+    }>
+  }) {
+    const now = new Date();
+    const dateValue = data.creationDate ? new Date(data.creationDate) : now;
+
+    const defaults = await fetchTransferDocumentDefaults();
+    const currencyKey = data.currencyKey || defaults.currencyKey || defaultCurrencyKey;
+    const shouldSendExpenseAccount = data.operationType ? data.operationType.toString().toLowerCase().includes('списание') : false;
+    const expenseAccountKey = shouldSendExpenseAccount
+      ? data.expenseAccountKey || defaults.expenseAccountKey || defaultExpenseAccountKey
+      : undefined;
+    const includeVAT = data.includeVAT !== undefined ? data.includeVAT : defaults.includeVAT !== undefined ? defaults.includeVAT : true;
+
+    const payload: any = {
+      Date: dateValue.toISOString().split('.')[0],
+      Organization_Key: data.organizationKey,
+      СтруктурнаяЕдиница_Key: data.sourceWarehouseKey,
+      СтруктурнаяЕдиницаПолучатель_Key: data.destinationWarehouseKey,
+      Автор_Key: data.authorKey || userGuid,
+      ВидОперации: getOperationTypeName(data.operationType),
+      Запасы: data.items.map(item => {
+        const itemAny = item as any;
+        const stockRow: any = {
+          Номенклатура_Key: item.Номенклатура_Key,
+          Количество: Number(itemAny.Quantity || itemAny.Количество || 0),
+          Цена: Number(itemAny.Цена || 0),
+          Сумма: Number(itemAny.Сумма || 0)
+        };
+        const unitGuid = itemAny.ЕдиницаИзмерения || itemAny.unitId;
+        if (unitGuid) {
+          stockRow.ЕдиницаИзмерения = unitGuid;
+        }
+        if (itemAny.СтавкаНДС_Key) {
+          stockRow.СтавкаНДС_Key = itemAny.СтавкаНДС_Key;
+        }
+        return stockRow;
+      })
+    };
+
+    if (data.operationKey) {
+      payload.ХозяйственнаяОперация_Key = data.operationKey;
+    }
+
+    payload.ВалютаДокумента_Key = currencyKey;
+    if (expenseAccountKey) {
+      payload.СчетЗатрат_Key = expenseAccountKey;
+    }
+    payload.СуммаВключаетНДС = includeVAT;
+    payload.Posted = true;
+
+    console.log('DEBUG: Отправка документа перемещения материалов в 1С:', JSON.stringify(payload, null, 2));
+    return await postOData('Document_ПеремещениеЗапасов', payload);
+  }
+
+  async function sendRawTransferDocument(document: any) {
+    return await postOData('Document_ПеремещениеЗапасов', document);
   }
 
   // Добавим функцию для поиска правильного GUID пользователя
@@ -472,6 +600,23 @@ export function useStockBalances() {
     return [];
   }
 
+  async function fetchLatestItemPrice(nomenclatureId: string) {
+    try {
+      const prices = await fetchPrices();
+      const normalizedId = String(nomenclatureId || '').toLowerCase().trim();
+      let found = prices.find((p: any) => String(p.nomenclatureId || '').toLowerCase().trim() === normalizedId);
+      if (!found) {
+        found = prices.find((p: any) => {
+          const id = String(p.nomenclatureId || '').toLowerCase().trim();
+          return id.endsWith(normalizedId) || normalizedId.endsWith(id);
+        });
+      }
+      return found ? Number(found.value || 0) : 0;
+    } catch (err) {
+      return 0;
+    }
+  }
+
   async function fetchUnits() {
     try {
       const unitRegisters = ['Catalog_КлассификаторЕдиницИзмерения', 'Catalog_ЕдиницыИзмерения'];
@@ -600,10 +745,195 @@ export function useStockBalances() {
     return { balanceMap, lastPriceMap, warehouseMap };
   }
 
+  async function fetchTransferWarehouses() {
+    const sourceWarehouses = new Map<string, string>();
+    const destinationWarehouses = new Map<string, string>();
+
+    const addWarehouse = (map: Map<string, string>, item: any, title?: any) => {
+      const id = item && (item.Ref_Key || item.Ref || (typeof item === 'string' ? item : null));
+      const name = String(title || (item && (item.Description || item.Presentation || item.Пresentation || '')) || id || '');
+      if (id && !map.has(id)) {
+        map.set(String(id), name);
+      }
+    };
+
+    try {
+      let sources = await fetchOData('Catalog_СтруктурныеЕдиницы', {
+        '$filter': "DeletionMark eq false and (ТипСтруктурнойЕдиницы eq 'Склад' or ТипСтруктурнойЕдиницы eq 'Розница')",
+        '$select': 'Ref_Key,Code,Description,ТипСтруктурнойЕдиницы',
+        '$orderby': 'Description'
+      }, true);
+      if ((!Array.isArray(sources) || sources.length === 0)) {
+        sources = await fetchODataRaw("Catalog_СтруктурныеЕдиницы?$filter=DeletionMark eq false and (ТипСтруктурнойЕдиницы eq 'Склад' or ТипСтруктурнойЕдиницы eq 'Розница')&$select=Ref_Key,Code,Description,ТипСтруктурнойЕдиницы&$format=json");
+      }
+
+      let destinations = await fetchOData('Catalog_СтруктурныеЕдиницы', {
+        '$filter': "DeletionMark eq false and ТипСтруктурнойЕдиницы eq 'Подразделение'",
+        '$select': 'Ref_Key,Code,Description,ТипСтруктурнойЕдиницы',
+        '$orderby': 'Description'
+      }, true);
+      if ((!Array.isArray(destinations) || destinations.length === 0)) {
+        destinations = await fetchODataRaw("Catalog_СтруктурныеЕдиницы?$filter=DeletionMark eq false and ТипСтруктурнойЕдиницы eq 'Подразделение'&$select=Ref_Key,Code,Description,ТипСтруктурнойЕдиницы&$format=json");
+      }
+
+      if (Array.isArray(sources)) {
+        sources.forEach((item: any) => addWarehouse(sourceWarehouses, item, `${item.Description || item.Presentation || item.Ref_Key || item.Ref || ''}`));
+      }
+
+      if (Array.isArray(destinations)) {
+        destinations.forEach((item: any) => addWarehouse(destinationWarehouses, item, `${item.Description || item.Presentation || item.Ref_Key || item.Ref || ''}`));
+      }
+    } catch (err) {
+      console.warn('Не удалось загрузить единицы из Catalog_СтруктурныеЕдиницы:', err);
+    }
+
+    return {
+      sourceWarehouses: Array.from(sourceWarehouses.entries()).map(([id, name]) => ({ id, name })),
+      destinationWarehouses: Array.from(destinationWarehouses.entries()).map(([id, name]) => ({ id, name }))
+    };
+  }
+
+  function getOperationTypeName(operationType?: string) {
+    if (!operationType) return 'Перемещение';
+    const normalized = operationType.toString().trim().toLowerCase();
+    if (normalized.includes('списание')) return 'СписаниеНаРасходы';
+    if (normalized.includes('передача') && normalized.includes('эксплуатацию')) return 'ПередачаВЭксплуатацию';
+    if (normalized.includes('возврат') && normalized.includes('эксплуатацию')) return 'ВозвратИзЭксплуатации';
+    if (normalized.includes('перемещение')) return 'Перемещение';
+    return operationType;
+  }
+
+  async function fetchTransferDocumentDefaults() {
+    try {
+      const items = await fetchOData('Document_ПеремещениеЗапасов', {
+        '$top': '1',
+        '$orderby': 'Date desc'
+      }, true);
+      if (Array.isArray(items) && items.length > 0) {
+        const doc = items[0];
+        const expenseAccountKey = doc.СчетЗатрат_Key || (doc.СчетЗатрат && (doc.СчетЗатрат.Ref_Key || doc.СчетЗатрат.Ref || doc.СчетЗатрат.id));
+        const currencyKey = doc.ВалютаДокумента_Key || (doc.ВалютаДокумента && (doc.ВалютаДокумента.Ref_Key || doc.ВалютаДокумента.Ref || doc.ВалютаДокумента.id));
+        const sourceWarehouseKey = doc.СтруктурнаяЕдиница_Key || (doc.СтруктурнаяЕдиница && (doc.СтруктурнаяЕдиница.Ref_Key || doc.СтруктурнаяЕдиница.Ref || doc.СтруктурнаяЕдиница.id));
+        const destinationWarehouseKey = doc.СтруктурнаяЕдиницаПолучатель_Key || (doc.СтруктурнаяЕдиницаПолучатель && (doc.СтруктурнаяЕдиницаПолучатель.Ref_Key || doc.СтруктурнаяЕдиницаПолучатель.Ref || doc.СтруктурнаяЕдиницаПолучатель.id));
+        const includeVAT = typeof doc.СуммаВключаетНДС === 'boolean'
+          ? doc.СуммаВключаетНДС
+          : doc.СуммаВключаетНДС === 'true' || doc.СуммаВключаетНДС === 1;
+
+        return {
+          expenseAccountKey: expenseAccountKey || undefined,
+          currencyKey: currencyKey || undefined,
+          sourceWarehouseKey: sourceWarehouseKey || undefined,
+          destinationWarehouseKey: destinationWarehouseKey || undefined,
+          includeVAT: includeVAT === true
+        };
+      }
+    } catch (err) {
+      console.warn('Не удалось загрузить значения по умолчанию из Document_ПеремещениеЗапасов:', err);
+    }
+    return { expenseAccountKey: undefined, currencyKey: undefined, sourceWarehouseKey: undefined, destinationWarehouseKey: undefined, includeVAT: undefined };
+  }
+
+  async function fetchExpenseAccounts() {
+    try {
+      const items = await fetchOData('ChartOfAccounts_Управленческий', {
+        '$top': '1000',
+        '$select': 'Ref_Key,Code,Description,Presentation,DeletionMark'
+      }, true);
+
+      if (Array.isArray(items) && items.length > 0) {
+        return items
+          .filter((item: any) => item.Ref_Key || item.Ref)
+          .map((item: any) => ({
+            id: item.Ref_Key || item.Ref,
+            name: `${item.Code ? item.Code.trim() + ' ' : ''}${item.Description || item.Presentation || item.Ref_Key || item.Ref}`.trim()
+          }));
+      }
+    } catch (err) {
+      console.warn('Не удалось загрузить счета из ChartOfAccounts_Управленческий:', err);
+    }
+
+    try {
+      const docs = await fetchOData('Document_ПеремещениеЗапасов', {
+        '$top': '1000'
+      }, true);
+      const accountMap = new Map<string, string>();
+      if (Array.isArray(docs)) {
+        docs.forEach((doc: any) => {
+          const id = doc.СчетЗатрат_Key || (doc.СчетЗатрат && (doc.СчетЗатрат.Ref_Key || doc.СчетЗатрат.Ref || doc.СчетЗатрат.id));
+          const name = doc.СчетЗатрат____Presentation
+            || doc.СчетЗатрат_Presentation
+            || (doc.СчетЗатрат && (doc.СчетЗатрат.Description || doc.СчетЗатрат.Presentation))
+            || id;
+          if (id) {
+            accountMap.set(id, String(name || id));
+          }
+        });
+      }
+      if (accountMap.size > 0) {
+        return Array.from(accountMap.entries()).map(([id, name]) => ({ id, name }));
+      }
+    } catch (err) {
+      console.warn('Не удалось загрузить счета из Document_ПеремещениеЗапасов:', err);
+    }
+
+    return [];
+  }
+
   async function fetchWarehouses() {
     try {
       const items = await fetchOData('Catalog_СтруктурныеЕдиницы', { '$select': 'Ref_Key,Description' });
       return items.map((w: any) => ({ id: w.Ref_Key, name: w.Description }));
+    } catch (err) { return []; }
+  }
+
+  async function fetchOperationTypes() {
+    const allowedNames = new Set([
+      'Перемещение',
+      'Списание на расходы',
+      'Передача в эксплуатацию',
+      'Возврат из эксплуатации'
+    ]);
+
+    try {
+      const items = await fetchOData('Catalog_ХозяйственныеОперации', {
+        '$select': 'Ref_Key,Description,Presentation'
+      });
+      console.log('DEBUG: Catalog_ХозяйственныеОперации raw items:', items);
+
+      const operations = (items || [])
+        .map((item: any) => {
+          const name = item.Description || item.Presentation || item.presentation || '';
+          const id = item.Ref_Key || item.Ref || item.id;
+          if (!id || !name) return null;
+          return { id: String(id), name: String(name) };
+        })
+        .filter(Boolean) as Array<{ id: string; name: string }>;
+
+      const filtered = operations.filter(op => allowedNames.has(op.name));
+      if (filtered.length > 0) {
+        console.log('DEBUG: Filtered operation types:', filtered);
+        return filtered;
+      }
+
+      console.warn('DEBUG: No allowed operation types found in Catalog_ХозяйственныеОперации');
+    } catch (err) {
+      console.warn('Не удалось загрузить операции из Catalog_ХозяйственныеОперации:', err);
+    }
+
+    const fallback = [
+      { id: 'Перемещение', name: 'Перемещение' },
+      { id: 'СписаниеНаРасходы', name: 'Списание на расходы' },
+      { id: 'ПередачаВЭксплуатацию', name: 'Передача в эксплуатацию' },
+      { id: 'ВозвратИзЭксплуатации', name: 'Возврат из эксплуатации' }
+    ];
+    console.log('DEBUG: Using fallback operations list:', fallback);
+    return fallback;
+  }
+
+  async function fetchOrganizations() {
+    try {
+      const items = await fetchOData('Catalog_Организации', { '$select': 'Ref_Key,Description' });
+      return items.map((item: any) => ({ id: item.Ref_Key, name: item.Description }));
     } catch (err) { return []; }
   }
 
@@ -714,17 +1044,26 @@ export function useStockBalances() {
     fetchNomenclature,
     fetchCategories,
     fetchPrices,
+    fetchLatestItemPrice,
     fetchUnits,
     fetchMovements,
     calculateBalances,
     fetchReserves,
     fetchWarehouses,
+    fetchTransferWarehouses,
+    fetchTransferDocumentDefaults,
+    fetchExpenseAccounts,
+    fetchOperationTypes,
+    fetchOrganizations,
     fetchCustomerOrders,
     fetchPartners,
     fetchOrderStates,
     fetchOrderItems,
     createNomenclature,
     setPrice,
+    buildCorrectTransferDocument,
+    sendRawTransferDocument,
+    createMaterialTransferDocument,
     uploadToTempStorage,
     attachFileToNomenclature,
     createMaterialWithImage

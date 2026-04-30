@@ -28,10 +28,6 @@
           <template #icon><n-icon><SyncOutline /></n-icon></template>
           Синхронизация с 1С
         </n-button>
-        <n-button type="primary" @click="showCreateModal = true">
-          <template #icon><n-icon><AddCircleOutline /></n-icon></template>
-          Новый заказ
-        </n-button>
       </div>
     </div>
 
@@ -156,8 +152,9 @@
         </n-space>
       </n-card>
 
-      <n-card border-variant="dark">
+      <n-card border-variant="dark" class="orders-table-wrapper">
         <n-data-table 
+          class="orders-table"
           :columns="columns" 
           :data="filteredOrders" 
           :row-props="(row: Order) => ({
@@ -218,21 +215,6 @@
       @close="showQRModal = false"
     />
 
-    <!-- Модальное окно создания/редактирования заказа -->
-    <n-modal
-      v-model:show="showCreateModal"
-      preset="card"
-      :auto-focus="false"
-      :title="selectedOrderForEdit ? 'Редактировать заказ' : 'Новый заказ'"
-      class="w-200!"
-    >
-      <OrderForm 
-        :initial-data="selectedOrderForEdit || undefined" 
-        @submit="handleOrderSubmit" 
-        @cancel="showCreateModal = false" 
-      />
-    </n-modal>
-
     <!-- Просмотр деталей заказа -->
     <n-modal
       v-model:show="showDetailsModal"
@@ -251,11 +233,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, h, watch, computed, reactive, onMounted } from 'vue'
+import { ref, h, computed, reactive, onMounted } from 'vue'
 import { useOrdersStore } from '@/stores/orders'
-import { useEmployeesStore } from '@/stores/employees'
 import { useQRCodesStore } from '@/stores/qrCodes'
-import type { Order, MaterialInvoiceItem } from '@/types'
+import type { Order } from '@/types'
 import { 
   NButton, 
   NIcon, 
@@ -263,7 +244,6 @@ import {
   NSpace, 
   NModal, 
   useMessage, 
-  useDialog, 
   NH1, 
   NText, 
   NGrid, 
@@ -274,14 +254,10 @@ import {
   NInput,
   NSelect,
   NTable,
-  type DataTableColumns
 } from 'naive-ui'
 import {
-  AddCircleOutline,
   QrCodeOutline,
   EyeOutline,
-  CreateOutline,
-  TrashOutline,
   ArrowBackOutline,
   SearchOutline,
   CubeOutline,
@@ -293,7 +269,6 @@ import {
 } from '@vicons/ionicons5'
 import { useIntegrationStore } from '@/stores/integration'
 import OrderQRManagerModal from '@/components/orders/OrderQRManagerModal.vue'
-import OrderForm from '@/components/orders/OrderForm.vue'
 import OrderDetails from '@/components/orders/OrderDetails.vue'
 import EmployeeProductionDocument from '@/components/employees/EmployeeProductionDocument.vue'
 
@@ -317,8 +292,6 @@ const ordersStore = useOrdersStore()
 const integrationStore = useIntegrationStore()
 const qrCodesStore = useQRCodesStore()
 const message = useMessage()
-const dialog = useDialog()
-
 // Состояние синхронизации
 const isSyncingOrders = ref(false)
 
@@ -341,13 +314,11 @@ onMounted(async () => {
   }
 })
 
-const showCreateModal = ref(false)
 const showQRModal = ref(false)
 const showDetailsModal = ref(false)
 
 const selectedOrderForQR = ref<Order | null>(null)
 const selectedOrderForDetails = ref<Order | null>(null)
-const selectedOrderForEdit = ref<Order | null>(null)
 const selectedOrderForInvoices = ref<Order | null>(null)
 const selectedInvoiceDetail = ref<InvoiceRow | null>(null)
 const loadingDetails = ref(false)
@@ -505,90 +476,6 @@ const handleRowClick = async (row: Order) => {
   }
 }
 
-const handleViewInvoices = (row: Order) => {
-  handleRowClick(row)
-}
-
-const handleInvoiceRowClick = (row: InvoiceRow) => {
-  // Not used in simplified view
-}
-
-// Собираем все накладные по всем сотрудникам для выбранного заказа
-const _unused_orderInvoices = computed(() => {
-  return [] // Simplified view
-})
-
-// Настройка колонок для реестра накладных внутри заказа
-const _unused_invoiceRegistryColumns: DataTableColumns<InvoiceRow> = [
-  {
-    type: 'expand',
-    renderExpand: (row: InvoiceRow) => {
-      const items = row.items || []
-      return h('div', { 
-        class: 'p-4 bg-[rgba(255,255,255,0.02)] border-t border-gray-800',
-        style: 'display: block !important; width: 100%' 
-      }, [
-        h(NTable, { 
-          singleLine: false, 
-          size: 'small', 
-          striped: true,
-          style: 'margin-bottom: 0'
-        }, {
-          default: () => [
-            h('thead', [
-              h('tr', [
-                h('th', 'Артикул'),
-                h('th', 'Наименование'),
-                h('th', { class: 'text-right' }, { default: () => 'Количество' }),
-                h('th', { class: 'text-right' }, { default: () => 'Ед. изм.' })
-              ])
-            ]),
-            h('tbody', items.map((item: MaterialInvoiceItem) => h('tr', [
-              h('td', item.article || '—'),
-              h('td', item.productName),
-              h('td', { class: 'text-right' }, item.quantity),
-              h('td', { class: 'text-right' }, item.unit)
-            ])))
-          ]
-        })
-      ])
-    }
-  },
-  {
-    title: 'ID Накладной',
-    key: 'id',
-    render: (row: InvoiceRow) => h('div', { class: 'font-mono font-bold text-green-500' }, row.id)
-  },
-  {
-    title: 'Дата и время',
-    key: 'date',
-    render: (row: InvoiceRow) => h('div', formatDate(row.date))
-  },
-  {
-    title: 'Сотрудник',
-    key: 'employeeName',
-    render: (row: InvoiceRow) => h('div', [
-      h('div', { class: 'font-bold' }, row.employeeName),
-      h('div', { class: 'text-[10px] text-gray-500 uppercase' }, row.employeePosition)
-    ])
-  },
-  {
-    title: 'Позиций ТМЦ',
-    key: 'itemsCount',
-    render: (row: InvoiceRow) => h(NTag, { type: 'success', quaternary: true }, { default: () => `${row.items?.length || 0} шт.` })
-  }
-]
-
-const formatDate = (date: Date | string) => {
-  return new Intl.DateTimeFormat('ru-RU', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit'
-  }).format(new Date(date))
-}
-
 const goBack = () => {
   if (viewMode.value === 'details') {
     viewMode.value = 'invoices'
@@ -599,33 +486,6 @@ const goBack = () => {
   }
 }
 
-watch(showCreateModal, (val) => {
-  if (!val) selectedOrderForEdit.value = null
-})
-
-const handleOrderSubmit = (data: Partial<Order>) => {
-  if (selectedOrderForEdit.value) {
-    ordersStore.updateOrder(selectedOrderForEdit.value.id, data as Order)
-    message.success('Заказ успешно обновлен')
-  } else {
-    ordersStore.addOrder(data as Order)
-    message.success('Заказ успешно создан')
-  }
-  showCreateModal.value = false
-}
-
-const handleDeleteOrder = (order: Order) => {
-  dialog.warning({
-    title: 'Удаление заказа',
-    content: `Вы уверены, что хотите удалить заказ ${order.orderNumber}?`,
-    positiveText: 'Удалить',
-    negativeText: 'Отмена',
-    onPositiveClick: () => {
-      ordersStore.deleteOrder(order.id)
-      message.success('Заказ удален')
-    }
-  })
-}
 
 const columns = [
   { 
@@ -638,11 +498,18 @@ const columns = [
       }, row.orderNumber)
     }
   },
-  { title: 'Клиент', key: 'customerName', width: 200 },
+  {
+    title: 'Клиент',
+    key: 'customerName',
+    render(row: Order) {
+      return h('div', {
+        style: 'white-space: normal; word-break: break-word; max-width: 260px;'
+      }, row.customerName)
+    }
+  },
   {
     title: 'Дата',
     key: 'qrProgress',
-    width: 220,
     render(row: Order) {
       const percentage = ordersStore.getOrderProgress(row.id, qrCodesStore.qrCodes)
       const orderCodes = qrCodesStore.qrCodes.filter(q => q.orderId === row.id)
@@ -732,24 +599,6 @@ const columns = [
               handleShowDetails(row)
             }
           }, { icon: () => h(NIcon, null, { default: () => h(EyeOutline) }) }),
-          h(NButton, { 
-            size: 'small', 
-            quaternary: true,
-            onClick: (e) => {
-              e.stopPropagation()
-              selectedOrderForEdit.value = row
-              showCreateModal.value = true
-            }
-          }, { icon: () => h(NIcon, null, { default: () => h(CreateOutline) }) }),
-          h(NButton, { 
-            size: 'small', 
-            quaternary: true,
-            type: 'error',
-            onClick: (e) => {
-              e.stopPropagation()
-              handleDeleteOrder(row)
-            }
-          }, { icon: () => h(NIcon, null, { default: () => h(TrashOutline) }) })
         ]
       })
     }
@@ -759,7 +608,8 @@ const columns = [
 
 <style scoped>
 .orders-page {
-  max-width: 1600px;
+  max-width: none;
+  width: 100%;
   margin: 0 auto;
   padding: 0 24px;
 }
@@ -811,5 +661,32 @@ const columns = [
 .revenue-value {
   color: #18a058 !important;
   font-weight: 900 !important;
+}
+
+.orders-table-wrapper {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.orders-table {
+  width: 100%;
+  min-width: 1200px;
+}
+
+.orders-table ::v-deep(table) {
+  width: 100%;
+  min-width: max-content;
+}
+
+.orders-table ::v-deep(th),
+.orders-table ::v-deep(td) {
+  white-space: nowrap;
+}
+
+.orders-table ::v-deep(th:nth-child(2)),
+.orders-table ::v-deep(td:nth-child(2)) {
+  white-space: normal;
+  word-break: break-word;
+  max-width: 260px;
 }
 </style>

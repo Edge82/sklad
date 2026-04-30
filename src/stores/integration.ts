@@ -262,6 +262,7 @@ export const useIntegrationStore = defineStore('integration', () => {
           categoryId: n.categoryId || '1',
           description: '',
           unit: unitMap.get(n.unitId) || n.unitName || 'шт',
+          unitId: n.unitId || n.ЕдиницаИзмерения_Key || null,
           currentStock: stock,
           minStock: 0,
           maxStock: 1000,
@@ -428,6 +429,42 @@ export const useIntegrationStore = defineStore('integration', () => {
     }
   }
 
+  async function createMaterialTransferDocument(data: {
+    creationDate?: Date | string
+    organizationKey?: string
+    sourceWarehouseKey?: string
+    destinationWarehouseKey?: string
+    operationKey?: string
+    operationType?: string
+    currencyKey?: string
+    expenseAccountKey?: string
+    includeVAT?: boolean
+    authorKey?: string
+    items: Array<{
+      Номенклатура_Key: string
+      Quantity?: number
+      Количество?: number
+      Цена?: number
+      Сумма?: number
+      Всего?: number
+      ЕдиницаИзмерения?: string | null
+      unitId?: string
+      СтавкаНДС_Key?: string
+    }>
+  }) {
+    loading.value = true;
+    error.value = null;
+    try {
+      const result = await stockBalances.createMaterialTransferDocument(data);
+      return result;
+    } catch (err: any) {
+      error.value = err.message || 'Ошибка создания документа перемещения материалов';
+      throw err;
+    } finally {
+      loading.value = false;
+    }
+  }
+
   return {
     loading,
     error,
@@ -437,7 +474,8 @@ export const useIntegrationStore = defineStore('integration', () => {
     syncOrders,
     syncOrderDetails,
     syncAll,
-    createNomenclature
+    createNomenclature,
+    createMaterialTransferDocument
   };
 });
 
