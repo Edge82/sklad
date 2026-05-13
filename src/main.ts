@@ -25,5 +25,4 @@ for (const [key, component] of Object.entries(Naive)) {
 app.use(pinia)
 app.use(router)
 
-
 app.mount('#app')

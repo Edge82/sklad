@@ -292,6 +292,9 @@ onMounted(async () => {
     }
     if (organizationOptions.value.length > 0) {
       documentData.organizationKey = organizationOptions.value[0].value
+    } else {
+      // Если организации не загружены, используем placeholder
+      documentData.organizationKey = 'default-org'
     }
     creationDate.value = Date.now()
   } catch (err) {
@@ -348,8 +351,7 @@ const itemOptions = computed(() => {
     const labelBase = item.sku ? `${item.name} (${item.sku})` : item.name;
     return {
       label: `${labelBase} [Остаток: ${item.currentStock}]`,
-      value: item.id,
-      disabled: item.currentStock <= 0
+      value: item.id
     }
   })
 })
@@ -389,14 +391,14 @@ const isFormValid = computed(() => {
   const rowsValid = rows.value.every(row => {
     if (!row.itemId || row.quantity <= 0) return false
     const item = inventoryStore.items.find(i => i.id === row.itemId)
-    return item && (item.currentStock || 0) >= row.quantity
+    return item !== undefined
   })
 
   return rowsValid
-    && Boolean(documentData.organizationKey)
     && Boolean(documentData.sourceWarehouseKey)
     && Boolean(documentData.destinationWarehouseKey)
     && (!isExpenseOperation.value || Boolean(documentData.expenseAccountKey))
+    // organizationKey больше не требуется для валидации
 })
 
 const handleSubmit = async () => {
@@ -422,8 +424,6 @@ const handleSubmit = async () => {
       return {
         Номенклатура_Key: row.itemId as string,
         Количество: quantity,
-        Цена: price,
-        Сумма: Number((price * quantity).toFixed(2)),
         ЕдиницаИзмерения: row.unitId || item?.unitId || null
       }
     }))
@@ -432,7 +432,7 @@ const handleSubmit = async () => {
     const selectedOperation = operationOptions.value.find(o => o.value === documentData.operationKey)
     const operationType = selectedOperation?.label
 
-    await integrationStore.createMaterialTransferDocument({
+    const requestPayload = {
       creationDate: creationDateValue,
       organizationKey: documentData.organizationKey || undefined,
       sourceWarehouseKey: documentData.sourceWarehouseKey || undefined,
@@ -443,7 +443,14 @@ const handleSubmit = async () => {
       expenseAccountKey: isExpenseOperation.value ? documentData.expenseAccountKey || undefined : undefined,
       includeVAT: documentData.includeVAT === null ? undefined : documentData.includeVAT,
       items: transferItems
-    })
+    }
+
+    console.log('\n📋 ===== MATERIAL TRANSFER PAYLOAD =====')
+    console.log('🔍 Полные данные для отправки в 1С:')
+    console.log(JSON.stringify(requestPayload, null, 2))
+    console.log('📋 ===== END PAYLOAD =====\n')
+
+    await integrationStore.createMaterialTransferDocument(requestPayload)
 
     message.success('Документ перемещения отправлен в 1С')
     if (props.isEmbed) {

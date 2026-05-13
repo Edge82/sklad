@@ -1,25 +1,59 @@
 # furniture-warehouse-system
 
-This template should help get you started developing with Vue 3 in Vite.
+Полнофункциональная система управления складом мебели с интеграцией 1C OData.
 
-## Recommended IDE Setup
+## 🚀 Быстрый старт
 
-[VS Code](https://code.visualstudio.com/) + [Vue (Official)](https://marketplace.visualstudio.com/items?itemName=Vue.volar) (and disable Vetur).
+```sh
+# Установить зависимости
+npm install
 
-## Recommended Browser Setup
+# Запустить с mock данными (разработка)
+npm run dev
 
-- Chromium-based browsers (Chrome, Edge, Brave, etc.):
-  - [Vue.js devtools](https://chromewebstore.google.com/detail/vuejs-devtools/nhdogjmejiglipccpnnnanhbledajbpd) 
-  - [Turn on Custom Object Formatter in Chrome DevTools](http://bit.ly/object-formatters)
-- Firefox:
-  - [Vue.js devtools](https://addons.mozilla.org/en-US/firefox/addon/vue-js-devtools/)
-  - [Turn on Custom Object Formatter in Firefox DevTools](https://fxdx.dev/firefox-devtools-custom-object-formatters/)
+# С подключением к реальной 1C (продакшн)
+cp .env.example .env
+# Отредактируйте .env с вашими параметрами 1C
+npm run dev
+```
 
-## Type Support for `.vue` Imports in TS
+## 📚 Документация
 
-TypeScript cannot handle type information for `.vue` imports by default, so we replace the `tsc` CLI with `vue-tsc` for type checking. In editors, we need [Volar](https://marketplace.visualstudio.com/items?itemName=Vue.volar) to make the TypeScript language service aware of `.vue` types.
+- **[Интеграция с 1C](./docs/1C_SETUP.md)** - Полная инструкция по подключению 1C OData
+- **[Развертывание](./DEPLOY.md)** - Инструкции по развертыванию в production
 
-## Customize configuration
+## 🏗️ Архитектура
+
+```
+Фронт (Vue 3 + Vite)
+    ↓
+Бэк (Node.js HTTP сервер)
+    ├─ SQLite БД
+    ├─ JWT Аутентификация
+    └─ 1C OData Синхронизация
+```
+
+## 🎯 Основные возможности
+
+- ✅ Управление остатками товаров
+- ✅ Управление заказами
+- ✅ Синхронизация с 1C OData
+- ✅ JWT аутентификация
+- ✅ SQLite кэширование
+- ✅ Graceful fallback на mock данные
+- ✅ Ролевая система доступа
+
+## 🔧 Рекомендуемая IDE конфигурация
+
+[VS Code](https://code.visualstudio.com/) + [Vue (Official)](https://marketplace.visualstudio.com/items?itemName=Vue.volar)
+
+## 📖 Дополнительно
+
+### Type Support for `.vue` Imports in TS
+
+TypeScript не может обработать информацию о типах для импортов `.vue` по умолчанию, поэтому мы используем `vue-tsc` вместо `tsc` для проверки типов. В редакторах нужно расширение [Volar](https://marketplace.visualstudio.com/items?itemName=Vue.volar).
+
+### Customize configuration
 
 See [Vite Configuration Reference](https://vite.dev/config/).
 

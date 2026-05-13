@@ -105,7 +105,7 @@
                 <CheckmarkDoneOutline />
               </n-icon>
               <div>
-                <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">Завершен</n-text>
+                <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">Выполнен</n-text>
                 <n-h3 class="m-0 leading-none">{{ readyOrdersCount }}</n-h3>
               </div>
             </div>
@@ -152,11 +152,19 @@
         </n-space>
       </n-card>
 
+      <div class="mb-4 flex justify-between items-center px-4">
+        <div class="flex items-center gap-2">
+          <n-text>Показывать:</n-text>
+          <n-select v-model:value="itemsPerPage" :options="pageSizeOptions" class="w-32!" />
+        </div>
+      </div>
+
       <n-card border-variant="dark" class="orders-table-wrapper">
         <n-data-table 
           class="orders-table"
           :columns="columns" 
           :data="filteredOrders" 
+          :pagination="pagination"
           :row-props="(row: Order) => ({
              class: 'cursor-pointer',
              onClick: () => handleRowClick(row)
@@ -233,10 +241,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, h, computed, reactive, onMounted } from 'vue'
+import { ref, h, computed, reactive, onMounted, watch } from 'vue'
 import { useOrdersStore } from '@/stores/orders'
 import { useQRCodesStore } from '@/stores/qrCodes'
 import type { Order } from '@/types'
+import { syncEvents } from '@/utils/syncEvents'
 import { 
   NButton, 
   NIcon, 
@@ -258,6 +267,7 @@ import {
 import {
   QrCodeOutline,
   EyeOutline,
+  CreateOutline,
   ArrowBackOutline,
   SearchOutline,
   CubeOutline,
@@ -300,6 +310,7 @@ const handleSyncOrders = async () => {
   try {
     await integrationStore.syncOrders()
     message.success('Заказы успешно загружены из 1С')
+    syncEvents.emit('sync-completed', { type: 'orders', timestamp: new Date().toISOString() })
   } catch (err: any) {
     message.error(`Ошибка синхронизации: ${err.message}`)
   } finally {
@@ -339,6 +350,35 @@ const resetFilters = () => {
   searchQuery.value = ''
   filters.status = null
 }
+
+// Пагинация
+const currentPage = ref(1)
+const itemsPerPage = ref(10)
+const pageSizeOptions = [
+  { label: '10', value: 10 },
+  { label: '25', value: 25 },
+  { label: '50', value: 50 },
+  { label: 'Все', value: 1000 }
+]
+
+const pagination = computed(() => ({
+  pageSize: itemsPerPage.value,
+  page: currentPage.value,
+  pageCount: Math.ceil(filteredOrders.value.length / itemsPerPage.value),
+  showSizePicker: true,
+  pageSizes: [10, 25, 50, 100],
+  onChange: (page: number) => {
+    currentPage.value = page
+  },
+  onUpdatePageSize: (pageSize: number) => {
+    itemsPerPage.value = pageSize
+    currentPage.value = 1
+  }
+}))
+
+watch([searchQuery, filters], () => {
+  currentPage.value = 1
+}, { deep: true })
 
 // Статистика
 const totalOrdersCount = computed(() => ordersStore.orders.length)
@@ -389,9 +429,9 @@ const orderStatusOptions = computed(() => {
       // Если нет заметки из 1С, используем стандартные переводы
       if (status === 'new') label = 'Не обработанные'
       else if (status === 'in_progress') label = 'В работе'
-      else if (status === 'ready') label = 'Завершен'
+      else if (status === 'ready') label = 'Выполнен'
       else if (status === 'shipped') label = 'Отгружен'
-      else if (status === 'completed') label = 'Выполнен'
+      else if (status === 'completed') label = 'Завершен'
     }
     
     return { label, value: status }
@@ -501,14 +541,31 @@ const columns = [
   {
     title: 'Клиент',
     key: 'customerName',
+    minWidth: 200,
     render(row: Order) {
       return h('div', {
-        style: 'white-space: normal; word-break: break-word; max-width: 260px;'
+        style: 'white-space: normal; overflow-wrap: break-word; word-break: break-word; line-height: 1.4;'
       }, row.customerName)
     }
   },
   {
     title: 'Дата',
+    key: 'date',
+    width: 140,
+    render(row: Order) {
+      if (!row.orderDate && !row.date) return '-'
+      const dateStr = row.orderDate || row.date
+      if (!dateStr) return '-'
+      try {
+        const date = new Date(dateStr)
+        return date.toLocaleDateString('ru-RU')
+      } catch {
+        return dateStr
+      }
+    }
+  },
+  {
+    title: 'Прогресс выполнения',
     key: 'qrProgress',
     render(row: Order) {
       const percentage = ordersStore.getOrderProgress(row.id, qrCodesStore.qrCodes)
@@ -538,6 +595,7 @@ const columns = [
   { 
     title: 'Статус', 
     key: 'status',
+    width: 140,
     render(row: Order) {
       let type: 'info' | 'success' | 'warning' | 'error' = 'info'
       let label = row.status as string
@@ -550,24 +608,20 @@ const columns = [
         label = 'В работе'
       } else if (row.status === 'ready') {
         type = 'success'
-        label = 'Завершен'
+        label = 'Выполнен'
       } else if (row.status === 'shipped') {
         type = 'success'
         label = 'Отгружен'
       } else if (row.status === 'completed') {
         type = 'success'
-        label = 'Выполнен'
+        label = 'Завершен'
       }
 
       // Если в notes пришел текст из 1С ("1С: В работе"), показываем его вместо стандартного label
       const statusFrom1C = row.notes?.startsWith('1С: ') ? row.notes.replace('1С: ', '') : null;
       const displayLabel = statusFrom1C || label;
 
-      return h(NSpace, { vertical: true, size: 'small', align: 'center' }, {
-        default: () => [
-          h(NTag, { type, round: true, bordered: false }, { default: () => displayLabel })
-        ]
-      })
+      return h(NTag, { type, round: true, bordered: false }, { default: () => displayLabel })
     }
   },
   {
@@ -579,28 +633,32 @@ const columns = [
     }
   },
   {
+    title: 'QR Коды',
+    key: 'qr',
+    width: 80,
+    render(row: Order) {
+      return h(NButton, {
+        size: 'small',
+        onClick: (e) => {
+          e.stopPropagation()
+          handleShowQR(row)
+        }
+      }, { icon: () => h(NIcon, null, { default: () => h(QrCodeOutline) }), default: () => 'QR' })
+    }
+  },
+  {
     title: 'Действия',
     key: 'actions',
+    width: 60,
     render(row: Order) {
-      return h(NSpace, null, {
-        default: () => [
-          h(NButton, {
-            size: 'small',
-            onClick: (e) => {
-              e.stopPropagation()
-              handleShowQR(row)
-            }
-          }, { icon: () => h(NIcon, null, { default: () => h(QrCodeOutline) }), default: () => 'QR' }),
-          h(NButton, { 
-            size: 'small', 
-            quaternary: true,
-            onClick: (e) => {
-              e.stopPropagation()
-              handleShowDetails(row)
-            }
-          }, { icon: () => h(NIcon, null, { default: () => h(EyeOutline) }) }),
-        ]
-      })
+      return h(NButton, { 
+        size: 'small', 
+        quaternary: true,
+        onClick: (e) => {
+          e.stopPropagation()
+          handleShowDetails(row)
+        }
+      }, { icon: () => h(NIcon, null, { default: () => h(CreateOutline) }) })
     }
   }
 ]
@@ -670,23 +728,22 @@ const columns = [
 
 .orders-table {
   width: 100%;
-  min-width: 1200px;
 }
 
 .orders-table ::v-deep(table) {
   width: 100%;
-  min-width: max-content;
 }
 
 .orders-table ::v-deep(th),
 .orders-table ::v-deep(td) {
-  white-space: nowrap;
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: break-word;
 }
 
 .orders-table ::v-deep(th:nth-child(2)),
 .orders-table ::v-deep(td:nth-child(2)) {
-  white-space: normal;
-  word-break: break-word;
-  max-width: 260px;
+  min-width: 200px;
+  max-width: 400px;
 }
 </style>

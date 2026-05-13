@@ -13,6 +13,8 @@
     </n-breadcrumb>
 
     <div class="flex items-center gap-4">
+      <OneCStatusBanner />
+      
       <n-badge :value="notificationsCount" :max="99" show-zero>
         <n-button circle quaternary @click="showNotifications = true">
           <template #icon>
@@ -24,7 +26,7 @@
       </n-badge>
 
       <n-dropdown :options="userOptions" @select="handleUserAction" trigger="click">
-        <n-button quaternary class="!px-2 h-10 border-0">
+        <n-button quaternary class="px-2! h-10 border-0">
           <div class="flex items-center gap-2">
             <n-avatar round size="small" :src="userStore.user?.avatar" v-if="userStore.user?.avatar">
               {{ userStore.user?.name?.charAt(0) }}
@@ -103,6 +105,7 @@ import {
   InformationCircleOutline
 } from '@vicons/ionicons5'
 import type { DropdownOption } from 'naive-ui'
+import OneCStatusBanner from './OneCStatusBanner.vue'
 
 const route = useRoute()
 const router = useRouter()

@@ -122,9 +122,30 @@
     <!-- Примечания и действия -->
     <n-grid :cols="2" :x-gap="16" class="print-hidden">
       <n-gi>
-        <n-card title="Примечания">
-          <n-text v-if="order.notes">{{ order.notes }}</n-text>
-          <n-text v-else depth="3">Нет примечаний</n-text>
+        <n-card title="Окраска">
+          <div v-if="!isEditingPainting">
+            <n-text v-if="order.notes">{{ order.notes }}</n-text>
+            <n-text v-else depth="3">Нет информации об окраске</n-text>
+            <div class="mt-3">
+              <n-button text type="primary" @click="isEditingPainting = true">
+                Редактировать
+              </n-button>
+            </div>
+          </div>
+          <div v-else>
+            <n-space vertical :size="12">
+              <n-input 
+                v-model:value="paintingValue"
+                type="textarea"
+                placeholder="Введите информацию об окраске"
+                :rows="4"
+              />
+              <n-space>
+                <n-button type="primary" @click="savePainting">Сохранить</n-button>
+                <n-button @click="cancelEditingPainting">Отмена</n-button>
+              </n-space>
+            </n-space>
+          </div>
         </n-card>
       </n-gi>
       <n-gi>
@@ -179,7 +200,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import type { Order, OrderItem } from '@/types'
 import {
   NCard,
@@ -195,7 +216,11 @@ import {
   NThing,
   NProgress,
   NSpin,
-  NEmpty
+  NEmpty,
+  NInput,
+  NButton,
+  NSpace,
+  useMessage
 } from 'naive-ui'
 import {
   PrintOutline,
@@ -212,6 +237,44 @@ const props = defineProps<{
 
 const qrStore = useQRCodesStore()
 const ordersStore = useOrdersStore()
+const message = useMessage()
+
+// Состояние редактирования окраски
+const isEditingPainting = ref(false)
+const paintingValue = ref(props.order.notes || '')
+
+const savePainting = async () => {
+  try {
+    // Отправляем на бэкенд для сохранения
+    const response = await fetch('http://localhost:8000/sklad/api/onec/orders/painting', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        orderId: props.order.id,
+        painting: paintingValue.value
+      })
+    })
+    
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.error || 'Failed to save painting')
+    }
+    
+    // Обновляем локальный объект
+    if (props.order) {
+      props.order.notes = paintingValue.value
+    }
+    isEditingPainting.value = false
+    message.success('Окраска сохранена')
+  } catch (err: any) {
+    message.error('Ошибка сохранения: ' + err.message)
+  }
+}
+
+const cancelEditingPainting = () => {
+  paintingValue.value = props.order.notes || ''
+  isEditingPainting.value = false
+}
 
 const printOrder = () => {
   window.print()
@@ -282,7 +345,7 @@ const getStatusLabel = (status: Order['status']) => {
     'printing': 'Печать QR',
     'in_progress': 'В производстве',
     'partially_ready': 'Частично готов',
-    'ready': 'Готов',
+    'ready': 'Выполнен',
     'partially_shipped': 'Частично отгружен',
     'shipped': 'Отгружен',
     'completed': 'Завершен',

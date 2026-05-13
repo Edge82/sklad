@@ -5,7 +5,7 @@
         <n-dialog-provider>
           <n-message-provider>
             <Layout v-if="userStore.isAuthenticated" />
-            <router-view v-else />
+            <LoginPage v-else />
           </n-message-provider>
         </n-dialog-provider>
       </n-notification-provider>
@@ -19,6 +19,7 @@ import { useUserStore } from '@/stores/user'
 import { useIntegrationStore } from '@/stores/integration'
 import { onMounted } from 'vue'
 import Layout from '@/components/layout/Layout.vue'
+import LoginPage from '@/pages/login.vue'
 
 const userStore = useUserStore()
 const integrationStore = useIntegrationStore()

@@ -351,7 +351,7 @@
     <!-- Таблица -->
     <n-card>
       <div class="flex justify-between items-center mb-4">
-        <n-h3 class="m-0">{{ props.mode === 'product' ? 'Изделия и запасы' : 'Материалы и запасы' }}</n-h3>
+        <n-h3 class="m-0">{{ mode === 'product' ? 'Изделия и запасы' : 'Материалы и запасы' }}</n-h3>
         <div class="flex items-center gap-2">
           <n-text>Показывать:</n-text>
           <n-select v-model:value="itemsPerPage" :options="pageSizeOptions" class="w-32!" />
@@ -406,7 +406,7 @@
     <InventoryItemModal 
       v-model:show="showCreateModal" 
       :item-id="selectedItemId"
-      :mode="props.mode"
+      :mode="mode"
       @submit="handleItemSubmit" 
       @update:show="(val) => !val && (selectedItemId = null)"
     />
@@ -416,8 +416,8 @@
     <InventoryTransactionModal 
       v-model:show="showIssueModal" 
       type="outgoing" 
-      :title="props.mode === 'product' ? 'Перемещение товара' : 'Перемещение товара'"
-      :mode="props.mode"
+      :title="mode === 'product' ? 'Перемещение товара' : 'Перемещение товара'"
+      :mode="mode"
       @submit="handleTransactionSubmit" 
     />
 
@@ -442,6 +442,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, computed, h, watch, onMounted } from 'vue'
+import { useRoute } from 'vue-router'
 import * as XLSX from 'xlsx'
 import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
@@ -503,7 +504,18 @@ import { useDialog, useMessage } from 'naive-ui'
 import { useUserStore } from '@/stores/user'
 import { useEmployeesStore } from '@/stores/employees'
 import { useIntegrationStore } from '@/stores/integration'
+import { syncEvents } from '@/utils/syncEvents'
 import { SyncOutline } from '@vicons/ionicons5'
+
+const route = useRoute()
+
+// Определяем mode на основе текущего маршрута
+const mode = computed(() => {
+  if (route.path.includes('/finished')) {
+    return 'product'
+  }
+  return 'material'
+})
 
 const props = defineProps<{
   mode?: 'material' | 'product'
@@ -536,11 +548,12 @@ onMounted(async () => {
 
 // Функции интеграции
 const handleSync1C = async () => {
-  await integrationStore.syncWith1C()
+  await integrationStore.syncStocks()
   if (integrationStore.error) {
     message.error(integrationStore.error)
   } else {
     message.success('Синхронизация с 1С завершена успешно')
+    syncEvents.emit('sync-completed', { type: 'inventory', timestamp: new Date().toISOString() })
   }
 }
 
@@ -551,7 +564,7 @@ const formatLastSync = (dateString: string | null) => {
 
 // Заголовок страницы
 const pageTitle = computed(() => {
-  return props.mode === 'product' ? 'Готовая продукция' : 'Основная продукция (Склад материалов)'
+  return mode.value === 'product' ? 'Готовая продукция' : 'Основная продукция (Склад материалов)'
 })
 
 // Модальные окна
@@ -617,7 +630,7 @@ watch([searchQuery, filters, advancedFilters], () => {
 
 // Опции фильтров
 const categoryOptions = computed<SelectOption[]>(() => {
-  const categories = props.mode === 'product' 
+  const categories = mode.value === 'product' 
     ? inventoryStore.categories.filter(c => c.id === '99') 
     : inventoryStore.categories.filter(c => c.id !== '99')
     
@@ -669,10 +682,10 @@ const warehouseOptions = computed<SelectOption[]>(() => {
 const baseItemsForStats = computed(() => {
   const result = inventoryStore.items
   
-  console.log('DEBUG: Inventory Mode:', props.mode);
+  console.log('DEBUG: Inventory Mode:', mode.value);
   console.log('DEBUG: Total items in store:', result.length);
   
-  if (props.mode === 'product') {
+  if (mode.value === 'product') {
     const products = result.filter(item => item.type === 'product' || item.categoryId === '99')
     console.log('DEBUG: Found products:', products.length);
     if (products.length > 0) {
@@ -1038,8 +1051,7 @@ const columns: DataTableColumns<InventoryTableRow> = [
               h(NIcon, { size: '16' }, () => getCategoryIcon(item.categoryId))
             ),
         h('div', [
-          h('div', { class: 'font-medium' }, item.name),
-          h('div', { class: 'text-xs text-gray-400' }, item.sku)
+          h('div', { class: 'font-medium' }, item.name)
         ])
       ])
     }
@@ -1064,20 +1076,44 @@ const columns: DataTableColumns<InventoryTableRow> = [
       render: (row: InventoryTableRow) => {
         if ('isGroup' in row && row.isGroup) return null
         const item = row as InventoryItem
-        if (!item.reserveDetails || item.reserveDetails.size === 0) return h('div', { class: 'text-gray-400' }, 'Нет резервов')
+        
+        // Проверяем что reserveDetails это Map или объект
+        const reserves = item.reserveDetails
+        const isMap = reserves instanceof Map
+        const isEmpty = isMap ? reserves.size === 0 : Object.keys(reserves || {}).length === 0
+        
+        if (!reserves || isEmpty) return h('div', { class: 'text-gray-400' }, 'Нет резервов')
 
         const ordersList: any[] = []
-        item.reserveDetails.forEach((qty, orderId) => {
-          if (qty === 0) return
-          const order = ordersStore.orders.find(o => o.id === orderId)
-          const orderLabel = order ? order.orderNumber : `Заказ ${orderId.substring(0, 6)}...`
-          
-          ordersList.push(h('div', { class: 'text-[11px] mb-0.5 whitespace-nowrap' }, [
-            h('span', { class: 'font-bold text-blue-500' }, orderLabel),
-            h('span', { class: 'text-gray-400 mx-1' }, '—'),
-            h('span', { class: 'font-medium' }, `${qty} ${item.unit}`)
-          ]))
-        })
+        
+        // Итерируем в зависимости от типа (Map или объект)
+        if (isMap) {
+          reserves.forEach((qty, orderId) => {
+            if (qty === 0 || !orderId) return
+            
+            const order = ordersStore.orders.find(o => o.id === orderId)
+            const orderLabel = order ? order.orderNumber : `Заказ ${orderId.substring(0, 6)}...`
+            
+            ordersList.push(h('div', { class: 'text-[11px] mb-0.5 whitespace-nowrap' }, [
+              h('span', { class: 'font-bold text-blue-500' }, orderLabel),
+              h('span', { class: 'text-gray-400 mx-1' }, '—'),
+              h('span', { class: 'font-medium' }, `${qty} ${item.unit || '?'}`)
+            ]))
+          })
+        } else {
+          Object.entries(reserves).forEach(([orderId, qty]) => {
+            if (!qty || qty === 0 || !orderId) return
+            
+            const order = ordersStore.orders.find(o => o.id === orderId)
+            const orderLabel = order ? order.orderNumber : `Заказ ${orderId.substring(0, 6)}...`
+            
+            ordersList.push(h('div', { class: 'text-[11px] mb-0.5 whitespace-nowrap' }, [
+              h('span', { class: 'font-bold text-blue-500' }, orderLabel),
+              h('span', { class: 'text-gray-400 mx-1' }, '—'),
+              h('span', { class: 'font-medium' }, `${qty} ${item.unit || '?'}`)
+            ]))
+          })
+        }
 
         if (ordersList.length === 0) return h('div', { class: 'text-gray-400' }, 'Нет резервов')
         
@@ -1152,16 +1188,26 @@ const columns: DataTableColumns<InventoryTableRow> = [
     }
   },
   {
-    title: 'Место хранения',
-    key: 'location',
+    title: 'Склад',
+    key: 'warehouse',
     width: 120,
     render: (row) => {
-      if ('isGroup' in row && row.isGroup && !('location' in row)) return null
+      if ('isGroup' in row && row.isGroup && !('warehouse' in row)) return null
       const item = row as InventoryItem
       return h('div', { class: 'flex items-center gap-1' }, [
         h(NIcon, { size: '14' }, () => h(LocationOutline)),
-        h('span', item.location)
+        h('span', item.warehouse)
       ])
+    }
+  },
+  {
+    title: 'Место хранения',
+    key: 'storageBin',
+    width: 120,
+    render: (row) => {
+      if ('isGroup' in row && row.isGroup && !('storageBin' in row)) return null
+      const item = row as InventoryItem
+      return h('span', item.storageBin || '—')
     }
   },
   {
@@ -1353,7 +1399,7 @@ const handleItemSubmit = (itemData: Partial<InventoryItem>) => {
       }
     }
     
-    message.success(`${props.mode === 'product' ? 'Изделие' : 'Материал'} успешно обновлено`)
+    message.success(`${mode === 'product' ? 'Изделие' : 'Материал'} успешно обновлено`)
   } else {
     const newItem = inventoryStore.addItem(itemData as Parameters<typeof inventoryStore.addItem>[0])
     
@@ -1385,7 +1431,7 @@ const handleItemSubmit = (itemData: Partial<InventoryItem>) => {
       }
     }
     
-    message.success(`${props.mode === 'product' ? 'Изделие' : 'Материал'} успешно добавлено`)
+    message.success(`${mode === 'product' ? 'Изделие' : 'Материал'} успешно добавлено`)
   }
   selectedItemId.value = null
 }

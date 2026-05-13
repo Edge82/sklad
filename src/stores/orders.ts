@@ -1,9 +1,12 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { Order, OrderStatus, OrderShipment, QRCode } from '@/types'
+import { API_BASE_URL } from '@/config/api'
 
 export const useOrdersStore = defineStore('orders', () => {
   const orders = ref<Order[]>([])
+  const loading = ref(false)
+  const error = ref<string | null>(null)
 
   const totalOrders = computed(() => orders.value.length)
   const pendingOrders = computed(() => orders.value.filter(o => o.status === 'new' || o.status === 'in_progress').length)
@@ -89,8 +92,103 @@ export const useOrdersStore = defineStore('orders', () => {
     }
   }
 
+  // Загрузка заказов с API
+  async function loadOrdersFromApi() {
+    loading.value = true
+    error.value = null
+    try {
+      const data = await fetch(`${API_BASE_URL}/onec/orders`).then(r => r.json())
+      // Бэкэнд возвращает { value: [...] }
+      const ordersData = data.value || (Array.isArray(data) ? data : [])
+      if (ordersData && Array.isArray(ordersData)) {
+        orders.value = ordersData.map((order: any) => {
+          const orderDate = order.date ? new Date(order.date) : new Date()
+          return {
+            id: order.id || order.ref_key || String(Math.random()),
+            orderNumber: order.order_number || order.Number || 'N/A',
+            customerName: order.customer || order.Контрагент____Presentation || 'Unknown Customer',
+            customerPhone: order.customerPhone || '',
+            customerEmail: order.customerEmail || '',
+            customerId: order.customerId || order.ref_key || '',
+            orderDate: orderDate,
+            deadline: order.deadline ? new Date(order.deadline) : undefined,
+            createdAt: orderDate,
+            createdBy: order.createdBy || 'System',
+            lastUpdated: order.lastUpdated ? new Date(order.lastUpdated) : orderDate,
+            status: mapOrderStatus(order.status || order.СостояниеЗаказа____Presentation || 'pending'),
+            priority: order.priority || 'medium',
+            items: order.items || [],
+            notes: order.notes || '',
+            totalAmount: Number(order.amount || order.СуммаДокумента || 0),
+            plannedQuantity: order.items_count || 0,
+            actualQuantity: 0,
+            remainingQuantity: order.items_count || 0,
+            shipments: [],
+            partialShipmentAllowed: true,
+            plannedDate: order.plannedDate ? new Date(order.plannedDate) : undefined,
+            completedAt: undefined,
+            odata_id: order.id || order.ref_key || ''
+          }
+        })
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('orders_data', JSON.stringify(orders.value))
+        }
+      }
+    } catch (err: any) {
+      error.value = err.message || 'Ошибка загрузки заказов'
+      console.error('Failed to load orders:', err)
+    } finally {
+      loading.value = false
+    }
+  }
+  
+  // Вспомогательная функция для маппинга статусов заказов
+  function mapOrderStatus(status: string): OrderStatus {
+    const statusMap: Record<string, OrderStatus> = {
+      'new': 'new',
+      'создан': 'new',
+      'Создан': 'new',
+      'in_progress': 'in_progress',
+      'в работе': 'in_progress',
+      'В работе': 'in_progress',
+      'processing': 'processing',
+      'в обработке': 'processing',
+      'В обработке': 'processing',
+      'on_hold': 'new',
+      'ready': 'ready',
+      'готов': 'ready',
+      'Готов': 'ready',
+      'готова': 'ready',
+      'Готова': 'ready',
+      'завершен': 'completed',
+      'Завершен': 'completed',
+      'completed': 'completed',
+      'на выполнении': 'in_progress',
+      'На выполнении': 'in_progress',
+      'pending': 'new',
+      'cancelled': 'cancelled'
+    }
+    return statusMap[status] || 'new'
+  }
+
+  // Восстановление из localStorage
+  function restoreFromLocalStorage() {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('orders_data')
+      if (saved) {
+        try {
+          orders.value = JSON.parse(saved)
+        } catch (err) {
+          console.error('Failed to restore orders from localStorage:', err)
+        }
+      }
+    }
+  }
+
   return {
     orders,
+    loading,
+    error,
     totalOrders,
     pendingOrders,
     readyOrders,
@@ -101,6 +199,8 @@ export const useOrdersStore = defineStore('orders', () => {
     updateOrder,
     deleteOrder,
     getOrderProgress,
-    getOrderItemProgress
+    getOrderItemProgress,
+    loadOrdersFromApi,
+    restoreFromLocalStorage
   }
 })

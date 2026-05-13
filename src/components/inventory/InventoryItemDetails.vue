@@ -98,6 +98,9 @@
                   <n-list-item>
                     <n-thing title="Место хранения" :description="item.location" />
                   </n-list-item>
+                  <n-list-item v-if="item.storageBin">
+                    <n-thing title="Полка/Ячейка" :description="item.storageBin" />
+                  </n-list-item>
                 </n-list>
               </n-card>
             </n-gi>
@@ -339,7 +342,7 @@ const historyColumns: DataTableColumns<InventoryTransaction> = [
     title: 'Тип',
     key: 'type',
     width: 100,
-    render: (row) => {
+    render: (row: any) => {
       const icon = row.type === 'incoming' ? ArrowDownOutline :
         row.type === 'outgoing' ? ArrowUpOutline : SwapHorizontalOutline
       const color = row.type === 'incoming' ? 'green' :
@@ -354,25 +357,25 @@ const historyColumns: DataTableColumns<InventoryTransaction> = [
     title: 'Количество',
     key: 'quantity',
     width: 100,
-    render: (row) => `${row.quantity} ${item.value?.unit || ''}`
+    render: (row: any) => `${row.quantity} ${item.value?.unit || ''}`
   },
   {
     title: 'Цена',
     key: 'unitPrice',
     width: 100,
-    render: (row) => row.unitPrice ? formatCurrency(row.unitPrice) : '-'
+    render: (row: any) => row.unitPrice ? formatCurrency(row.unitPrice) : '-'
   },
   {
     title: 'Сумма',
     key: 'totalPrice',
     width: 120,
-    render: (row) => row.totalPrice ? formatCurrency(row.totalPrice) : '-'
+    render: (row: any) => row.totalPrice ? formatCurrency(row.totalPrice) : '-'
   },
   {
     title: 'Документ',
     key: 'documentNumber',
     width: 150,
-    render: (row) => row.documentNumber || '-'
+    render: (row: any) => row.documentNumber || '-'
   },
   {
     title: 'Причина',
@@ -384,7 +387,7 @@ const historyColumns: DataTableColumns<InventoryTransaction> = [
     title: 'Дата',
     key: 'createdAt',
     width: 150,
-    render: (row) => formatDateTime(row.createdAt)
+    render: (row: any) => formatDateTime(row.createdAt)
   },
   {
     title: 'Создал',

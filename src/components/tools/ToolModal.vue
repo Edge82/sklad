@@ -1,83 +1,91 @@
 <template>
-  <n-modal v-model:show="showModal" preset="card" :title="title" class="w-150!">
+  <n-modal v-model:show="showModal" preset="card" :title="title" class="w-200!" :bordered="false" size="huge">
     <n-form ref="formRef" :model="formData" :rules="rules" label-placement="top">
-      <n-grid :cols="2" :x-gap="24">
-        <n-gi :span="2">
-          <n-form-item label="Наименование инструмента" path="name">
-            <n-input v-model:value="formData.name" placeholder="Введите название" />
-          </n-form-item>
-        </n-gi>
-        
-        <n-gi>
-          <n-form-item label="Инвентарный номер" path="inventoryNumber">
-            <n-input v-model:value="formData.inventoryNumber" placeholder="ИН-0000" />
-          </n-form-item>
-        </n-gi>
-        
-        <n-gi>
-          <n-form-item label="Тип инструмента" path="type">
-            <n-select v-model:value="formData.type" :options="typeOptions" placeholder="Выберите тип" />
-          </n-form-item>
-        </n-gi>
-        
-        <n-gi>
-          <n-form-item label="Модель" path="model">
-            <n-input v-model:value="formData.model" placeholder="Бренд/Модель" />
-          </n-form-item>
-        </n-gi>
-        
-        <n-gi>
-          <n-form-item label="Серийный номер" path="serialNumber">
-            <n-input v-model:value="formData.serialNumber" placeholder="S/N" />
-          </n-form-item>
-        </n-gi>
+      <n-tabs type="line" animated>
+        <!-- Основная информация -->
+        <n-tab-pane name="basic" tab="Основное">
+          <n-grid :cols="2" :x-gap="24">
+            <n-gi>
+              <n-form-item label="Наименование инструмента" path="name" required>
+                <n-input v-model:value="formData.name" placeholder="Введите название" />
+              </n-form-item>
 
-        <n-gi>
-          <n-form-item label="Место хранения" path="location">
-            <n-input v-model:value="formData.location" placeholder="Стеллаж/Ячейка" />
-          </n-form-item>
-        </n-gi>
+              <n-form-item label="Инвентарный номер" path="inventoryNumber" required>
+                <n-input v-model:value="formData.inventoryNumber" placeholder="ИН-0000" />
+              </n-form-item>
 
-        <n-gi>
-          <n-form-item label="Статус" path="status">
-            <n-select v-model:value="formData.status" :options="statusOptions" placeholder="Выберите статус" />
-          </n-form-item>
-        </n-gi>
+              <n-form-item label="Тип инструмента" path="type" required>
+                <n-select v-model:value="formData.type" :options="typeOptions" placeholder="Выберите тип" />
+              </n-form-item>
 
-        <n-gi>
-          <n-form-item label="Стоимость" path="price">
-            <n-input-number v-model:value="formData.price" :min="0" placeholder="0" class="w-full">
-              <template #suffix>₽</template>
-            </n-input-number>
-          </n-form-item>
-        </n-gi>
+              <n-form-item label="Место хранения" path="location">
+                <n-input v-model:value="formData.location" placeholder="Стеллаж/Ячейка" />
+              </n-form-item>
+            </n-gi>
 
-        <n-gi v-if="formData.status === 'issued'" :span="2">
-          <n-form-item label="Кому выдан" path="issuedTo" required>
-            <n-select 
-              v-model:value="formData.issuedTo" 
-              :options="employeeOptions" 
-              placeholder="Выберите сотрудника" 
-              filterable
-              @update:value="handleEmployeeChange"
-            />
-          </n-form-item>
-        </n-gi>
+            <n-gi>
+              <n-form-item label="Модель" path="model">
+                <n-input v-model:value="formData.model" placeholder="Бренд/Модель" />
+              </n-form-item>
 
-        <n-gi v-if="formData.status === 'repair'" :span="2">
-          <n-form-item label="Описание поломки" path="breakdownDescription">
-            <n-input
-              v-model:value="formData.breakdownDescription"
-              type="textarea"
-              placeholder="Опишите, что случилось с инструментом..."
-              :autosize="{ minRows: 2, maxRows: 4 }"
-            />
-          </n-form-item>
-        </n-gi>
-      </n-grid>
+              <n-form-item label="Серийный номер" path="serialNumber">
+                <n-input v-model:value="formData.serialNumber" placeholder="S/N" />
+              </n-form-item>
+
+              <n-form-item label="Статус" path="status" required>
+                <n-select v-model:value="formData.status" :options="statusOptions" placeholder="Выберите статус" />
+              </n-form-item>
+
+              <n-form-item label="Стоимость" path="price">
+                <n-input-number v-model:value="formData.price" :min="0" placeholder="0" class="w-full">
+                  <template #suffix>₽</template>
+                </n-input-number>
+              </n-form-item>
+            </n-gi>
+          </n-grid>
+        </n-tab-pane>
+
+        <!-- Выдача инструмента -->
+        <n-tab-pane name="issued" tab="Выдача">
+          <n-grid :cols="2" :x-gap="24">
+            <n-gi :span="2">
+              <n-form-item label="Статус" path="status">
+                <n-select v-model:value="formData.status" :options="statusOptions" placeholder="Выберите статус" />
+              </n-form-item>
+            </n-gi>
+
+            <n-gi v-if="formData.status === 'issued'" :span="2">
+              <n-form-item label="Кому выдан" path="issuedTo" required>
+                <n-select 
+                  v-model:value="formData.issuedTo" 
+                  :options="employeeOptions" 
+                  placeholder="Выберите сотрудника" 
+                  filterable
+                  @update:value="handleEmployeeChange"
+                />
+              </n-form-item>
+            </n-gi>
+
+            <n-gi v-if="formData.status === 'repair'" :span="2">
+              <n-form-item label="Описание поломки" path="breakdownDescription" required>
+                <n-input
+                  v-model:value="formData.breakdownDescription"
+                  type="textarea"
+                  placeholder="Опишите, что случилось с инструментом..."
+                  :rows="4"
+                />
+              </n-form-item>
+            </n-gi>
+
+            <n-gi v-if="formData.issuedAt" :span="2">
+              <n-text depth="3">Выдан: {{ formatDate(formData.issuedAt) }}</n-text>
+            </n-gi>
+          </n-grid>
+        </n-tab-pane>
+      </n-tabs>
 
       <div class="flex justify-end gap-3 mt-6">
-        <n-button @click="showModal = false">Отмена</n-button>
+        <n-button @click="handleCancel">Отмена</n-button>
         <n-button type="primary" @click="handleSubmit" :loading="loading">
           Сохранить
         </n-button>

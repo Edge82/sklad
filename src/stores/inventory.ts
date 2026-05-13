@@ -1,8 +1,14 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { InventoryItem, InventoryCategory, InventoryTransaction, Supplier, InventoryStats } from '@/types'
+import { API_BASE_URL } from '@/config/api'
 
 export const useInventoryStore = defineStore('inventory', () => {
+  // Статус загрузки с API
+  const loading = ref(false)
+  const error = ref<string | null>(null)
+  const syncTime = ref<Date | null>(null)
+
   // Категории материалов для мебельного производства
   const categories = ref<InventoryCategory[]>([
     { id: '1', name: 'Древесина', icon: 'leaf-outline', description: 'Массив, МДФ, ДСП, фанера' },
@@ -76,6 +82,7 @@ export const useInventoryStore = defineStore('inventory', () => {
       reserved: 10,
       available: 35,
       location: 'A-01-12',
+      storageBin: 'Полка 3, Ячейка 12',
       dimensions: '2000x200x40 мм',
       weight: 8.5,
       storageConditions: 'Сухое помещение',
@@ -117,6 +124,7 @@ export const useInventoryStore = defineStore('inventory', () => {
       reserved: 5,
       available: 7,
       location: 'A-02-05',
+      storageBin: 'Полка 2, Ячейка 5',
       dimensions: '1525x1525x18 мм',
       weight: 22,
       storageConditions: 'Сухое помещение',
@@ -156,6 +164,7 @@ export const useInventoryStore = defineStore('inventory', () => {
       reserved: 8,
       available: 20,
       location: 'A-03-08',
+      storageBin: 'Полка 1, Ячейка 8',
       dimensions: '2800x2070x16 мм',
       weight: 35,
       storageConditions: 'Сухое помещение',
@@ -341,6 +350,7 @@ export const useInventoryStore = defineStore('inventory', () => {
       reserved: 0,
       available: 0,
       location: 'E-01-05',
+      storageBin: 'Хранилище, Ячейка 5',
       weight: 0.35,
       storageConditions: 'Сухое темное место',
       purchasePrice: 850,
@@ -379,6 +389,7 @@ export const useInventoryStore = defineStore('inventory', () => {
       reserved: 1,
       available: 1,
       location: 'FG-01-01',
+      storageBin: 'Зона готовой продукции, Позиция 1',
       purchasePrice: 45000,
       averagePrice: 45000,
       lastPurchasePrice: 45000,
@@ -409,6 +420,7 @@ export const useInventoryStore = defineStore('inventory', () => {
       reserved: 2,
       available: 3,
       location: 'FG-01-02',
+      storageBin: 'Зона готовой продукции, Позиция 2',
       purchasePrice: 28000,
       averagePrice: 28000,
       lastPurchasePrice: 28000,
@@ -439,6 +451,7 @@ export const useInventoryStore = defineStore('inventory', () => {
       reserved: 0,
       available: 10,
       location: 'FG-01-03',
+      storageBin: 'Зона готовой продукции, Позиция 3',
       purchasePrice: 45000,
       averagePrice: 45000,
       lastPurchasePrice: 45000,
@@ -724,7 +737,8 @@ export const useInventoryStore = defineStore('inventory', () => {
     }
 
     updateItemStatus(newItem)
-    items.value.unshift(newItem)
+    // НЕ добавляем в таблицу локально - дождемся синхронизации из API
+    // items.value.unshift(newItem)
     return newItem
   }
 
@@ -891,6 +905,9 @@ export const useInventoryStore = defineStore('inventory', () => {
     items,
     itemsMap,
     transactions,
+    loading,
+    error,
+    syncTime,
 
     // Computed
     totalItems,
@@ -913,9 +930,154 @@ export const useInventoryStore = defineStore('inventory', () => {
     getTransactionsByItem,
     generateReport,
     receiveFromProduction,
+    
+    // Методы для синхронизации с API (1С)
+    async loadStocksFromApi() {
+      loading.value = true
+      error.value = null
+      try {
+        const data = await fetch(`${API_BASE_URL}/onec/stocks`).then(r => r.json())
+        // Бэкэнд возвращает { value: [...] }
+        const stocks = data.value || (Array.isArray(data) ? data : [])
+        if (stocks && Array.isArray(stocks)) {
+          items.value = stocks.map((item: any) => {
+            const currentStock = Number(item.currentStock || item.quantity || 0)
+            const reserved = Number(item.reserved || 0)
+            const minStock = Number(item.minStock || 0)
+            const available = currentStock - reserved
+            
+            // Определяем статус
+            let status: InventoryItem['status'] = 'in_stock'
+            if (currentStock <= 0) status = 'out_of_stock'
+            else if (currentStock <= minStock) status = 'low_stock'
+            else if (reserved > 0) status = 'reserved'
+            
+            return {
+              id: item.ref_key || item.id,  // ВАЖНО: ref_key это GUID из 1С, используем его в приоритете!
+              ref_key: item.ref_key || item.id,
+              name: item.name || item.product || 'Без названия',
+              sku: item.sku || '',
+              product: item.product || item.name || 'Без названия',
+              barcode: item.barcode || '',
+              category: item.category || '',
+              categoryId: item.categoryId || '',
+              description: item.description || '',
+              unit: item.unit || 'шт',
+              unit_key: item.unit_key || item.unitId || '',
+              unitId: item.unit_key || item.unitId || '',  // Дублируем для совместимости с фронтом
+              warehouseId: item.warehouseId || '',  // GUID склада из 1C
+              storageBin: item.storageBin || '',  // Место хранения (локальное)
+              currentStock: currentStock,
+              quantity: currentStock,
+              minStock: minStock,
+              maxStock: item.maxStock || currentStock * 2,
+              reserved: reserved,
+              available: available,
+              location: item.location ?? item.warehouse ?? 'Основной склад',  // Используем ?? чтобы не заменять пустые строки
+              warehouse: item.warehouse || 'Основной склад',
+              purchasePrice: Number(item.purchasePrice || 0),
+              averagePrice: Number(item.averagePrice || item.purchasePrice || 0),
+              lastPurchasePrice: Number(item.lastPurchasePrice || item.purchasePrice || 0),
+              totalValue: currentStock * Number(item.averagePrice || item.purchasePrice || 0),
+              status: status,
+              type: item.type || 'material',
+              image: item.image || '',
+              mainSupplier: item.mainSupplier || '',
+              alternativeSuppliers: item.alternativeSuppliers || [],
+              supplierCode: item.supplierCode || '',
+              deliveryTime: item.deliveryTime || 0,
+              minOrderQuantity: item.minOrderQuantity || 1,
+              totalConsumed: item.totalConsumed || 0,
+              popularity: item.popularity || 0,
+              materialType: item.materialType || '',
+              storageConditions: item.storageConditions || '',
+              weight: item.weight || 0,
+              dimensions: item.dimensions || '',
+              onOrderQuantity: item.onOrderQuantity || 0,
+              orderNumber: item.orderNumber || undefined,
+              // Преобразуем reservesByOrder из объекта в Map
+              reserveDetails: new Map(Object.entries(item.reservesByOrder || {}))
+            }
+          })
+          console.log('✓ Loaded', items.value.length, 'items from API')
+          if (items.value.length > 0) {
+            const firstReserves = items.value[0].reserveDetails
+            console.log('  First item reserves type:', firstReserves instanceof Map ? 'Map' : typeof firstReserves)
+            console.log('  First item reserves size:', firstReserves?.size || 0)
+            if (firstReserves && firstReserves.size > 0) {
+              const sample = Array.from(firstReserves.entries()).slice(0, 2)
+              console.log('  Sample entries:', sample)
+            }
+          }
+          syncTime.value = new Date()
+          if (typeof window !== 'undefined') {
+            // JSON.stringify не может сериализировать Map, поэтому преобразуем его в объект
+            const itemsForStorage = items.value.map(item => ({
+              ...item,
+              reserveDetails: Object.fromEntries(item.reserveDetails || new Map())
+            }))
+            localStorage.setItem('inventory_items', JSON.stringify(itemsForStorage))
+            console.log('✓ Saved to localStorage, items:', items.value.length)
+          }
+        }
+      } catch (err: any) {
+        error.value = err.message || 'Ошибка загрузки остатков'
+        console.error('Failed to load stocks:', err)
+      } finally {
+        loading.value = false
+      }
+    },
+
+    async createMovementInApi(movement: any) {
+      loading.value = true
+      error.value = null
+      try {
+        const response = await fetch('/api/onec/create-movement', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(movement)
+        }).then(r => r.json())
+        syncTime.value = new Date()
+        return response
+      } catch (err: any) {
+        error.value = err.message || 'Ошибка при создании перемещения'
+        console.error('Failed to create movement:', err)
+        throw err
+      } finally {
+        loading.value = false
+      }
+    },
+
+    // Восстановление данных из localStorage при загрузке
+    restoreFromLocalStorage() {
+      if (typeof window !== 'undefined') {
+        const saved = localStorage.getItem('inventory_items')
+        if (saved) {
+          try {
+            const parsed = JSON.parse(saved)
+            // Восстанавливаем Map из объекта для reserveDetails
+            items.value = parsed.map((item: any) => ({
+              ...item,
+              reserveDetails: new Map(Object.entries(item.reserveDetails || {}))
+            }))
+            console.log('✓ Restored from localStorage, items:', items.value.length)
+          } catch (err) {
+            console.error('Failed to restore inventory from localStorage:', err)
+          }
+        }
+      }
+    },
+
     replaceAll: (newItems: InventoryItem[]) => {
-      items.value = newItems;
-      localStorage.setItem('inventory_items', JSON.stringify(newItems));
+      items.value = newItems
+      if (typeof window !== 'undefined') {
+        // Преобразуем Map в объект перед сохранением в localStorage
+        const itemsForStorage = newItems.map(item => ({
+          ...item,
+          reserveDetails: Object.fromEntries(item.reserveDetails || new Map())
+        }))
+        localStorage.setItem('inventory_items', JSON.stringify(itemsForStorage))
+      }
     }
   }
 })

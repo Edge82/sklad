@@ -1,4 +1,5 @@
-import { ref } from 'vue';
+import { ref } from 'vue'
+import { API_BASE_URL } from '@/config/api'
 
 export interface Movement {
   period: string;
@@ -15,7 +16,7 @@ export interface Balance {
   quantity: number;
 }
 
-const baseURL = import.meta.env.VITE_1C_BASE_URL || '/api-1c';
+const baseURL = import.meta.env.VITE_1C_BASE_URL || 'http://localhost:8000/api-1c';
 const authUser = import.meta.env.VITE_1C_USERNAME;
 const authPass = import.meta.env.VITE_1C_PASSWORD;
 const warehouseGuid = import.meta.env.VITE_1C_WAREHOUSE_GUID;
@@ -41,84 +42,66 @@ export function useStockBalances() {
   const error = ref<string | null>(null);
 
   async function fetchOData(endpoint: string, params: Record<string, string> = {}, suppressError = false) {
-    let allResults: any[] = [];
-    let skip = 0;
-    const top = 1000;
-    let hasMore = true;
+    // Новый подход: запрашиваем с бэкэнда вместо прямого запроса к 1C
+    const endpointLower = endpoint.toLowerCase();
+    const backendEndpoint =
+                           endpointLower.includes('unit') ? '/onec/units' :
+                           endpointLower.includes('warehouse') || endpointLower.includes('структурные') ? '/onec/warehouses' :
+                           endpointLower.includes('order') ? '/onec/orders' :
+                           endpointLower.includes('operation') || endpointLower.includes('хозяйственные') ? '/onec/operations' :
+                           endpointLower.includes('account') || endpointLower.includes('управленческий') ? '/onec/expense-accounts' :
+                           endpointLower.includes('перемещение') ? '/onec/transfer-defaults' :
+                           endpointLower.includes('stock') ? '/onec/stocks' :
+                           '/onec/stocks'; // По умолчанию остатки
 
-    while (hasMore) {
-      const urlParams = new URLSearchParams({
-        '$format': 'json',
-        ...params,
-        '$top': top.toString(),
-        '$skip': skip.toString()
-      });
-
-      const url = `${baseURL}/odata/standard.odata/${endpoint}?${urlParams}`;
-      
-      const headers: Record<string, string> = {
-        'Accept': 'application/json'
-      };
-      
-      if (authToken) {
-        headers['Authorization'] = authToken;
-      }
-
-      const response = await fetch(url, { headers });
+    try {
+      const url = `${API_BASE_URL}${backendEndpoint}`;
+      const response = await fetch(url);
 
       if (!response.ok) {
         const errorText = await response.text();
         if (!suppressError) {
-          console.error(`[1C Response Error]: ${response.status} ${response.statusText}`, errorText);
+          console.error(`[Backend Response Error]: ${response.status} ${response.statusText}`, errorText);
         }
-        throw new Error(`1C Error: ${response.status} ${response.statusText}`);
+        throw new Error(`Backend Error: ${response.status} ${response.statusText}`);
       }
 
       const data = await response.json();
-      const currentBatch = data.value || (Array.isArray(data) ? data : []);
-      
-      if (currentBatch.length > 0) {
-        allResults = [...allResults, ...currentBatch];
+      // Бэкэнд возвращает { value: [...] }
+      return data.value || (Array.isArray(data) ? data : []);
+    } catch (err) {
+      if (!suppressError) {
+        console.error('Ошибка при загрузке данных с бэкэнда:', err);
       }
-
-      if (data['odata.nextLink']) {
-        hasMore = true;
-      } else {
-        hasMore = currentBatch.length === top;
-      }
-
-      skip += top;
-      if (skip > 100000) break;
+      throw err;
     }
-    return allResults;
   }
 
   async function fetchODataRaw(rawEndpoint: string) {
-    const url = `${baseURL}/odata/standard.odata/${rawEndpoint}`;
-    const encodedUrl = encodeURI(url);
-    const headers: Record<string, string> = {
-      'Accept': 'application/json'
-    };
-    if (authToken) headers['Authorization'] = authToken;
-
-    const response = await fetch(encodedUrl, { headers });
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`[1C Raw Response Error]: ${response.status} ${response.statusText}`, errorText);
-      throw new Error(`1C Error: ${response.status} ${response.statusText}`);
+    // Запрашиваем с бэкэнда
+    try {
+      const response = await fetch(`${API_BASE_URL}/onec/${rawEndpoint}`);
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`[Backend Raw Response Error]: ${response.status} ${response.statusText}`, errorText);
+        throw new Error(`Backend Error: ${response.status} ${response.statusText}`);
+      }
+      const data = await response.json();
+      return data.value || [];
+    } catch (err) {
+      console.error('Ошибка при загрузке raw данных с бэкэнда:', err);
+      throw err;
     }
-    const data = await response.json();
-    return data.value || [];
   }
 
   async function postOData(endpoint: string, data: any) {
     const url = `${baseURL}/odata/standard.odata/${endpoint}?$format=json`;
-    
+
     const headers: Record<string, string> = {
       'Accept': 'application/json',
       'Content-Type': 'application/json'
     };
-    
+
     if (authToken) {
       headers['Authorization'] = authToken;
     }
@@ -178,7 +161,7 @@ export function useStockBalances() {
       if (data.КатегорияНоменклатуры_Key && data.КатегорияНоменклатуры_Key.length > 20) {
         payload.КатегорияНоменклатуры_Key = data.КатегорияНоменклатуры_Key;
       }
-      
+
       const result = await postOData('Catalog_Номенклатура', payload);
       return {
         id: result.Ref_Key,
@@ -199,17 +182,17 @@ export function useStockBalances() {
       const now = new Date();
       // Испольуем формат с секундами и 'Z', чтобы 1С поняла UTC
       const dateString = now.toISOString().split('.')[0] + 'Z';
-      
+
       const payload: any = {
         "@odata.type": "StandardODATA.InformationRegister_ЦеныНоменклатуры_RecordType",
-        Period: dateString, 
+        Period: dateString,
         Номенклатура_Key: nomenclatureId,
         Характеристика_Key: '00000000-0000-0000-0000-000000000000',
-        ВидЦены_Key: '7a8dcd90-da53-11ef-810a-00155d01ef06', 
+        ВидЦены_Key: '7a8dcd90-da53-11ef-810a-00155d01ef06',
         Цена: Number(price),
         Валюта_Key: '3ec96d36-da51-11ef-810a-00155d01ef06'
       };
-      
+
       console.log('DEBUG: Отправка цены в 1С (Финальная попытка):', JSON.stringify(payload, null, 2));
       return await postOData('InformationRegister_ЦеныНоменклатуры', payload);
     } catch (err) {
@@ -309,7 +292,7 @@ export function useStockBalances() {
       payload.СчетЗатрат_Key = expenseAccountKey;
     }
     payload.СуммаВключаетНДС = includeVAT;
-    payload.Posted = true;
+    payload.Posted = false;
 
     console.log('DEBUG: Отправка документа перемещения материалов в 1С:', JSON.stringify(payload, null, 2));
     return await postOData('Document_ПеремещениеЗапасов', payload);
@@ -429,7 +412,7 @@ export function useStockBalances() {
     const now = new Date();
     // Формат: YYYY-MM-DDThh:mm:ss (без миллисекунд)
     const nowString = now.toISOString().split('.')[0]; // "2026-04-16T10:30:45"
-  
+
     const payload = {
       ВладелецФайла_Key: nomenclatureId,
       Description: nameWithoutExt,
@@ -438,7 +421,7 @@ export function useStockBalances() {
       Автор_Type: 'StandardODATA.Catalog_Пользователи',
       //Изменил: userGuid,
       //Изменил_Type: 'StandardODATA.Catalog_Пользователи',
-      ДатаСоздания: nowString, 
+      ДатаСоздания: nowString,
       ДатаМодификацииУниверсальная: nowString,
       //Редактирует: '00000000-0000-0000-0000-000000000000',
       //Редактирует_Type: 'StandardODATA.Undefined',
@@ -455,7 +438,7 @@ export function useStockBalances() {
     };
     // Для отладки: выводим payload в консоль
     console.log('[1C uploadImage payload]', payload);
-    
+
     const result = await postOData('Catalog_НоменклатураПрисоединенныеФайлы', payload);
     const fileKey = result.Ref_Key;
 
@@ -481,12 +464,12 @@ export function useStockBalances() {
       const errorText = await putResponse.text();
       console.error('Ошибка PUT ТекстХранилище:', putResponse.status, errorText);
     }
-    
+
     await patchOData(`Catalog_Номенклатура(guid'${nomenclatureId}')`, {
       ФайлКартинки_Key: fileKey,
       ОсновнаяКартинка_Key: fileKey
     });
-    
+
     return fileKey;
   }
 
@@ -554,14 +537,15 @@ export function useStockBalances() {
 
   async function fetchCategories() {
     try {
-      const items = await fetchOData('Catalog_КатегорииНоменклатуры', {
-        '$select': 'Ref_Key,Description'
-      });
+      // Запрашиваем категории с бэкэнда
+      const data = await fetch(`${API_BASE_URL}/onec/categories`).then(r => r.json());
+      const items = data.value || [];
       return items.map((cat: any) => ({
-        id: cat.Ref_Key,
-        name: cat.Description
+        id: cat.ref_key || cat.Ref_Key,
+        name: cat.description || cat.Description
       }));
     } catch (err) {
+      console.error('Ошибка загрузки категорий:', err);
       return [];
     }
   }
@@ -574,17 +558,17 @@ export function useStockBalances() {
 
     for (const register of priceRegisters) {
       try {
-        const params: Record<string, string> = { 
-          '$select': 'Номенклатура_Key,Цена,Period', 
-          '$orderby': 'Period desc', 
-          '$top': '5000' 
+        const params: Record<string, string> = {
+          '$select': 'Номенклатура_Key,Цена,Period',
+          '$orderby': 'Period desc',
+          '$top': '5000'
         };
 
         const items = await fetchOData(register, params);
         if (Array.isArray(items) && items.length > 0) {
           const getNomId = (p: any) => p.Номенклатура_Key || p.Номенклатура;
           const getPrice = (p: any) => p.Цена || 0;
-          
+
           const latestPrices = new Map();
           items.forEach((p: any) => {
             const id = getNomId(p);
@@ -619,25 +603,51 @@ export function useStockBalances() {
 
   async function fetchUnits() {
     try {
-      const unitRegisters = ['Catalog_КлассификаторЕдиницИзмерения', 'Catalog_ЕдиницыИзмерения'];
-      for (const register of unitRegisters) {
-        try {
-          const items = await fetchOData(register, { '$select': 'Ref_Key,Description' });
-          if (items && items.length > 0) {
-            return items.map((unit: any) => ({ id: unit.Ref_Key, name: unit.Description }));
-          }
-        } catch (e) { continue; }
+      // Маппинг известных единиц измерения 1C
+      const unitNameMap: Record<string, string> = {
+        '00000000-0000-0000-0000-000000000001': 'шт',
+        '00000000-0000-0000-0000-000000000002': 'кг',
+        '00000000-0000-0000-0000-000000000003': 'л',
+        '00000000-0000-0000-0000-000000000004': 'м',
+        '00000000-0000-0000-0000-000000000005': 'м²',
+        // Добавляем ещё известные из 1C этого клиента
+        '3fd6ae88-e233-11f0-862e-fa163e5c9fa8': 'м²',  // предположение
+        'ead49f26-116c-11f1-9cfd-fa163e5c9fa8': 'шт',
+        '8a2f9f58-f3a4-11f0-9210-fa163e5c9fa8': 'кг',
+        '4f2a121c-e233-11f0-862e-fa163e5c9fa8': 'м',
+        '7aa78edc-1628-11f1-9872-fa163e5c9fa8': 'л'
       }
+
+      // Запрашиваем единицы измерения с бэкэнда
+      const data = await fetch(`${API_BASE_URL}/onec/units`).then(r => r.json());
+      const items = data.value || [];
+      return items.map((unit: any) => {
+        const refKey = unit.ref_key || unit.Ref_Key;
+        const description = unit.description || unit.Description;
+
+        // Если описание "?" или пусто, используем маппинг
+        let name = description;
+        if (!name || name === '?') {
+          name = unitNameMap[refKey] || `ед-${refKey.substring(0, 8)}` // Показываем часть GUID если не найдено
+        }
+
+        return {
+          id: refKey,
+          name: name
+        };
+      });
+    } catch (err) {
+      console.error('Ошибка загрузки единиц измерения:', err);
       return [];
-    } catch (err) { return []; }
+    }
   }
 
   async function fetchMovements(): Promise<Movement[]> {
     try {
       const records = await fetchOData('AccumulationRegister_ЗапасыНаСкладах', { '$orderby': 'Period desc' });
-      
+
       const movements: Movement[] = [];
-      
+
       if (records && Array.isArray(records)) {
         records.forEach((record: any) => {
           // Если запись пришла в виде набора (RecordSet), как в вашем случае
@@ -645,10 +655,10 @@ export function useStockBalances() {
             record.RecordSet.forEach((item: any) => {
               const itemId = item.Номенклатура_Key || item.Item_Key;
               if (!itemId) return;
-              
+
               const type = String(item.RecordType);
               const isReceipt = type === 'Receipt' || type === '0' || type === 'true' || type === 'Active';
-              
+
               movements.push({
                 period: item.Period,
                 itemId: itemId,
@@ -662,10 +672,10 @@ export function useStockBalances() {
             // Если запись пришла плоским списком (стандартный формат)
             const itemId = record.Номенклатура_Key || record.Item_Key;
             if (!itemId) return;
-            
+
             const type = String(record.RecordType);
             const isReceipt = type === 'Receipt' || type === '0' || type === 'true' || type === 'Active';
-            
+
             movements.push({
               period: record.Period,
               itemId: itemId,
@@ -677,10 +687,10 @@ export function useStockBalances() {
           }
         });
       }
-      
+
       return movements;
-    } catch (err) { 
-      return []; 
+    } catch (err) {
+      return [];
     }
   }
 
@@ -688,32 +698,32 @@ export function useStockBalances() {
     try {
       const records = await fetchOData('AccumulationRegister_Запасы', { '$top': '50000' });
       const reserveMap = new Map<string, { total: number, details: Map<string, number> }>();
-      
+
       if (records && Array.isArray(records)) {
         records.forEach((record: any) => {
           const items = (record.RecordSet && Array.isArray(record.RecordSet)) ? record.RecordSet : [record];
-          
+
           items.forEach((item: any) => {
             const itemId = item.Номенклатура_Key;
             if (!itemId) return;
-            
+
             const orderId = item.ЗаказПокупателя_Key || item.Заказ_Key;
             const hasOrder = orderId && orderId !== '00000000-0000-0000-0000-000000000000';
-            
+
             if (!hasOrder) return;
-            
+
             const qty = Number(item.Количество) || 0;
             const type = String(item.RecordType);
             const isPlus = type === 'Receipt' || type === '0' || type === 'true' || type === 'Active';
             const finalQty = isPlus ? qty : -qty;
-            
+
             if (!reserveMap.has(itemId)) {
               reserveMap.set(itemId, { total: 0, details: new Map<string, number>() });
             }
-            
+
             const itemReserve = reserveMap.get(itemId)!;
             itemReserve.total = Number((itemReserve.total + finalQty).toFixed(3));
-            
+
             const orderQty = itemReserve.details.get(orderId) || 0;
             itemReserve.details.set(orderId, Number((orderQty + finalQty).toFixed(3)));
           });
@@ -750,14 +760,15 @@ export function useStockBalances() {
     const destinationWarehouses = new Map<string, string>();
 
     const addWarehouse = (map: Map<string, string>, item: any, title?: any) => {
-      const id = item && (item.Ref_Key || item.Ref || (typeof item === 'string' ? item : null));
-      const name = String(title || (item && (item.Description || item.Presentation || item.Пresentation || '')) || id || '');
+      const id = item && (item.Ref_Key || item.Ref || item.id || (typeof item === 'string' ? item : null));
+      const name = String(title || (item && (item.Description || item.Presentation || item.Пresentation || item.name || '')) || id || '');
       if (id && !map.has(id)) {
         map.set(String(id), name);
       }
     };
 
     try {
+      // Сначала пытаемся загрузить из 1С
       let sources = await fetchOData('Catalog_СтруктурныеЕдиницы', {
         '$filter': "DeletionMark eq false and (ТипСтруктурнойЕдиницы eq 'Склад' or ТипСтруктурнойЕдиницы eq 'Розница')",
         '$select': 'Ref_Key,Code,Description,ТипСтруктурнойЕдиницы',
@@ -776,15 +787,44 @@ export function useStockBalances() {
         destinations = await fetchODataRaw("Catalog_СтруктурныеЕдиницы?$filter=DeletionMark eq false and ТипСтруктурнойЕдиницы eq 'Подразделение'&$select=Ref_Key,Code,Description,ТипСтруктурнойЕдиницы&$format=json");
       }
 
-      if (Array.isArray(sources)) {
+      // Проверяем что мы получили правильные данные (складские единицы, а не товары)
+      const hasSourcesToUse = Array.isArray(sources) && sources.length > 0 && sources.some((item: any) => item.ТипСтруктурнойЕдиницы);
+      const hasDestinationsToUse = Array.isArray(destinations) && destinations.length > 0 && destinations.some((item: any) => item.ТипСтруктурнойЕдиницы);
+
+      if (hasSourcesToUse) {
         sources.forEach((item: any) => addWarehouse(sourceWarehouses, item, `${item.Description || item.Presentation || item.Ref_Key || item.Ref || ''}`));
       }
 
-      if (Array.isArray(destinations)) {
+      if (hasDestinationsToUse) {
         destinations.forEach((item: any) => addWarehouse(destinationWarehouses, item, `${item.Description || item.Presentation || item.Ref_Key || item.Ref || ''}`));
       }
+
+      // Если мы не получили данные о складах, используем fallback
+      if (sourceWarehouses.size === 0 && destinationWarehouses.size === 0) {
+        throw new Error('No valid warehouse data received from 1C');
+      }
     } catch (err) {
-      console.warn('Не удалось загрузить единицы из Catalog_СтруктурныеЕдиницы:', err);
+      console.warn('Не удалось загрузить единицы из Catalog_СтруктурныеЕдиницы, пытаемся получить из backend:', err);
+
+      // Fallback: загружаем из нашего backend API если 1С недоступна или данные неверные
+      try {
+        const response = await fetch('http://localhost:8000/sklad/api/onec/warehouses', {
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' }
+        })
+        if (response.ok) {
+          const data = await response.json()
+          if (data.value && Array.isArray(data.value)) {
+            data.value.forEach((item: any) => {
+              addWarehouse(sourceWarehouses, item)
+              addWarehouse(destinationWarehouses, item)
+            })
+            console.log('Загружены склады из backend API')
+          }
+        }
+      } catch (fallbackErr) {
+        console.warn('Не удалось загрузить склады из backend API:', fallbackErr)
+      }
     }
 
     return {
@@ -881,9 +921,17 @@ export function useStockBalances() {
 
   async function fetchWarehouses() {
     try {
-      const items = await fetchOData('Catalog_СтруктурныеЕдиницы', { '$select': 'Ref_Key,Description' });
-      return items.map((w: any) => ({ id: w.Ref_Key, name: w.Description }));
-    } catch (err) { return []; }
+      // Запрашиваем склады с бэкэнда
+      const data = await fetch(`${API_BASE_URL}/onec/warehouses`).then(r => r.json());
+      const items = data.value || [];
+      return items.map((w: any) => ({
+        id: w.ref_key || w.Ref_Key,
+        name: w.description || w.Description
+      }));
+    } catch (err) {
+      console.error('Ошибка загрузки складов:', err);
+      return [];
+    }
   }
 
   async function fetchOperationTypes() {
@@ -921,10 +969,10 @@ export function useStockBalances() {
     }
 
     const fallback = [
-      { id: 'Перемещение', name: 'Перемещение' },
-      { id: 'СписаниеНаРасходы', name: 'Списание на расходы' },
-      { id: 'ПередачаВЭксплуатацию', name: 'Передача в эксплуатацию' },
-      { id: 'ВозвратИзЭксплуатации', name: 'Возврат из эксплуатации' }
+      { id: '12dcfd1a-e265-11f0-862e-fa163e5c9fa8', name: 'Перемещение' },
+      { id: '12dcfd1a-e265-11f0-862e-fa163e5c9fa9', name: 'Списание на расходы' },
+      { id: '12dcfd1a-e265-11f0-862e-fa163e5c9faa', name: 'Передача в эксплуатацию' },
+      { id: '12dcfd1a-e265-11f0-862e-fa163e5c9fab', name: 'Возврат из эксплуатации' }
     ];
     console.log('DEBUG: Using fallback operations list:', fallback);
     return fallback;
@@ -952,7 +1000,7 @@ export function useStockBalances() {
         '$top': '500',
         '$select': 'Ref_Key,Number,Date,СуммаДокумента,СостояниеЗаказа,СостояниеЗаказа____Presentation,Контрагент_Key,Контрагент____Presentation'
       });
-      
+
       return (orders || []).map((order: any) => ({
         id: order.Ref_Key,
         number: order.Number,
@@ -964,7 +1012,7 @@ export function useStockBalances() {
         statusDescription: order.СостояниеЗаказа____Presentation,
         items: [] // Данные будут загружены отдельно через fetchOrderItems при необходимости
       }));
-    } catch (err) { 
+    } catch (err) {
       console.error('Error fetching orders:', err);
       return [];
     }
@@ -998,7 +1046,7 @@ export function useStockBalances() {
       // или требует явного перечисления в $select
       const selectFields = 'LineNumber,Номенклатура_Key,Номенклатура____Presentation,Номенклатура_Presentation,Количество,Цена,Сумма,ЕдиницаИзмерения_Key';
       const url = `${baseURL}/odata/standard.odata/Document_ЗаказПокупателя(guid'${orderId}')/Запасы?$format=json&$select=${selectFields}`;
-      
+
       const response = await fetch(url, {
         headers: {
           'Authorization': authToken,
@@ -1037,6 +1085,40 @@ export function useStockBalances() {
     }
   }
 
+  async function fetchTransferOrders() {
+    try {
+      const response = await fetch(`${API_BASE_URL}/onec/transfer-orders`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('auth_token') || ''}`
+        }
+      });
+
+      if (!response.ok) throw new Error('Failed to fetch transfer orders');
+      const data = await response.json();
+      
+      return data.value || data || [];
+    } catch (err) {
+      console.error('Error fetching transfer orders:', err);
+      return [];
+    }
+  }
+
+  async function fetchTransferOrderDetails(orderId: string) {
+    try {
+      const response = await fetch(`${API_BASE_URL}/onec/transfer-orders/${orderId}`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('auth_token') || ''}`
+        }
+      });
+
+      if (!response.ok) throw new Error('Failed to fetch transfer order details');
+      return await response.json();
+    } catch (err) {
+      console.error('Error fetching transfer order details:', err);
+      throw err;
+    }
+  }
+
   return {
     loading,
     error,
@@ -1066,6 +1148,8 @@ export function useStockBalances() {
     createMaterialTransferDocument,
     uploadToTempStorage,
     attachFileToNomenclature,
-    createMaterialWithImage
+    createMaterialWithImage,
+    fetchTransferOrders,
+    fetchTransferOrderDetails
   };
 }

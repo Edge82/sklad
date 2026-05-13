@@ -10,18 +10,10 @@ export interface UserSettings {
 }
 
 export const useUserStore = defineStore('user', () => {
-  const user = ref<User | null>({
-    id: 'user-4',
-    email: 'admin@warehouse.com',
-    name: 'Александр Иванов',
-    role: 'director',
-    department: 'Управление',
-    isActive: true,
-    permissions: ['all'],
-    phone: '+7 (900) 123-45-67',
-    avatar: '',
-    createdAt: new Date()
-  })
+  const user = ref<User | null>(null)
+  const token = ref<string | null>(null)
+  const loading = ref(false)
+  const error = ref<string | null>(null)
   
   const settings = ref<UserSettings>({
     theme: 'dark',
@@ -30,7 +22,27 @@ export const useUserStore = defineStore('user', () => {
     emailNotifications: true
   })
 
-  const isAuthenticated = computed(() => user.value !== null)
+  // Восстановление токена и пользователя из localStorage при загрузке
+  const restoreSession = () => {
+    if (typeof window !== 'undefined') {
+      try {
+        const savedToken = localStorage.getItem('auth_token')
+        const savedUser = localStorage.getItem('user_data')
+        
+        // Проверяем что это не строка "undefined" и не null
+        if (savedToken && savedToken !== 'undefined' && savedUser && savedUser !== 'undefined') {
+          token.value = savedToken
+          user.value = JSON.parse(savedUser)
+        }
+      } catch (err) {
+        console.error('Failed to restore session:', err)
+        localStorage.removeItem('auth_token')
+        localStorage.removeItem('user_data')
+      }
+    }
+  }
+
+  const isAuthenticated = computed(() => token.value !== null && user.value !== null)
   const isDirector = computed(() => user.value?.role === 'director')
   const isManager = computed(() => user.value?.role === 'manager')
   const isStorekeeper = computed(() => user.value?.role === 'storekeeper')
@@ -38,38 +50,73 @@ export const useUserStore = defineStore('user', () => {
   const isAdminOrManager = computed(() => ['director', 'manager'].includes(user.value?.role || ''))
   const isWarehouseStaff = computed(() => ['director', 'manager', 'storekeeper'].includes(user.value?.role || ''))
 
-  const login = async (email: string, role: User['role']) => {
-    // В будущем тут будет API запрос
-    let userName = 'Пользователь'
-    if (role === 'director') userName = 'Александр Иванов'
-    else if (role === 'manager') userName = 'Сергей Петров'
-    else if (role === 'storekeeper') userName = 'Дмитрий Сидоров'
-    else if (role === 'worker') userName = 'Андрей Кузнецов'
-
-    user.value = {
-      id: role === 'director' ? 'user-4' : (role === 'worker' ? 'user-3' : Math.random().toString(36).substring(2, 9)),
-      email,
-      name: userName,
-      role,
-      department: role === 'director' ? 'Управление' : (role === 'storekeeper' ? 'Склад' : 'Производство'),
-      isActive: true,
-      permissions: role === 'director' ? ['all'] : [],
-      phone: '+7 (900) 000-00-00',
-      avatar: '',
-      createdAt: new Date()
+  // Логин с API
+  const login = async (login: string, password: string) => {
+    loading.value = true
+    error.value = null
+    
+    try {
+      const response = await fetch('http://localhost:8000/sklad/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ login, password })
+      }).then(r => r.json())
+      
+      token.value = response.token
+      user.value = response.user
+      
+      // Сохраняем в localStorage для восстановления сессии
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('auth_token', response.token)
+        localStorage.setItem('user_data', JSON.stringify(response.user))
+      }
+      
+      return true
+    } catch (err: any) {
+      error.value = err.data?.message || 'Ошибка логина'
+      return false
+    } finally {
+      loading.value = false
     }
-    localStorage.setItem('user', JSON.stringify(user.value))
   }
 
-  const logout = () => {
-    user.value = null
-    localStorage.removeItem('user')
+  // Логаут
+  const logout = async () => {
+    try {
+      await fetch('http://localhost:8000/sklad/api/logout', { method: 'POST' })
+    } catch (err) {
+      console.error('Logout error:', err)
+    } finally {
+      token.value = null
+      user.value = null
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('auth_token')
+        localStorage.removeItem('user_data')
+      }
+    }
   }
 
+  // Проверка аутентификации при загрузке приложения
   const checkAuth = () => {
-    const savedUser = localStorage.getItem('user')
-    if (savedUser) {
-      user.value = JSON.parse(savedUser)
+    restoreSession()
+  }
+
+  // Быстрая смена роли для разработки (удалить в продакшене)
+  const setUserForDev = (role: User['role']) => {
+    const names: Record<User['role'], string> = {
+      director: 'Александр',
+      manager: 'Сергей',
+      storekeeper: 'Дмитрий',
+      worker: 'Андрей'
+    }
+    user.value = {
+      id: 'dev-user',
+      name: names[role],
+      role,
+      email: 'dev@test.com',
+      isActive: true,
+      permissions: [],
+      createdAt: new Date()
     }
   }
 
@@ -100,6 +147,9 @@ export const useUserStore = defineStore('user', () => {
 
   return {
     user,
+    token,
+    loading,
+    error,
     settings,
     isAuthenticated,
     isDirector,
@@ -108,11 +158,13 @@ export const useUserStore = defineStore('user', () => {
     isWorker,
     isAdminOrManager,
     isWarehouseStaff,
-    setUser,
-    logout,
-    initDemoUser,
-    updateProfile,
+    restoreSession,
     login,
-    checkAuth
+    logout,
+    checkAuth,
+    setUserForDev,
+    initDemoUser,
+    setUser,
+    updateProfile
   }
 })

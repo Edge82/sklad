@@ -41,7 +41,13 @@ const router = useRouter()
 const userStore = useUserStore()
 const collapsed = ref(false)
 
-const currentRoute = computed(() => route.path)
+const currentRoute = computed(() => {
+  try {
+    return route?.path || '/'
+  } catch {
+    return '/'
+  }
+})
 
 const menuOptions = computed<MenuOption[]>(() => {
   const options: MenuOption[] = [
@@ -64,6 +70,11 @@ const menuOptions = computed<MenuOption[]>(() => {
       label: 'Заказы',
       key: '/orders',
       icon: renderIcon(DocumentTextOutline)
+    },
+    {
+      label: 'Заказы на перемещение',
+      key: '/transfer-orders',
+      icon: renderIcon(SyncOutline)
     },
     {
       label: 'Сканирование (QR)',
@@ -129,6 +140,10 @@ function renderIcon(icon: Component) {
 
 // Обработка выбора пункта меню
 const handleMenuSelect = (key: string) => {
-  router.push(key)
+  try {
+    router?.push(key).catch(() => {})
+  } catch (err) {
+    console.error('Navigation error:', err)
+  }
 }
 </script>

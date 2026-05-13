@@ -318,7 +318,8 @@ export interface InventoryItem {
   maxStock: number;
   reserved: number;
   available: number;
-  location: string; // стеллаж-полка-ячейка
+  location: string; // Склад/Физическое место хранения
+  storageBin?: string; // Место хранения/Полка-Ячейка
   dimensions?: string; // габариты
   weight?: number; // вес единицы
   storageConditions?: string;
