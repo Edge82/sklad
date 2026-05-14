@@ -10,7 +10,7 @@
               <div :class="['status-dot', integrationStore.status === 'connected' ? 'online' : 'offline']"></div>
               <n-text strong>{{ integrationStore.status === 'connected' ? 'Подключено к 1С' : 'Нет соединения' }}</n-text>
             </div>
-            <n-text depth="3">Последняя синхронизация: {{ integrationStore.lastSync.toLocaleString() }}</n-text>
+            <n-text depth="3">Последняя синхронизация: {{ integrationStore.lastSyncTime ? new Date(integrationStore.lastSyncTime).toLocaleString('ru-RU') : 'Никогда' }}</n-text>
             <n-button type="primary" @click="integrationStore.syncNow" :loading="syncing">
               Синхронизировать сейчас
             </n-button>

@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import type { RouteRecordRaw } from 'vue-router'
 
 // Import pages
+import Login from '@/pages/login.vue'
 import Inventory from '@/pages/inventory.vue'
 import Orders from '@/pages/orders.vue'
 import Scan from '@/pages/scan.vue'
@@ -15,6 +16,11 @@ import EmployeeDetails from '@/pages/employeedetails.vue'
 import TransferOrders from '@/pages/transferorders.vue'
 
 const routes: RouteRecordRaw[] = [
+  {
+    path: '/login',
+    component: Login,
+    meta: { title: 'Вход' }
+  },
   {
     path: '/',
     redirect: '/inventory'

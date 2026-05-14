@@ -77,7 +77,7 @@ const menuOptions = computed<MenuOption[]>(() => {
       icon: renderIcon(SyncOutline)
     },
     {
-      label: 'Сканирование (QR)',
+      label: 'Отгрузка',
       key: '/scan',
       icon: renderIcon(QrCodeOutline)
     }
@@ -112,15 +112,6 @@ const menuOptions = computed<MenuOption[]>(() => {
     key: '/shipment',
     icon: renderIcon(SyncOutline)
   })
-
-  // Интеграция видна всем кроме Рабочего
-  if (!userStore.isWorker) {
-    options.push({
-      label: 'Интеграция 1С',
-      key: '/integration',
-      icon: renderIcon(SyncOutline)
-    })
-  }
 
   // Отчеты видны только Менеджеру и Директору
   if (userStore.isAdminOrManager) {

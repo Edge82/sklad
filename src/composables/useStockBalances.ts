@@ -1119,6 +1119,84 @@ export function useStockBalances() {
     }
   }
 
+  async function syncTransferOrders() {
+    try {
+      const response = await fetch(`${API_BASE_URL}/sync/transfer-orders`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('auth_token') || ''}`
+        }
+      });
+
+      if (!response.ok) throw new Error('Failed to sync transfer orders');
+      return await response.json();
+    } catch (err) {
+      console.error('Error syncing transfer orders:', err);
+      throw err;
+    }
+  }
+
+  async function completeTransferOrderInOneC(orderId: string) {
+    try {
+      const response = await fetch(`${API_BASE_URL}/onec/transfer-orders/${orderId}/complete`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('auth_token') || ''}`
+        },
+        body: JSON.stringify({ statusName: 'Завершен' })
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(errorText || 'Failed to complete transfer order in 1C');
+      }
+
+      return await response.json();
+    } catch (err) {
+      console.error('Error completing transfer order in 1C:', err);
+      throw err;
+    }
+  }
+
+  async function loadTransferOrderScans(orderRefKey: string) {
+    try {
+      const response = await fetch(`${API_BASE_URL}/transfer-orders/${orderRefKey}/scans`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('auth_token') || ''}`
+        }
+      });
+
+      if (!response.ok) return {};
+      return await response.json();
+    } catch (err) {
+      console.error('Error loading transfer order scans:', err);
+      return {};
+    }
+  }
+
+  async function saveTransferOrderScans(orderRefKey: string, items: any[]) {
+    try {
+      const response = await fetch(`${API_BASE_URL}/transfer-orders/scans`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('auth_token') || ''}`
+        },
+        body: JSON.stringify({ orderRefKey, items })
+      });
+
+      if (!response.ok) throw new Error('Failed to save scans');
+      return await response.json();
+    } catch (err) {
+      console.error('Error saving transfer order scans:', err);
+      throw err;
+    }
+  }
+
   return {
     loading,
     error,
@@ -1150,6 +1228,10 @@ export function useStockBalances() {
     attachFileToNomenclature,
     createMaterialWithImage,
     fetchTransferOrders,
-    fetchTransferOrderDetails
+    fetchTransferOrderDetails,
+    syncTransferOrders,
+    completeTransferOrderInOneC,
+    loadTransferOrderScans,
+    saveTransferOrderScans
   };
 }

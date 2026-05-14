@@ -147,14 +147,13 @@
                 <n-button 
                   type="info" 
                   size="large"
-                  @click="handleGenerateAndPrint" 
-                  :disabled="!genForm.productId"
-                  :loading="isGenerating"
+                  @click="handlePrintLastOnly" 
+                  :disabled="lastGeneratedCodes.length === 0"
                 >
                   <template #icon>
                     <n-icon><PrintOutline /></n-icon>
                   </template>
-                  Распечатать код
+                  Распечатать коды
                 </n-button>
               </n-space>
             </div>
@@ -279,7 +278,7 @@ const displayProductId = computed({
     const item = props.items.find(i => (i.productId || i.id) === id)
     return item ? (item.productName || item.itemName) : id
   },
-  set: (val) => {
+  set: (val: string | null) => {
     genForm.value.productId = val
   }
 })
@@ -304,20 +303,30 @@ onMounted(() => {
   }
 })
 
-// При открытии модалки (props.show становится true) сбрасываем форму
-watch(() => props.show, (isShown) => {
+// При открытии модалки (props.show становится true) сбрасываем форму и загружаем коды
+watch(() => props.show, async (isShown) => {
   if (isShown) {
+    console.log(`🔓 [QR MODAL] Opening for order: ${props.orderId}`)
     genForm.value.productId = null
     genForm.value.productName = ''
     genForm.value.labelInfo = ''
     genForm.value.count = 1
     lastGeneratedCodes.value = []
 
+    // Загружаем существующие QR коды для этого заказа с сервера
+    try {
+      await qrStore.loadQRCodesForOrder(props.orderId)
+    } catch (err) {
+      // Error handled in store
+    }
+
     // Если в заказе всего одна позиция, выбираем её сразу
     if (props.items.length === 1) {
       const item = props.items[0]
-      genForm.value.productId = item.productId || item.id
-      genForm.value.productName = item.productName || item.itemName || ''
+      if (item) {
+        genForm.value.productId = item.productId || item.id || null
+        genForm.value.productName = item.productName || item.itemName || ''
+      }
     }
   }
 })
@@ -490,7 +499,10 @@ const handlePrintLastGenerated = async () => {
   if (codes.length === 0) return
 
   if (codes.length === 1) {
-    handlePrint(codes[0])
+    const code = codes[0]
+    if (code) {
+      await handlePrint(code)
+    }
     return
   }
 
@@ -555,8 +567,23 @@ const handlePrintLastGenerated = async () => {
   message.success(`Отправлено на печать: ${codes.length} шт.`)
 }
 
+// Печать последних сгенерированных кодов (без новой генерации)
+function handlePrintLastOnly() {
+  if (lastGeneratedCodes.value.length === 0) {
+    message.warning('Нет сгенерированных кодов для печати')
+    return
+  }
+  
+  if (lastGeneratedCodes.value.length === 1) {
+    handlePrint(lastGeneratedCodes.value[0])
+  } else {
+    handlePrintLastGenerated()
+  }
+}
+
 async function handleGenerateAndPrint() {
   if (!genForm.value.productId) return
+  if (isGenerating.value) return // Prevent double submission
   
   const item = props.items.find(i => (i.productId || i.id) === genForm.value.productId)
   if (!item) return
@@ -591,6 +618,7 @@ async function handleGenerateAndPrint() {
 
 async function handleGenerate() {
   if (!genForm.value.productId) return
+  if (isGenerating.value) return // Prevent double submission
   
   const item = props.items.find(i => (i.productId || i.id) === genForm.value.productId)
   if (!item) return

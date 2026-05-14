@@ -11,7 +11,7 @@ import http from 'http'
 import fs from 'fs'
 import Database from 'better-sqlite3'
 import jwt from 'jsonwebtoken'
-import { compareSync } from 'bcrypt'
+import { compareSync, hashSync } from 'bcrypt'
 
 const PORT = process.env.BACKEND_PORT || process.env.PORT || 8000
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-in-production'
@@ -38,6 +38,49 @@ function getBasicAuthHeader() {
   return 'Basic ' + Buffer.from(credentials).toString('base64')
 }
 
+// Функция логирования операций
+function logOperation(operationType, data) {
+  try {
+    const {
+      employeeId = null,
+      employeeName = null,
+      orderId = null,
+      orderNumber = null,
+      productId = null,
+      productName = null,
+      qrCodeId = null,
+      qrCode = null,
+      details = null,
+      status = 'success'
+    } = data
+
+    const stmt = db.prepare(`
+      INSERT INTO operation_logs (
+        operation_type, employee_id, employee_name, order_id, order_number,
+        product_id, product_name, qr_code_id, qr_code, details, status
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+
+    stmt.run(
+      operationType,
+      employeeId,
+      employeeName,
+      orderId,
+      orderNumber,
+      productId,
+      productName,
+      qrCodeId,
+      qrCode,
+      details ? JSON.stringify(details) : null,
+      status
+    )
+
+    console.log(`📝 [LOG] ${operationType} - ${employeeName || 'unknown'} - ${orderNumber || ''}`)
+  } catch (err) {
+    console.error('❌ Error logging operation:', err.message)
+  }
+}
+
 // Инициализируем БД
 const dataDir = '.data'
 if (!fs.existsSync(dataDir)) {
@@ -54,11 +97,11 @@ let unitsCache = new Map()
 async function loadUnitsCache() {
   try {
     const authHeader = getBasicAuthHeader()
-    
+
     // Первый вариант: загружаем из каталога ЕдиницыИзмерения
     console.log(`📡 Loading units cache from Catalog_ЕдиницыИзмерения...`)
     let url = `${ONEC_CONFIG.baseUrl.replace(/\/$/, '')}/Catalog_ЕдиницыИзмерения?$format=json&$select=Ref_Key,Description`
-    
+
     let response = await fetch(url, {
       headers: {
         'Authorization': authHeader,
@@ -66,7 +109,7 @@ async function loadUnitsCache() {
       },
       timeout: ONEC_CONFIG.timeout
     })
-    
+
     if (response.ok) {
       const data = await response.json()
       if (data.value && Array.isArray(data.value) && data.value.length > 0) {
@@ -80,11 +123,11 @@ async function loadUnitsCache() {
         return
       }
     }
-    
+
     // Второй вариант: загружаем из номенклатуры (если каталог пуст)
     console.log(`📡 Catalog_ЕдиницыИзмерения empty, extracting from Nomenclature...`)
     url = `${ONEC_CONFIG.baseUrl.replace(/\/$/, '')}/Catalog_Номенклатура?$format=json&$select=ЕдиницаИзмерения_Key`
-    
+
     response = await fetch(url, {
       headers: {
         'Authorization': authHeader,
@@ -92,7 +135,7 @@ async function loadUnitsCache() {
       },
       timeout: ONEC_CONFIG.timeout
     })
-    
+
     if (response.ok) {
       const data = await response.json()
       if (data.value && Array.isArray(data.value)) {
@@ -102,9 +145,9 @@ async function loadUnitsCache() {
             uniqueUnits.add(item.ЕдиницаИзмерения_Key)
           }
         })
-        
+
         console.log(`✅ Found ${uniqueUnits.size} unique units in Nomenclature`)
-        
+
         // Загружаем описания единиц
         for (const unitKey of uniqueUnits) {
           url = `${ONEC_CONFIG.baseUrl.replace(/\/$/, '')}/Catalog_ЕдиницыИзмерения(guid'${unitKey}')?$format=json&$select=Ref_Key,Description`
@@ -116,7 +159,7 @@ async function loadUnitsCache() {
               },
               timeout: 5000
             })
-            
+
             if (unitResponse.ok) {
               const unitData = await unitResponse.json()
               if (unitData.Description) {
@@ -124,18 +167,18 @@ async function loadUnitsCache() {
                 console.log(`   ✓ ${unitKey} = "${unitData.Description}"`)
               }
             }
-          } catch (err) {
+          } catch (_err) {
             // Пропускаем ошибки отдельных единиц
           }
         }
-        
+
         if (unitsCache.size > 0) {
           console.log(`✅ Loaded ${unitsCache.size} units total`)
           return
         }
       }
     }
-    
+
     throw new Error('Could not load units from any source')
   } catch (err) {
     console.error(`⚠️ Failed to load units cache: ${err.message}`)
@@ -287,26 +330,314 @@ db.exec(`
   )
 `)
 
+db.exec(`
+  CREATE TABLE IF NOT EXISTS transfer_orders (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ref_key TEXT UNIQUE,
+    order_number TEXT NOT NULL,
+    date TEXT,
+    source_warehouse_key TEXT,
+    source_warehouse_name TEXT,
+    destination_warehouse_key TEXT,
+    destination_warehouse_name TEXT,
+    customer_order_key TEXT,
+    customer_order_number TEXT,
+    posted INTEGER DEFAULT 0,
+    items TEXT DEFAULT '[]',
+    synced_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`)
+
+// Таблица для результатов сканирования заказов на перемещение
+db.exec(`
+  CREATE TABLE IF NOT EXISTS transfer_order_scans (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_ref_key TEXT NOT NULL,
+    item_barcode TEXT,
+    scanned_qty INTEGER DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(order_ref_key) REFERENCES transfer_orders(ref_key) ON DELETE CASCADE,
+    UNIQUE(order_ref_key, item_barcode)
+  )
+`)
+
+// Таблица QR кодов (глобально уникальные для всего приложения)
+db.exec(`
+  CREATE TABLE IF NOT EXISTS local_qr_codes (
+    id TEXT PRIMARY KEY,
+    code TEXT UNIQUE NOT NULL,
+    order_id TEXT NOT NULL,
+    order_number TEXT,
+    product_id TEXT NOT NULL,
+    product_name TEXT,
+    status TEXT DEFAULT 'generated',
+    label_order TEXT,
+    label_info TEXT,
+    scanned_at DATETIME,
+    scanned_by TEXT,
+    generated_at DATETIME NOT NULL,
+    generated_by TEXT NOT NULL,
+    version INTEGER DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(order_id) REFERENCES onec_orders(ref_key) ON DELETE CASCADE
+  )
+`)
+
+// Индексы для быстрого поиска QR кодов
+try {
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_qr_order ON local_qr_codes(order_id)`)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_qr_code ON local_qr_codes(code)`)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_qr_status ON local_qr_codes(status)`)
+} catch (e) { /* indexes might already exist */ }
+
+// Миграция: заполнить label_info и label_order у существующих кодов
+try {
+  const countNull = db.prepare('SELECT COUNT(*) as cnt FROM local_qr_codes WHERE label_info IS NULL OR label_order IS NULL').get()
+  if (countNull && countNull.cnt > 0) {
+    console.log(`📦 [DB MIGRATION] Updating ${countNull.cnt} QR codes with missing label data...`)
+    db.prepare(`
+      UPDATE local_qr_codes 
+      SET label_order = COALESCE(label_order, order_number, 'Unknown')
+      WHERE label_order IS NULL
+    `).run()
+    // For label_info, set to NULL if it equals product_name (old auto-fill logic)
+    db.prepare(`
+      UPDATE local_qr_codes 
+      SET label_info = NULL
+      WHERE label_info = product_name
+    `).run()
+    console.log(`✓ [DB MIGRATION] QR codes updated`)
+  }
+} catch (e) { 
+  console.error('Migration error:', e.message)
+}
+
+// Таблица логирования операций
+db.exec(`
+  CREATE TABLE IF NOT EXISTS operation_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    operation_type TEXT NOT NULL,
+    employee_id TEXT,
+    employee_name TEXT,
+    order_id TEXT,
+    order_number TEXT,
+    product_id TEXT,
+    product_name TEXT,
+    qr_code_id TEXT,
+    qr_code TEXT,
+    details TEXT,
+    status TEXT DEFAULT 'success',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(order_id) REFERENCES onec_orders(ref_key),
+    FOREIGN KEY(qr_code_id) REFERENCES local_qr_codes(id)
+  )
+`)
+
+// Индексы для быстрой фильтрации логов
+try {
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_log_employee ON operation_logs(employee_id)`)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_log_order ON operation_logs(order_id)`)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_log_operation ON operation_logs(operation_type)`)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_log_created ON operation_logs(created_at DESC)`)
+} catch (e) { /* indexes might already exist */ }
+
+// Добавляем новые колонки если их нет (миграция)
+try {
+  db.prepare('ALTER TABLE transfer_orders ADD COLUMN customer_order_key TEXT').run()
+  console.log('✓ Added customer_order_key column')
+} catch (e) { /* column already exists */ }
+
+try {
+  db.prepare('ALTER TABLE transfer_orders ADD COLUMN customer_order_number TEXT').run()
+  console.log('✓ Added customer_order_number column')
+} catch (e) { /* column already exists */ }
+
+try {
+  db.prepare('ALTER TABLE users ADD COLUMN needs_password_change INTEGER DEFAULT 1').run()
+  console.log('✓ Added needs_password_change column to users')
+} catch (e) { /* column already exists */ }
+
+// Миграция: обновляем старые plain-text пароли на bcrypt
+try {
+  const oldUsers = db.prepare('SELECT id, login, password_hash FROM users WHERE LENGTH(password_hash) < 30').all()
+  for (const user of oldUsers) {
+    // Если hash слишком короткий, это вероятно plain-text пароль
+    // Перехешируем его с bcrypt
+    const passwordHash = hashSync(user.password_hash, 10)
+    db.prepare('UPDATE users SET password_hash = ?, needs_password_change = 0 WHERE id = ?').run(passwordHash, user.id)
+    console.log(`✓ Migrated user password hash: ${user.login}`)
+  }
+} catch (err) {
+  console.error('Error migrating passwords:', err.message)
+}
+
 // Создаём тестовых пользователей если их нет
 const testUsers = [
-  { login: 'admin', fullName: 'Admin User', role: 'director' },
-  { login: 'manager', fullName: 'Manager User', role: 'manager' },
-  { login: 'storekeeper', fullName: 'Storekeeper User', role: 'storekeeper' },
-  { login: 'worker', fullName: 'Worker User', role: 'worker' }
+  { login: 'admin', password: 'admin', fullName: 'Admin User', role: 'director' },
+  { login: 'manager', password: 'manager', fullName: 'Manager User', role: 'manager' },
+  { login: 'storekeeper', password: 'storekeeper', fullName: 'Storekeeper User', role: 'storekeeper' },
+  { login: 'worker', password: 'worker', fullName: 'Worker User', role: 'worker' }
 ]
 
 for (const user of testUsers) {
   try {
-    const existing = db.prepare('SELECT id FROM users WHERE login = ?').get(user.login)
+    const existing = db.prepare('SELECT id, password_hash FROM users WHERE login = ?').get(user.login)
     if (!existing) {
-      // Для простоты храним пароль как есть (в реальном приложении нужен bcrypt)
-      db.prepare('INSERT INTO users (login, password_hash, full_name, role, is_active) VALUES (?, ?, ?, ?, 1)')
-        .run(user.login, user.login, user.fullName, user.role)
+      // Создаем новых пользователей с bcrypt хешем
+      const passwordHash = hashSync(user.password, 10)
+      db.prepare('INSERT INTO users (login, password_hash, full_name, role, is_active, needs_password_change) VALUES (?, ?, ?, ?, 1, 0)')
+        .run(user.login, passwordHash, user.fullName, user.role)
       console.log(`✓ Created user: ${user.login}`)
+    } else if (existing.password_hash === user.login) {
+      // Обновляем старых пользователей с plain text паролем на bcrypt
+      const passwordHash = hashSync(user.password, 10)
+      db.prepare('UPDATE users SET password_hash = ? WHERE login = ?')
+        .run(passwordHash, user.login)
+      console.log(`✓ Updated user password hash: ${user.login}`)
     }
   } catch (err) {
-    console.error(`Error creating user ${user.login}:`, err.message)
+    console.error(`Error creating/updating user ${user.login}:`, err.message)
   }
+}
+
+// Initialize employees table if it doesn't exist
+try {
+  const employeesTableExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='employees'").get()
+  if (!employeesTableExists) {
+    db.exec(`
+      CREATE TABLE employees (
+        id TEXT PRIMARY KEY,
+        user_id TEXT,
+        name TEXT NOT NULL,
+        email TEXT NOT NULL UNIQUE,
+        phone TEXT NOT NULL,
+        photo TEXT,
+        avatar TEXT,
+        position TEXT NOT NULL,
+        department TEXT NOT NULL,
+        role TEXT NOT NULL DEFAULT 'worker',
+        status TEXT NOT NULL DEFAULT 'active',
+        salary INTEGER DEFAULT 0,
+        hire_date TEXT NOT NULL,
+        birth_date TEXT,
+        address TEXT,
+        skills TEXT,
+        notes TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        created_by TEXT,
+        updated_by TEXT
+      )
+    `)
+    console.log('✓ Created employees table')
+  }
+} catch (err) {
+  console.error('Error initializing employees table:', err.message)
+}
+
+// Initialize tools table if it doesn't exist
+try {
+  const toolsTableExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='tools'").get()
+  if (!toolsTableExists) {
+    db.exec(`
+      CREATE TABLE tools (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        inventory_number TEXT NOT NULL UNIQUE,
+        serial_number TEXT,
+        type TEXT NOT NULL DEFAULT 'hand_tool',
+        model TEXT,
+        manufacturer TEXT,
+        status TEXT NOT NULL DEFAULT 'in_stock',
+        location TEXT,
+        price REAL DEFAULT 0,
+        qr_code TEXT,
+        issued_to TEXT,
+        issued_to_name TEXT,
+        issued_at TEXT,
+        breakdown_description TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        created_by TEXT
+      )
+    `)
+    console.log('✓ Created tools table')
+  }
+} catch (err) {
+  console.error('Error initializing tools table:', err.message)
+}
+
+// Initialize tool_breakdowns table if it doesn't exist
+try {
+  const breakdownsTableExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='tool_breakdowns'").get()
+  if (!breakdownsTableExists) {
+    db.exec(`
+      CREATE TABLE tool_breakdowns (
+        id TEXT PRIMARY KEY,
+        tool_id TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'reported',
+        description TEXT,
+        reported_by TEXT,
+        reported_at TEXT NOT NULL,
+        repair_status TEXT,
+        repair_notes TEXT,
+        completed_at TEXT,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY(tool_id) REFERENCES tools(id) ON DELETE CASCADE
+      )
+    `)
+    console.log('✓ Created tool_breakdowns table')
+  }
+} catch (err) {
+  console.error('Error initializing tool_breakdowns table:', err.message)
+}
+
+// Initialize material_invoices table if it doesn't exist
+try {
+  const invoicesTableExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='material_invoices'").get()
+  if (!invoicesTableExists) {
+    db.exec(`
+      CREATE TABLE material_invoices (
+        id TEXT PRIMARY KEY,
+        employee_id TEXT NOT NULL,
+        date TEXT NOT NULL,
+        order_number TEXT NOT NULL,
+        destination TEXT,
+        total_amount REAL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        created_by TEXT,
+        FOREIGN KEY(employee_id) REFERENCES employees(id) ON DELETE CASCADE
+      )
+    `)
+    console.log('✓ Created material_invoices table')
+  }
+} catch (err) {
+  console.error('Error initializing material_invoices table:', err.message)
+}
+
+// Initialize material_invoice_items table if it doesn't exist
+try {
+  const itemsTableExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='material_invoice_items'").get()
+  if (!itemsTableExists) {
+    db.exec(`
+      CREATE TABLE material_invoice_items (
+        id TEXT PRIMARY KEY,
+        invoice_id TEXT NOT NULL,
+        product_name TEXT NOT NULL,
+        quantity REAL NOT NULL,
+        unit TEXT NOT NULL,
+        article TEXT,
+        price REAL DEFAULT 0,
+        scanned_at TEXT,
+        FOREIGN KEY(invoice_id) REFERENCES material_invoices(id) ON DELETE CASCADE
+      )
+    `)
+    console.log('✓ Created material_invoice_items table')
+  }
+} catch (err) {
+  console.error('Error initializing material_invoice_items table:', err.message)
 }
 
 // In-memory cache для 1C данных
@@ -345,10 +676,7 @@ function writeSyncLog(message) {
 }
 
 // Функция для инициализации 1C данных в БД
-function initializeOnecData() {
-  // Таблицы уже созданы в CREATE TABLE IF NOT EXISTS блоках
-  console.log('✓ Initialized 1C data tables')
-}
+
 
 // Функция для загрузки кэша из БД
 // Функция для запроса к 1C OData (как в TypeScript сервисе)
@@ -434,12 +762,12 @@ async function fetch1CUnits() {
   // Если всё ещё ничего нет, извлекаем из номенклатуры как fallback
   if (!units || units.length === 0) {
     console.log('⚠️  No units from either catalog, extracting from Nomenclature...')
-    
+
     const nomenclature = await fetch1COData('Catalog_Номенклатура', {
       '$select': 'Ref_Key,ЕдиницаИзмерения_Key',
       '$top': '10000'
     })
-    
+
     if (nomenclature && nomenclature.length > 0) {
       const uniqueUoms = new Map()
       for (const nom of nomenclature) {
@@ -448,7 +776,7 @@ async function fetch1CUnits() {
           uniqueUoms.set(uomKey, { Ref_Key: uomKey, Description: '?' })
         }
       }
-      
+
       if (uniqueUoms.size > 0) {
         units = Array.from(uniqueUoms.values())
         console.log(`  ⚠️  Found ${units.length} unique units in Nomenclature`)
@@ -486,18 +814,6 @@ async function fetch1CCategories() {
     ref_key: cat.Ref_Key,
     description: cat.Description
   }))
-}
-
-async function fetch1CNomenclature() {
-  // Получаем весь каталог номенклатуры (материалы/товары)
-  const items = await fetch1COData('Catalog_Номенклатура', {
-    '$select': 'Ref_Key,Description,Артикул,ЕдиницаИзмерения_Key,КатегорияНоменклатуры_Key,DeletionMark',
-    '$filter': 'DeletionMark eq false',
-    '$top': '10000'
-  })
-
-  if (!items || items.length === 0) return null
-  return items
 }
 
 async function fetch1CWarehouses() {
@@ -544,11 +860,11 @@ async function fetch1CStocks() {
 
   // 1. Загружаем единицы измерения из каталога 1C
   let uomData = await fetch1COData('Catalog_ЕдиницыИзмерения', { '$select': 'Ref_Key,Description' })
-  
+
   // Если в 1C нет единиц, извлекаем уникальные GUID из номенклатуры
   if (!uomData || uomData.length === 0) {
     console.log('⚠️  No units from Catalog_ЕдиницыИзмерения, extracting from Nomenclature...')
-    
+
     // Собираем уникальные GUID единиц из номенклатуры
     const uniqueUoms = new Map()
     for (const nom of nomenclature) {
@@ -557,13 +873,13 @@ async function fetch1CStocks() {
         uniqueUoms.set(uomKey, { Ref_Key: uomKey, Description: '?' })
       }
     }
-    
+
     if (uniqueUoms.size > 0) {
       console.log(`  ⚠️  Found ${uniqueUoms.size} unique units in Nomenclature`)
       uomData = Array.from(uniqueUoms.values())
     }
   }
-  
+
   // Если всё ещё ничего нет, используем дефолтные с нашими GUID
   if (!uomData || uomData.length === 0) {
     console.log('⚠️  No units found anywhere, using default UOM mapping')
@@ -575,7 +891,7 @@ async function fetch1CStocks() {
       { Ref_Key: '00000000-0000-0000-0000-000000000005', Description: 'м²' }
     ]
   }
-  
+
   const uomMap = new Map()
   if (uomData) {
     for (const u of uomData) uomMap.set(u.Ref_Key, u.Description)
@@ -688,7 +1004,7 @@ async function fetch1CStocks() {
     const whKey = warehouseByNom.get(n.Ref_Key) || ''
     const whName = warehouseMap.get(whKey) || 'Основной склад'
     const price = priceMap.get(n.Ref_Key) || 0
-    
+
     // Если ЕдиницаИзмерения_Key из номенклатуры не в таблице, ищем соответствующий GUID по названию
     let unitKey = n.ЕдиницаИзмерения_Key || ''
     if (unitKey && !uomMap.has(unitKey)) {
@@ -744,14 +1060,14 @@ async function fetch1COrders() {
   for (const o of orders) {
     const orderId = o.Ref_Key
     let items = []
-    
+
     try {
       // Пытаемся получить позиции для заказа
       const selectFields = 'LineNumber,Номенклатура_Key,Номенклатура____Presentation,Номенклатура_Presentation,Количество,Цена,Сумма,ЕдиницаИзмерения_Key'
       const orderItems = await fetch1COData(`Document_ЗаказПокупателя(guid'${orderId}')/Запасы`, {
         '$select': selectFields
       })
-      
+
       if (orderItems && Array.isArray(orderItems)) {
         // Строим карту названий товаров - сначала из кэша, если нужно то из 1C
         const nomMap = new Map()
@@ -762,18 +1078,18 @@ async function fetch1COrders() {
             }
           })
         }
-        
+
         items = orderItems.map((item) => {
           const prodId = item.Номенклатура_Key || item.Номенклатура || ''
           let prodName = item.Номенклатура____Presentation || item.Номенклатура_Presentation || ''
-          
+
           // Если название пусто, ищем в кэше материалов
           if (!prodName && prodId) {
             prodName = nomMap.get(prodId) || 'Неизвестный товар'
           } else if (!prodName) {
             prodName = 'Неизвестный товар'
           }
-          
+
           return {
             id: item.LineNumber || `${orderId}-${Math.random()}`,
             orderId: orderId,
@@ -795,7 +1111,7 @@ async function fetch1COrders() {
     } catch (err) {
       console.warn(`⚠️ Could not load items for order ${orderId}:`, err.message)
     }
-    
+
     result.push({
       id: o.Ref_Key || o.Number,
       ref_key: o.Ref_Key,
@@ -808,8 +1124,54 @@ async function fetch1COrders() {
       items: items
     })
   }
-  
+
   return result
+}
+
+async function fetch1CTransferOrders() {
+  console.log('📦 Загружаем заказы на перемещение из 1C...')
+  try {
+    const baseUrl = ONEC_CONFIG.baseUrl.replace(/\/$/, '')
+    const url = `${baseUrl}/Document_ЗаказНаПеремещение?$format=json&$top=500&$select=Ref_Key,Number,Date,СтруктурнаяЕдиницаРезерв_Key,СтруктурнаяЕдиницаПолучатель_Key,Posted,ЗаказПокупателя_Key,СтруктурнаяЕдиницаРезерв____Presentation,СтруктурнаяЕдиницаПолучатель____Presentation,ЗаказПокупателя____Presentation&$orderby=Date desc`
+
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 30000)
+
+    const response = await fetch(url, {
+      headers: {
+        'Authorization': getBasicAuthHeader(),
+        'Content-Type': 'application/json'
+      },
+      signal: controller.signal
+    })
+
+    clearTimeout(timeoutId)
+
+    if (!response.ok) {
+      console.warn(`⚠️ 1C error fetching transfer orders: ${response.status}`)
+      return []
+    }
+
+    const data = await response.json()
+    const orders = (data.value || []).map(order => ({
+      ref_key: order.Ref_Key,
+      order_number: order.Number,
+      date: order.Date,
+      source_warehouse_key: order.СтруктурнаяЕдиницаРезерв_Key,
+      source_warehouse_name: order.СтруктурнаяЕдиницаРезерв____Presentation || 'Unknown',
+      destination_warehouse_key: order.СтруктурнаяЕдиницаПолучатель_Key,
+      destination_warehouse_name: order.СтруктурнаяЕдиницаПолучатель____Presentation || 'Unknown',
+      customer_order_key: order.ЗаказПокупателя_Key || '',
+      customer_order_number: order.ЗаказПокупателя____Presentation || '',
+      posted: order.Posted ? 1 : 0
+    }))
+
+    console.log(`  ✓ Transfer orders: ${orders.length} загружено`)
+    return orders
+  } catch (err) {
+    console.warn('⚠️ Error fetching transfer orders:', err.message)
+    return []
+  }
 }
 
 function loadCacheFromDB() {
@@ -817,13 +1179,13 @@ function loadCacheFromDB() {
     cache.units = db.prepare('SELECT ref_key, description FROM onec_units').all()
     cache.warehouses = db.prepare('SELECT ref_key, description FROM onec_warehouses').all()
     cache.categories = db.prepare('SELECT ref_key, description FROM onec_categories').all()
-    
+
     // Создаём карту для преобразования unit_key -> unit название
     const unitsMap = new Map()
     cache.units.forEach(u => {
       unitsMap.set(u.ref_key, u.description)
     })
-    
+
     cache.stocks = db.prepare(`
       SELECT
         id, ref_key, name, sku, product, warehouse, location,
@@ -856,7 +1218,6 @@ function loadCacheFromDB() {
 
 // Инициализируем и загружаем данные
 loadCacheFromDB()
-initializeOnecData()
 
 // Вспомогательная функция для отправки JSON
 function sendJSON(res, statusCode, data) {
@@ -865,7 +1226,7 @@ function sendJSON(res, statusCode, data) {
 }
 
 // Вспомогательная функция для чтения body
-function readBody(req) {
+function _readBody(req) {
   return new Promise((resolve, reject) => {
     let body = ''
     req.on('data', chunk => { body += chunk })
@@ -1072,8 +1433,8 @@ function syncStocksIncremental(stocks) {
   if (!stocks || stocks.length === 0) return stats
 
   const ref_keysIn1C = new Set(stocks.map(s => s.ref_key))
-  const existing = db.prepare('SELECT ref_key FROM onec_stocks').all()
-  const existingMap = new Map(existing.map(s => [s.ref_key, s]))
+  const _existing = db.prepare('SELECT ref_key FROM onec_stocks').all()
+  const existingMap = new Map(_existing.map(s => [s.ref_key, s]))
 
   for (const stock of stocks) {
     if (existingMap.has(stock.ref_key)) {
@@ -1115,7 +1476,7 @@ function syncStocksIncremental(stocks) {
           // Если unit существует, это не GUID и это не '?', используем его
           unitValue = stock.unit
         }
-        
+
         db.prepare(`INSERT INTO onec_stocks
           (ref_key, name, sku, product, warehouse, location, quantity, current_stock, unit, unit_key, category, status, reserved, purchasePrice, averagePrice, reservesByOrder)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
@@ -1166,19 +1527,82 @@ function transformOrderStatus(status1C) {
     'Отгружен': 'shipped',
     'Отменен': 'cancelled'
   }
-  
+
   // Если статус есть в маппинге, используем маппированное значение
   if (statusMap[status1C]) {
     return statusMap[status1C]
   }
-  
+
   // Если статус уже в английском формате, возвращаем как есть
   if (['new', 'processing', 'printing', 'in_progress', 'partially_ready', 'ready', 'partially_shipped', 'shipped', 'completed', 'cancelled'].includes(status1C)) {
     return status1C
   }
-  
+
   // По умолчанию считаем, что это "in_progress"
   return 'in_progress'
+}
+
+function syncTransferOrdersIncremental(orders) {
+  const stats = { added: 0, updated: 0, deleted: 0 }
+  if (!orders || orders.length === 0) return stats
+
+  const idsIn1C = new Set(orders.map(o => o.ref_key))
+  const existing = db.prepare('SELECT ref_key FROM transfer_orders').all()
+  const existingMap = new Map(existing.map(o => [o.ref_key, o]))
+
+  for (const order of orders) {
+    const ref_key = order.ref_key
+
+    if (existingMap.has(ref_key)) {
+      db.prepare(`UPDATE transfer_orders SET
+        order_number = ?, date = ?, source_warehouse_key = ?, source_warehouse_name = ?,
+        destination_warehouse_key = ?, destination_warehouse_name = ?, customer_order_key = ?,
+        customer_order_number = ?, posted = ?
+        WHERE ref_key = ?`)
+        .run(
+          order.order_number,
+          order.date,
+          order.source_warehouse_key,
+          order.source_warehouse_name,
+          order.destination_warehouse_key,
+          order.destination_warehouse_name,
+          order.customer_order_key,
+          order.customer_order_number,
+          order.posted,
+          ref_key
+        )
+      stats.updated++
+    } else {
+      try {
+        db.prepare(`INSERT INTO transfer_orders (ref_key, order_number, date, source_warehouse_key,
+          source_warehouse_name, destination_warehouse_key, destination_warehouse_name, customer_order_key,
+          customer_order_number, posted)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+          .run(
+            ref_key,
+            order.order_number,
+            order.date,
+            order.source_warehouse_key,
+            order.source_warehouse_name,
+            order.destination_warehouse_key,
+            order.destination_warehouse_name,
+            order.customer_order_key,
+            order.customer_order_number,
+            order.posted
+          )
+        stats.added++
+      } catch (e) { /* ignore duplicates */ }
+    }
+  }
+
+  for (const [ref_key] of existingMap) {
+    if (!idsIn1C.has(ref_key)) {
+      db.prepare('DELETE FROM transfer_orders WHERE ref_key = ?').run(ref_key)
+      stats.deleted++
+    }
+  }
+
+  return stats
 }
 
 function syncOrdersIncremental(orders) {
@@ -1193,7 +1617,7 @@ function syncOrdersIncremental(orders) {
     const ref_key = order.id || order.order_number
     const itemsJson = order.items ? JSON.stringify(order.items) : '[]'
     const transformedStatus = transformOrderStatus(order.status)
-    
+
     if (existingMap.has(ref_key)) {
       db.prepare(`UPDATE onec_orders SET
         order_number = ?, date = ?, customer = ?, status = ?, amount = ?, items_count = ?, items = ?
@@ -1258,21 +1682,25 @@ async function syncWith1C() {
     const categories1C = await fetch1CCategories()
     const warehouses1C = await fetch1CWarehouses()
     const stocks1C = await fetch1CStocks()
-    
+
     // Заполняем cache для использования в fetch1COrders
     if (stocks1C && stocks1C.length > 0) {
       cache.stocks = stocks1C
     }
-    
+
     // Теперь загружаем заказы которые используют cache.stocks для разрешения названий товаров
     const orders1C = await fetch1COrders()
+
+    // Загружаем заказы на перемещение
+    const transferOrders1C = await fetch1CTransferOrders()
 
     // Если хотя бы что-то получили, используем реальные данные
     let use1CData = false
     if ((units1C && units1C.length > 0) ||
         (warehouses1C && warehouses1C.length > 0) ||
         (stocks1C && stocks1C.length > 0) ||
-        (orders1C && orders1C.length > 0)) {
+        (orders1C && orders1C.length > 0) ||
+        (transferOrders1C && transferOrders1C.length > 0)) {
       use1CData = true
     }
 
@@ -1282,7 +1710,7 @@ async function syncWith1C() {
       writeSyncLog(msg)
       syncLog.usedFallback = true
       lastSyncTime.connectionStatus = 'unavailable'
-      
+
       // Не синхронизируем, просто выводим ошибку
       return syncLog
     }
@@ -1339,6 +1767,11 @@ async function syncWith1C() {
     syncLog.results.orders = { status: 'success', count: orders1C.length, ...orderStats }
     console.log(`✓ Orders: +${orderStats.added} ~${orderStats.updated} -${orderStats.deleted}`)
     lastSyncTime.lastSyncByType.orders = new Date().toISOString()
+
+    const transferOrderStats = syncTransferOrdersIncremental(transferOrders1C)
+    syncLog.results.transfer_orders = { status: 'success', count: transferOrders1C.length, ...transferOrderStats }
+    console.log(`✓ Transfer Orders: +${transferOrderStats.added} ~${transferOrderStats.updated} -${transferOrderStats.deleted}`)
+    lastSyncTime.lastSyncByType.transfer_orders = new Date().toISOString()
 
     // Перезагружаем кэш
     loadCacheFromDB()
@@ -1425,7 +1858,8 @@ const server = http.createServer(async (req, res) => {
             role: user.role,
             isActive: user.is_active === 1,
             permissions: [],
-            createdAt: new Date(user.created_at)
+            createdAt: new Date(user.created_at),
+            needsPasswordChange: user.needs_password_change === 1
           }
         }))
       } catch (err) {
@@ -1434,6 +1868,15 @@ const server = http.createServer(async (req, res) => {
       }
     })
     return
+  }
+
+  // Auth Logout
+  if (pathname === '/sklad/api/auth/logout' || pathname === '/sklad/api/logout') {
+    if (req.method === 'POST' || req.method === 'GET') {
+      res.writeHead(200)
+      res.end(JSON.stringify({ success: true, message: 'Logged out successfully' }))
+      return
+    }
   }
 
   // Test endpoint
@@ -1535,20 +1978,20 @@ const server = http.createServer(async (req, res) => {
     // Это гарантирует что всегда возвращаются актуальные данные
     try {
       const allStocks = db.prepare('SELECT * FROM onec_stocks').all()
-      
+
       // Создаем map для трансформации unit_key в unit описание
       const unitsMap = new Map()
       cache.units?.forEach(u => {
         unitsMap.set(u.ref_key, u.description)
       })
-      
+
       // Обогащаем stocks данными unitId, categoryId и warehouseId из cache
       const enrichedStocks = allStocks.map(stock => {
         // Ищем категорию по названию в кэше (description а не name!)
         const category = cache.categories?.find(c => c.description === stock.category)
         // Ищем склад по названию в кэше
         const warehouseRecord = cache.warehouses?.find(w => w.description === stock.warehouse)
-        
+
         // Парсим JSON поля из БД
         let reservesByOrder = {}
         try {
@@ -1561,7 +2004,7 @@ const server = http.createServer(async (req, res) => {
           console.warn(`Failed to parse reservesByOrder for ${stock.name}:`, e)
           reservesByOrder = {}
         }
-        
+
         // Преобразуем unit_key в unit описание
         let unitName = 'шт'  // Default unit
         if (stock.unit_key && unitsMap.has(stock.unit_key)) {
@@ -1571,7 +2014,7 @@ const server = http.createServer(async (req, res) => {
           // Если unit существует и это не '?' (неизвестная единица), используем его
           unitName = stock.unit
         }
-        
+
         return {
           ...stock,
           reservesByOrder,  // Вернуть спарсенный объект вместо строки
@@ -1599,52 +2042,70 @@ const server = http.createServer(async (req, res) => {
   // Transfer Orders endpoints
   if (pathname === '/sklad/api/onec/transfer-orders' && req.method === 'GET') {
     try {
-      // Fetch ЗаказНаПеремещение from 1C (без expand - используем значения из БД или кэша)
+      // Возвращаем заказы на перемещение из локальной БД
+      const orders = db.prepare('SELECT * FROM transfer_orders ORDER BY date DESC').all()
       const baseUrl = ONEC_CONFIG.baseUrl.replace(/\/$/, '')
-      const url = `${baseUrl}/Document_ЗаказНаПеремещение?$format=json&$top=500&$select=Ref_Key,Number,Date,СтруктурнаяЕдиницаРезерв_Key,СтруктурнаяЕдиницаПолучатель_Key,Posted,СтруктурнаяЕдиницаРезерв____Presentation,СтруктурнаяЕдиницаПолучатель____Presentation&$orderby=Date desc`
       
-      const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 30000)
-      
-      const response = await fetch(url, {
-        headers: {
-          'Authorization': getBasicAuthHeader(),
-          'Content-Type': 'application/json'
-        },
-        signal: controller.signal
-      })
-      
-      clearTimeout(timeoutId)
-      
-      if (!response.ok) {
-        throw new Error(`1C API error: ${response.status}`)
-      }
-      
-      const data = await response.json()
-      const orders = (data.value || []).map(order => {
-        // Получаем имена складов из 1C (Presentation) или из БД
-        const sourceKey = order.СтруктурнаяЕдиницаРезерв_Key
-        const destKey = order.СтруктурнаяЕдиницаПолучатель_Key
+      const result = orders.map(async (order) => {
+        let statusDescription = 'В работе' // default
+        let statusKey = ''
         
-        const sourceWarehouse = cache.warehouses?.find(w => w.ref_key === sourceKey)
-        const destWarehouse = cache.warehouses?.find(w => w.ref_key === destKey)
+        // Пытаемся получить статус из 1C
+        try {
+          const url = `${baseUrl}/Document_ЗаказНаПеремещение(guid'${order.ref_key}')?$format=json&$select=СостояниеЗаказа_Key,СостояниеЗаказа____Presentation`
+          const response = await fetch(url, {
+            headers: {
+              'Authorization': getBasicAuthHeader(),
+              'Content-Type': 'application/json'
+            }
+          })
+          
+          if (response.ok) {
+            const orderData = await response.json()
+            statusKey = orderData.СостояниеЗаказа_Key || ''
+            
+            if (orderData.СостояниеЗаказа____Presentation) {
+              statusDescription = orderData.СостояниеЗаказа____Presentation
+            } else if (statusKey) {
+              // Fetch status description from catalog
+              const statusUrl = `${baseUrl}/Catalog_СостоянияЗаказовНаПеремещение(guid'${statusKey}')?$format=json&$select=Description`
+              const statusResponse = await fetch(statusUrl, {
+                headers: {
+                  'Authorization': getBasicAuthHeader(),
+                  'Content-Type': 'application/json'
+                }
+              })
+              if (statusResponse.ok) {
+                const statusData = await statusResponse.json()
+                statusDescription = statusData.Description || 'В работе'
+              }
+            }
+          }
+        } catch (err) {
+          console.warn(`⚠️ Error fetching status for order ${order.ref_key}:`, err.message)
+        }
         
         return {
-          Ref_Key: order.Ref_Key,
-          Number: order.Number,
-          Date: order.Date,
-          sourceWarehouseKey: sourceKey,
-          sourceWarehouseName: order.СтруктурнаяЕдиницаРезерв____Presentation || sourceWarehouse?.description || 'Unknown',
-          destinationWarehouseKey: destKey,
-          destinationWarehouseName: order.СтруктурнаяЕдиницаПолучатель____Presentation || destWarehouse?.description || 'Unknown',
-          Posted: order.Posted,
-          itemCount: 0
+          Ref_Key: order.ref_key,
+          Number: order.order_number,
+          Date: order.date,
+          sourceWarehouseKey: order.source_warehouse_key,
+          sourceWarehouseName: order.source_warehouse_name,
+          destinationWarehouseKey: order.destination_warehouse_key,
+          destinationWarehouseName: order.destination_warehouse_name,
+          customerOrderKey: order.customer_order_key,
+          customerOrderNumber: order.customer_order_number,
+          Posted: order.posted === 1,
+          statusKey: statusKey,
+          statusDescription: statusDescription
         }
       })
-      
-      sendJSON(res, 200, { value: orders })
+
+      // Wait for all status fetches to complete
+      const resolvedResult = await Promise.all(result)
+      sendJSON(res, 200, { value: resolvedResult })
     } catch (err) {
-      console.error('Error fetching transfer orders:', err)
+      console.error('Error fetching transfer orders from DB:', err)
       sendJSON(res, 500, { error: 'Failed to fetch transfer orders' })
     }
     return
@@ -1655,15 +2116,15 @@ const server = http.createServer(async (req, res) => {
     try {
       const orderId = pathname.split('/').pop()
       const baseUrl = ONEC_CONFIG.baseUrl.replace(/\/$/, '')
-      
+
       console.log(`\n📡 [Transfer Order Details] Fetching for ID: ${orderId}`)
-      
+
       // Вариант 1: без expand (более надёжный)
       let url = `${baseUrl}/Document_ЗаказНаПеремещение(guid'${orderId}')?$format=json`
-      
+
       const controller = new AbortController()
       const timeoutId = setTimeout(() => controller.abort(), 30000)
-      
+
       const response = await fetch(url, {
         headers: {
           'Authorization': getBasicAuthHeader(),
@@ -1671,18 +2132,18 @@ const server = http.createServer(async (req, res) => {
         },
         signal: controller.signal
       })
-      
+
       clearTimeout(timeoutId)
-      
+
       if (!response.ok) {
         const errorText = await response.text()
         console.error(`❌ 1C API error: ${response.status}`, errorText.substring(0, 200))
         throw new Error(`1C API error: ${response.status}`)
       }
-      
+
       const order = await response.json()
       console.log(`✓ Got order: ${order.Number}`)
-      
+
       // Теперь получаем Запасы отдельным запросом
       let items = []
       try {
@@ -1693,7 +2154,7 @@ const server = http.createServer(async (req, res) => {
             'Content-Type': 'application/json'
           }
         })
-        
+
         if (itemsResponse.ok) {
           const itemsData = await itemsResponse.json()
           console.log(`✓ Got ${itemsData.value?.length || 0} items`)
@@ -1707,7 +2168,7 @@ const server = http.createServer(async (req, res) => {
       } catch (err) {
         console.warn(`⚠️ Error fetching items:`, err.message)
       }
-      
+
       // Строим карту названий товаров из кэша
       const nomMap = new Map()
       if (cache.stocks && cache.stocks.length > 0) {
@@ -1717,20 +2178,49 @@ const server = http.createServer(async (req, res) => {
           }
         })
       }
-      
+
       // Получаем имена складов из кэша
       const sourceKey = order.СтруктурнаяЕдиницаРезерв_Key
       const destKey = order.СтруктурнаяЕдиницаПолучатель_Key
-      
+
       const sourceWarehouse = cache.warehouses?.find(w => w.ref_key === sourceKey)
       const destWarehouse = cache.warehouses?.find(w => w.ref_key === destKey)
-      
+
+      // Get status name from catalog if statusKey is present
+      let statusDescription = 'В работе' // default status
+      if (order.СостояниеЗаказа_Key) {
+        try {
+          const statusKey = order.СостояниеЗаказа_Key
+          // Try using the presentation field first if available
+          if (order.СостояниеЗаказа____Presentation) {
+            statusDescription = order.СостояниеЗаказа____Presentation
+          } else {
+            // Fetch status from catalog
+            const statusUrl = `${baseUrl}/Catalog_СостоянияЗаказовНаПеремещение(guid'${statusKey}')?$format=json&$select=Description`
+            const statusResponse = await fetch(statusUrl, {
+              headers: {
+                'Authorization': getBasicAuthHeader(),
+                'Content-Type': 'application/json'
+              }
+            })
+            if (statusResponse.ok) {
+              const statusData = await statusResponse.json()
+              statusDescription = statusData.Description || 'В работе'
+            }
+          }
+        } catch (err) {
+          console.warn(`⚠️ Error fetching status:`, err.message)
+        }
+      }
+
       // Format the response
       const result = {
         Ref_Key: order.Ref_Key,
         Number: order.Number,
         Date: order.Date,
         Posted: order.Posted,
+        statusKey: order.СостояниеЗаказа_Key || '',
+        statusDescription: statusDescription,
         sourceWarehouseKey: sourceKey,
         destinationWarehouseKey: destKey,
         sourceWarehouseName: order.СтруктурнаяЕдиницаРезерв____Presentation || sourceWarehouse?.description || 'Unknown',
@@ -1740,21 +2230,21 @@ const server = http.createServer(async (req, res) => {
           if (idx === 0) {
             console.log(`📦 SAMPLE ITEM FROM 1C:`, JSON.stringify(item, null, 2))
           }
-          
+
           const prodId = item.Номенклатура_Key || ''
           let prodName = nomMap.get(prodId) || 'Неизвестный товар'
-          
+
           let stock = null
           try {
             stock = db.prepare('SELECT barcode, storageBin FROM onec_stocks WHERE ref_key = ?').get(prodId)
           } catch (err) {
             console.warn(`⚠️ DB error for ${prodId}:`, err.message)
           }
-          
+
           if (idx === 0 && stock) {
             console.log(`📦 STOCK FROM DB:`, JSON.stringify(stock, null, 2))
           }
-          
+
           return {
             LineNumber: item.LineNumber || idx + 1,
             Номенклатура_Key: prodId,
@@ -1766,13 +2256,159 @@ const server = http.createServer(async (req, res) => {
           }
         })
       }
-      
+
       console.log(`✓ Response ready with ${result.items.length} items`)
       sendJSON(res, 200, result)
     } catch (err) {
       console.error('❌ Error fetching transfer order details:', err.message)
       sendJSON(res, 500, { error: 'Failed to fetch transfer order details', details: err.message })
     }
+    return
+  }
+
+  // Завершить заказ на перемещение в 1C и очистить локальные сканы
+  if (pathname.match(/^\/sklad\/api\/onec\/transfer-orders\/[a-f0-9\-]+\/complete$/) && req.method === 'POST') {
+    let body = ''
+    req.on('data', chunk => {
+      body += chunk.toString()
+    })
+
+    req.on('end', async () => {
+      try {
+        const match = pathname.match(/^\/sklad\/api\/onec\/transfer-orders\/([a-f0-9\-]+)\/complete$/)
+        const orderId = match?.[1]
+
+        if (!orderId) {
+          sendJSON(res, 400, { error: 'Order ID is required' })
+          return
+        }
+
+        const data = body ? JSON.parse(body) : {}
+        const targetStatusName = String(data.statusName || 'Завершен').trim()
+        const authHeader = getBasicAuthHeader()
+        const baseUrl = ONEC_CONFIG.baseUrl.replace(/\/$/, '')
+        
+        console.log(`\n🔄 Обновляем заказ на перемещение ${orderId} - статус: "${targetStatusName}"`)
+
+        // Для ЗаказНаПеремещение используем специальный справочник СостоянияЗаказовНаПеремещение
+        const statusCatalog = 'Catalog_СостоянияЗаказовНаПеремещение'
+        let statusKey = ''
+
+        try {
+          // Получаем все доступные статусы из справочника
+          const catalogUrl = `${baseUrl}/${statusCatalog}?$format=json&$select=Ref_Key,Description`
+          console.log(`  Ищем статус "${targetStatusName}" в ${statusCatalog}...`)
+          
+          const catalogResponse = await fetch(catalogUrl, {
+            headers: {
+              'Authorization': authHeader,
+              'Accept': 'application/json'
+            }
+          })
+
+          if (!catalogResponse.ok) {
+            console.log(`  ✗ Справочник недоступен: ${catalogResponse.status}`)
+            throw new Error(`Failed to fetch status catalog: ${catalogResponse.status}`)
+          }
+
+          const catalogData = await catalogResponse.json()
+          const statusItems = catalogData.value || []
+          
+          console.log(`  📦 Найдено статусов: ${statusItems.length}`)
+          statusItems.forEach(item => {
+            console.log(`     - "${item.Description}" (${item.Ref_Key})`)
+          })
+          
+          // Ищем статус по описанию - точное совпадение в начале
+          let foundStatus = statusItems.find(item => {
+            const desc = String(item.Description || '').trim()
+            return desc === targetStatusName
+          })
+
+          // Если точный поиск не сработал, ищем "Завершен"
+          if (!foundStatus) {
+            foundStatus = statusItems.find(item => {
+              const desc = String(item.Description || '').trim()
+              return desc === 'Завершен' || desc.startsWith('Завершен')
+            })
+          }
+
+          // Если всё ещё не нашли, ищем частичное совпадение
+          if (!foundStatus && targetStatusName.toLowerCase().includes('завершен')) {
+            foundStatus = statusItems.find(item => {
+              const desc = String(item.Description || '').trim().toLowerCase()
+              return desc.includes('завершен')
+            })
+          }
+
+          if (foundStatus?.Ref_Key) {
+            statusKey = foundStatus.Ref_Key
+            console.log(`  ✓ Найден статус: "${foundStatus.Description}" (${statusKey})`)
+          } else {
+            // Если точный поиск не сработал, берем первый (это обычно текущий статус)
+            // и пробуем второй (обычно это "Завершен")
+            if (statusItems.length > 1) {
+              statusKey = statusItems[1].Ref_Key
+              console.log(`  ⚠️ Точный поиск не дал результатов, используем: "${statusItems[1].Description}"`)
+            } else if (statusItems.length === 1) {
+              statusKey = statusItems[0].Ref_Key
+              console.log(`  ⚠️ Только один статус доступен: "${statusItems[0].Description}"`)
+            } else {
+              throw new Error('No statuses found in catalog')
+            }
+          }
+        } catch (err) {
+          console.log(`  ✗ Ошибка при поиске статуса: ${err.message}`)
+          throw err
+        }
+
+        // Теперь обновляем документ
+        let updated = false
+        try {
+          const transferUrl = `${baseUrl}/Document_ЗаказНаПеремещение(guid'${orderId}')`
+          console.log(`  Попытка обновить документ с новым статусом...`)
+          
+          const response = await fetch(transferUrl, {
+            method: 'PATCH',
+            headers: {
+              'Authorization': authHeader,
+              'Content-Type': 'application/json',
+              'Accept': 'application/json'
+            },
+            body: JSON.stringify({ СостояниеЗаказа_Key: statusKey })
+          })
+
+          if (response.ok) {
+            updated = true
+            console.log(`  ✓ Статус успешно обновлен в 1С`)
+          } else {
+            const errorText = await response.text()
+            console.log(`  ✗ Ошибка при обновлении: HTTP ${response.status}`)
+            console.log(`     ${errorText.substring(0, 300)}`)
+            // Не бросаем ошибку - продолжаем с удалением локальных данных
+          }
+        } catch (err) {
+          console.log(`  ✗ Exception при обновлении: ${err.message}`)
+        }
+
+        // Удаляем локальные данные сканирования в любом случае
+        const deletedScans = db.prepare('DELETE FROM transfer_order_scans WHERE order_ref_key = ?').run(orderId)
+        
+        console.log(`  ✓ Удалены ${deletedScans.changes || 0} локальных записей сканирования`)
+
+        sendJSON(res, 200, {
+          success: true,
+          orderId,
+          statusName: targetStatusName,
+          statusKey,
+          deletedScans: deletedScans.changes || 0,
+          updated
+        })
+      } catch (err) {
+        console.error('❌ Error completing transfer order:', err)
+        sendJSON(res, 500, { error: err.message || 'Failed to complete transfer order' })
+      }
+    })
     return
   }
 
@@ -1786,27 +2422,27 @@ const server = http.createServer(async (req, res) => {
       try {
         const data = JSON.parse(body)
         const { orderId, painting } = data
-        
+
         if (!orderId) {
           sendJSON(res, 400, { error: 'Order ID is required' })
           return
         }
-        
+
         // Обновляем в БД
         const stmt = db.prepare('UPDATE onec_orders SET painting = ? WHERE ref_key = ?')
         const result = stmt.run(painting || '', orderId)
-        
+
         if (result.changes === 0) {
           sendJSON(res, 404, { error: 'Order not found' })
           return
         }
-        
+
         // Обновляем кэш
         const order = cache.orders.find(o => o.id === orderId)
         if (order) {
           order.notes = painting || ''
         }
-        
+
         sendJSON(res, 200, { success: true, painting })
       } catch (err) {
         console.error('Error updating painting:', err)
@@ -1847,8 +2483,8 @@ const server = http.createServer(async (req, res) => {
           console.log(`✓ Created new stock record for ${nomenclatureKey}`)
         }
 
-        sendJSON(res, 200, { 
-          success: true, 
+        sendJSON(res, 200, {
+          success: true,
           message: 'Local fields saved',
           nomenclatureKey,
           saved: { barcode, storageBin }
@@ -1868,11 +2504,11 @@ const server = http.createServer(async (req, res) => {
     req.on('end', async () => {
       try {
         const data = JSON.parse(body)
-        
+
         console.log('\n=== CREATING NOMENCLATURE ===')
         console.log('📦 Received data from frontend:')
         console.log(JSON.stringify(data, null, 2))
-        
+
         // Логирование каждого поля
         console.log(`  name: "${data.name}"`)
         console.log(`  sku: "${data.sku}"`)
@@ -1935,9 +2571,9 @@ const server = http.createServer(async (req, res) => {
         if (!response.ok) {
           const errorText = await response.text()
           console.error(`❌ [1C] HTTP ${response.status}: ${errorText.substring(0, 300)}`)
-          sendJSON(res, 400, { 
-            success: false, 
-            error: `Failed to create in 1C: ${response.status}` 
+          sendJSON(res, 400, {
+            success: false,
+            error: `Failed to create in 1C: ${response.status}`
           })
           return
         }
@@ -1991,7 +2627,7 @@ const server = http.createServer(async (req, res) => {
       const orderStats = syncOrdersIncremental(orders1C)
       loadCacheFromDB()
       lastSyncTime.lastSyncByType.orders = new Date().toISOString()
-      
+
       sendJSON(res, 200, {
         status: 'synced',
         type: 'orders',
@@ -2020,13 +2656,85 @@ const server = http.createServer(async (req, res) => {
       const stockStats = syncStocksIncremental(stocksWithReserves)
       loadCacheFromDB()
       lastSyncTime.lastSyncByType.stocks = new Date().toISOString()
-      
+
       sendJSON(res, 200, {
         status: 'synced',
         type: 'stocks',
         timestamp: lastSyncTime.lastSyncByType.stocks,
         results: stockStats
       })
+    } catch (err) {
+      sendJSON(res, 500, { error: err.message })
+    }
+    return
+  }
+
+  // Sync transfer orders with 1C
+  if (pathname === '/sklad/api/sync/transfer-orders' && req.method === 'POST') {
+    try {
+      const transferOrders1C = await fetch1CTransferOrders()
+      const transferOrderStats = syncTransferOrdersIncremental(transferOrders1C)
+      loadCacheFromDB()
+      lastSyncTime.lastSyncByType.transfer_orders = new Date().toISOString()
+
+      sendJSON(res, 200, {
+        status: 'synced',
+        type: 'transfer_orders',
+        timestamp: lastSyncTime.lastSyncByType.transfer_orders,
+        results: transferOrderStats
+      })
+    } catch (err) {
+      sendJSON(res, 500, { error: err.message })
+    }
+    return
+  }
+
+  // Сохранить результаты сканирования заказа на перемещение
+  if (pathname === '/sklad/api/transfer-orders/scans' && req.method === 'POST') {
+    try {
+      let body = ''
+      req.on('data', chunk => { body += chunk })
+      req.on('end', () => {
+        const data = JSON.parse(body)
+        const { orderRefKey, items } = data
+
+        // Удаляем старые сканирования для этого заказа
+        db.prepare('DELETE FROM transfer_order_scans WHERE order_ref_key = ?').run(orderRefKey)
+
+        // Вставляем новые результаты сканирования
+        const stmt = db.prepare(`
+          INSERT INTO transfer_order_scans (order_ref_key, item_barcode, scanned_qty, updated_at)
+          VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+        `)
+
+        for (const item of items) {
+          stmt.run(orderRefKey, item.barcode || '', item.scannedQty || 0)
+        }
+
+        sendJSON(res, 200, { status: 'saved', count: items.length })
+      })
+    } catch (err) {
+      sendJSON(res, 500, { error: err.message })
+    }
+    return
+  }
+
+  // Загрузить результаты сканирования заказа на перемещение
+  if (pathname.match(/^\/sklad\/api\/transfer-orders\/(.+)\/scans$/) && req.method === 'GET') {
+    try {
+      const orderRefKey = pathname.match(/^\/sklad\/api\/transfer-orders\/(.+)\/scans$/)[1]
+      const scans = db.prepare(`
+        SELECT item_barcode, scanned_qty 
+        FROM transfer_order_scans 
+        WHERE order_ref_key = ?
+      `).all(orderRefKey)
+
+      const result = scans.reduce((acc, scan) => {
+        acc[scan.item_barcode] = scan.scanned_qty
+        return acc
+      }, {})
+
+      sendJSON(res, 200, result)
     } catch (err) {
       sendJSON(res, 500, { error: err.message })
     }
@@ -2082,16 +2790,16 @@ const server = http.createServer(async (req, res) => {
 
     try {
       console.log(`📦 Fetching order items for order: ${orderId}`)
-      
+
       let items = null
-      
+
       // Вариант 1: прямой путь к табличной части (как используется на фронте)
       // Пытаемся путь: Document_ЗаказПокупателя(guid'...')/Запасы
       const selectFields = 'LineNumber,Номенклатура_Key,Номенклатура____Presentation,Номенклатура_Presentation,Количество,Цена,Сумма,ЕдиницаИзмерения_Key'
       items = await fetch1COData(`Document_ЗаказПокупателя(guid'${orderId}')/Запасы`, {
         '$select': selectFields
       })
-      
+
       if (!items || items.length === 0) {
         // Вариант 2: через коллекцию с фильтром (старый способ)
         console.log(`⚠️ Direct path failed, trying filter...`)
@@ -2100,7 +2808,7 @@ const server = http.createServer(async (req, res) => {
           '$select': selectFields
         })
       }
-      
+
       if (!items || items.length === 0) {
         // Вариант 3: запрашиваем весь заказ и пробуем получить позиции из него
         console.log(`⚠️ Filter path failed, trying full document...`)
@@ -2115,7 +2823,7 @@ const server = http.createServer(async (req, res) => {
           }
         }
       }
-      
+
       if (items && Array.isArray(items)) {
         // Строим карту названий товаров из кэша
         const nomMap = new Map()
@@ -2126,18 +2834,18 @@ const server = http.createServer(async (req, res) => {
             }
           })
         }
-        
+
         const result = items.map((item) => {
           const prodId = item.Номенклатура_Key || item.Номенклатура || ''
           let prodName = item.Номенклатура____Presentation || item.Номенклатура_Presentation || ''
-          
+
           // Если название пусто, ищем в кэше материалов
           if (!prodName && prodId) {
             prodName = nomMap.get(prodId) || 'Неизвестный товар'
           } else if (!prodName) {
             prodName = 'Неизвестный товар'
           }
-          
+
           return {
             id: item.LineNumber || `${orderId}-${Math.random()}`,
             productId: prodId,
@@ -2166,8 +2874,8 @@ const server = http.createServer(async (req, res) => {
   // 1C Endpoints - Organizations (организации)
   if (pathname === '/sklad/api/onec/organizations' && req.method === 'GET') {
     const organizations = [
-      { 
-        id: '407d850a-e233-11f0-862e-fa163e5c9fa8', 
+      {
+        id: '407d850a-e233-11f0-862e-fa163e5c9fa8',
         name: 'Основная организация',
         ref_key: '407d850a-e233-11f0-862e-fa163e5c9fa8'
       }
@@ -2217,19 +2925,19 @@ const server = http.createServer(async (req, res) => {
   if (pathname === '/sklad/api/1c/material-transfer' && req.method === 'POST') {
     console.log(`\n🚀 INCOMING REQUEST: POST /sklad/api/1c/material-transfer`)
     let body = ''
-    req.on('data', chunk => { 
+    req.on('data', chunk => {
       console.log(`📥 Data chunk received: ${chunk.length} bytes`)
-      body += chunk 
+      body += chunk
     })
     req.on('end', async () => {
       try {
         console.log(`📦 Raw body: ${body}`)
         const data = JSON.parse(body)
-        
+
         console.log('\n📦 ===== MATERIAL TRANSFER REQUEST =====')
         console.log('🔍 RAW JSON RECEIVED:')
         console.log(JSON.stringify(data, null, 2))
-        
+
         console.log('\n📋 PARSED KEYS:')
         console.log(`  ✓ organizationKey: "${data.organizationKey}" (type: ${typeof data.organizationKey})`)
         console.log(`  ✓ sourceWarehouseKey: "${data.sourceWarehouseKey}" (type: ${typeof data.sourceWarehouseKey})`)
@@ -2237,7 +2945,7 @@ const server = http.createServer(async (req, res) => {
         console.log(`  ✓ operationKey: "${data.operationKey}" (type: ${typeof data.operationKey})`)
         console.log(`  ✓ expenseAccountKey: "${data.expenseAccountKey}" (type: ${typeof data.expenseAccountKey})`)
         console.log(`  ✓ currencyKey: "${data.currencyKey}" (type: ${typeof data.currencyKey})`)
-        
+
         console.log(`\n📦 ITEMS (${data.items?.length || 0}):`)
         if (data.items && Array.isArray(data.items)) {
           data.items.forEach((item, idx) => {
@@ -2249,26 +2957,26 @@ const server = http.createServer(async (req, res) => {
           })
         }
         console.log('📦 ===== END REQUEST =====\n')
-        
+
         // Валидация критичных данных
         if (!data.sourceWarehouseKey) {
           console.error('❌ Missing sourceWarehouseKey')
           sendJSON(res, 400, { error: 'Source warehouse is required' })
           return
         }
-        
+
         if (!data.destinationWarehouseKey) {
           console.error('❌ Missing destinationWarehouseKey')
           sendJSON(res, 400, { error: 'Destination warehouse is required' })
           return
         }
-        
+
         if (!data.items || !Array.isArray(data.items) || data.items.length === 0) {
           console.error('❌ Missing or invalid items')
           sendJSON(res, 400, { error: 'At least one item is required' })
           return
         }
-        
+
         // Проверяем что у каждого товара есть количество (Количество - правильный ключ!)
         const validItems = data.items.filter(item => item.Количество && item.Количество > 0)
         if (validItems.length === 0) {
@@ -2276,22 +2984,22 @@ const server = http.createServer(async (req, res) => {
           sendJSON(res, 400, { error: 'No items with valid quantities' })
           return
         }
-        
+
         // Отправляем документ в 1C через OData POST
         try {
           const authHeader = getBasicAuthHeader()
           const baseUrl = ONEC_CONFIG.baseUrl.replace(/\/$/, '')
           const url = `${baseUrl}/Document_ПеремещениеЗапасов`
-          
+
           // Date only (no time) - 1C expects just the date part
           const now = new Date()
           const utcYear = now.getUTCFullYear()
           const utcMonth = String(now.getUTCMonth() + 1).padStart(2, '0')
           const utcDay = String(now.getUTCDate()).padStart(2, '0')
           const dateString = `${utcYear}-${utcMonth}-${utcDay}`
-          
+
           console.log('[TRANSFER] Document date:', { utcYear, utcMonth, utcDay, dateString })
-          
+
           const transferDocData = {
             '@odata.type': 'StandardODATA.Document_ПеремещениеЗапасов',
             'Date': dateString,  // Main Date field: 2026-05-11
@@ -2307,7 +3015,7 @@ const server = http.createServer(async (req, res) => {
             'Запасы': validItems.map((item, idx) => {
               // ЕдиницаИзмерения должна быть GUID (из каталога Catalog_КлассификаторЕдиницИзмерения)
               const unitGuid = item.ЕдиницаИзмерения || 'ead49f26-116c-11f1-9cfd-fa163e5c9fa8'  // Default GUID for 'шт'
-              
+
               return {
                 '@odata.type': 'StandardODATA.Document_ПеремещениеЗапасов_Запасы_RowType',
                 'LineNumber': String(idx + 1),  // Line number as string
@@ -2318,21 +3026,21 @@ const server = http.createServer(async (req, res) => {
               }
             })
           }
-          
+
           console.log('\n📤 ===== SENDING TO 1C OData =====')
           console.log(`🔗 URL: ${url}`)
           console.log('📦 PAYLOAD (что отправляем в 1С):')
           console.log(JSON.stringify(transferDocData, null, 2))
           console.log('📤 ===== END PAYLOAD =====\n')
-          
+
           console.log(`\n📤 Creating transfer document in 1C OData:`)
           console.log(`   URL: ${url}`)
           console.log(`   Document:`)
           console.log(JSON.stringify(transferDocData, null, 2))
-          
+
           const controller = new AbortController()
           const timeoutId = setTimeout(() => controller.abort(), 30000)
-          
+
           const response = await fetch(url, {
             method: 'POST',
             signal: controller.signal,
@@ -2343,36 +3051,36 @@ const server = http.createServer(async (req, res) => {
             },
             body: JSON.stringify(transferDocData)
           })
-          
+
           clearTimeout(timeoutId)
-          
+
           if (!response.ok) {
             const errorText = await response.text()
             console.error(`❌ [1C] HTTP ${response.status}:`)
             console.error(errorText.substring(0, 500))
-            
+
             const documentId = `transfer-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
-            sendJSON(res, 400, { 
-              success: false, 
+            sendJSON(res, 400, {
+              success: false,
               error: `Failed to create in 1C: ${response.status}`,
               documentId: documentId,
               details: errorText.substring(0, 200)
             })
             return
           }
-          
+
           const responseData = await response.json()
           console.log(`✅ Document created in 1C:`)
           console.log(JSON.stringify(responseData, null, 2))
-          
+
           const documentKey = responseData.Ref_Key || responseData.Key || responseData.Ref
-          
+
           console.log(`✅ Material transfer document created in 1C successfully`)
           console.log(`   Document Key: ${documentKey}`)
           console.log(`   From: ${data.sourceWarehouseKey}`)
           console.log(`   To: ${data.destinationWarehouseKey}`)
           console.log(`   Items: ${validItems.length}`)
-          
+
           sendJSON(res, 200, {
             success: true,
             documentKey: documentKey,
@@ -2382,10 +3090,10 @@ const server = http.createServer(async (req, res) => {
             items: validItems.length,
             createdAt: new Date().toISOString()
           })
-          
+
         } catch (err) {
           console.error(`❌ Error sending to 1C: ${err.message}`)
-          
+
           const documentId = `transfer-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
           sendJSON(res, 500, {
             success: false,
@@ -2416,7 +3124,7 @@ const server = http.createServer(async (req, res) => {
     req.on('end', () => {
       try {
         const updates = JSON.parse(body)
-        
+
         // Сохраняем только storageBin и другие локальные поля (не отправляем в 1С)
         const localFields = ['storageBin', 'location', 'notes']
         const updateData = {}
@@ -2428,15 +3136,1187 @@ const server = http.createServer(async (req, res) => {
 
         // Обновляем товар в БД
         const stmt = db.prepare(`
-          UPDATE onec_stocks 
+          UPDATE onec_stocks
           SET storageBin = ?, location = ?
           WHERE id = ?
         `)
         stmt.run(updateData.storageBin || '', updateData.location || '', itemId)
-        
+
         sendJSON(res, 200, { success: true, storageBin: updateData.storageBin })
       } catch (err) {
         console.error('Error updating item:', err.message)
+        sendJSON(res, 500, { error: err.message })
+      }
+    })
+    return
+  }
+
+  // Generate QR codes for order items
+  if (pathname.match(/^\/sklad\/api\/orders\/[a-f0-9\-]+\/qr-codes\/generate$/) && req.method === 'POST') {
+    let body = ''
+    req.on('data', chunk => { body += chunk })
+    req.on('end', () => {
+      try {
+        const orderId = pathname.split('/')[4]
+        const data = JSON.parse(body)
+        const { quantity = 1, productId, productName, generatedBy, employeeId, employeeName, labelInfo, labelOrder } = data
+
+        if (!orderId || !productId) {
+          sendJSON(res, 400, { error: 'Order ID and Product ID are required' })
+          return
+        }
+
+        // Get order number for reference
+        const order = db.prepare('SELECT order_number FROM onec_orders WHERE ref_key = ?').get(orderId)
+        const orderNumber = order?.order_number || orderId
+
+        // Generate N QR codes
+        const generatedCodes = []
+        const stmt = db.prepare(`
+          INSERT INTO local_qr_codes (
+            id, code, order_id, order_number, product_id, product_name,
+            label_order, label_info, status, generated_at, generated_by
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `)
+
+        for (let i = 0; i < quantity; i++) {
+          const qrId = `qr-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+          const randomSuffix = Math.random().toString(36).substr(2, 5).toUpperCase()
+          const qrCode = `QR-${orderId.substring(0, 8)}-${productId.substring(0, 8)}-${randomSuffix}`
+
+          stmt.run(
+            qrId,
+            qrCode,
+            orderId,
+            orderNumber,
+            productId,
+            productName || 'Unknown Product',
+            labelOrder || orderNumber,
+            labelInfo || null,  // Save only what user entered, not default value
+            'generated',
+            new Date().toISOString(),
+            generatedBy || 'system'
+          )
+
+          generatedCodes.push({
+            id: qrId,
+            code: qrCode,
+            order_number: orderNumber,
+            product_id: productId,
+            product_name: productName,
+            label_order: labelOrder || orderNumber,
+            label_info: labelInfo || null,  // Return actual value entered, not default
+            status: 'generated'
+          })
+
+          // Log the operation
+          logOperation('qr_code_generated', {
+            orderId: orderId,
+            orderNumber: orderNumber,
+            productId: productId,
+            productName: productName,
+            qrCodeId: qrId,
+            qrCode: qrCode,
+            employeeId: employeeId,
+            employeeName: employeeName,
+            details: { quantity: quantity, index: i + 1 }
+          })
+        }
+
+        sendJSON(res, 201, {
+          success: true,
+          orderId: orderId,
+          productId: productId,
+          quantity: generatedCodes.length,
+          codes: generatedCodes,
+          createdAt: new Date().toISOString()
+        })
+      } catch (err) {
+        console.error('Error generating QR codes:', err)
+        sendJSON(res, 500, { error: err.message })
+      }
+    })
+    return
+  }
+
+  // Get QR codes for order
+  if (pathname.match(/^\/sklad\/api\/orders\/[a-f0-9\-]+\/qr-codes$/) && req.method === 'GET') {
+    try {
+      const orderId = pathname.split('/')[4]
+      const codes = db.prepare(`
+        SELECT id, code, order_number, product_id, product_name, label_order, label_info,
+               status, scanned_at, scanned_by, generated_at, generated_by
+        FROM local_qr_codes
+        WHERE order_id = ?
+        ORDER BY generated_at DESC
+      `).all(orderId)
+
+      console.log(`📦 [QR FETCH] Fetching QR codes for order ${orderId}`)
+      if (codes.length > 0) {
+        console.log(`  Total codes: ${codes.length}`)
+        console.log(`  First code: label_info="${codes[0].label_info}", product_name="${codes[0].product_name}"`)
+        codes.slice(0, 3).forEach((c, i) => {
+          console.log(`    [${i}] label_info="${c.label_info}"`)
+        })
+      }
+
+      sendJSON(res, 200, {
+        orderId: orderId,
+        count: codes.length,
+        codes: codes
+      })
+    } catch (err) {
+      console.error('Error fetching QR codes:', err)
+      sendJSON(res, 500, { error: err.message })
+    }
+    return
+  }
+
+  // Scan QR code (update status)
+  if (pathname.match(/^\/sklad\/api\/qr-codes\/[^\/]+\/scan$/) && req.method === 'POST') {
+    let body = ''
+    req.on('data', chunk => { body += chunk })
+    req.on('end', () => {
+      try {
+        const qrCodeId = pathname.split('/')[4]
+        const data = JSON.parse(body)
+        const { newStatus = 'scanned', employeeId, employeeName, details } = data
+
+        if (!qrCodeId) {
+          sendJSON(res, 400, { error: 'QR Code ID is required' })
+          return
+        }
+
+        // Get current QR code info
+        const qrCode = db.prepare(`
+          SELECT id, code, order_id, order_number, product_id, product_name
+          FROM local_qr_codes
+          WHERE id = ?
+        `).get(qrCodeId)
+
+        if (!qrCode) {
+          sendJSON(res, 404, { error: 'QR Code not found' })
+          return
+        }
+
+        // Update QR code status
+        const timestamp = new Date().toISOString()
+        db.prepare(`
+          UPDATE local_qr_codes
+          SET status = ?, scanned_at = ?, scanned_by = ?
+          WHERE id = ?
+        `).run(newStatus, timestamp, employeeName || 'unknown', qrCodeId)
+
+        // Log the operation
+        logOperation('qr_code_scanned', {
+          qrCodeId: qrCodeId,
+          qrCode: qrCode.code,
+          orderId: qrCode.order_id,
+          orderNumber: qrCode.order_number,
+          productId: qrCode.product_id,
+          productName: qrCode.product_name,
+          employeeId: employeeId,
+          employeeName: employeeName,
+          details: { status: newStatus, ...details }
+        })
+
+        // Log shipment completion if status is 'shipped'
+        if (newStatus === 'shipped') {
+          logOperation('qr_code_shipped', {
+            qrCodeId: qrCodeId,
+            qrCode: qrCode.code,
+            orderId: qrCode.order_id,
+            orderNumber: qrCode.order_number,
+            productId: qrCode.product_id,
+            productName: qrCode.product_name,
+            employeeId: employeeId,
+            employeeName: employeeName,
+            details: { action: 'shipment_completed' }
+          })
+        }
+
+        sendJSON(res, 200, {
+          success: true,
+          qrCodeId: qrCodeId,
+          code: qrCode.code,
+          status: newStatus,
+          scannedAt: timestamp,
+          scannedBy: employeeName
+        })
+      } catch (err) {
+        console.error('Error scanning QR code:', err)
+        sendJSON(res, 500, { error: err.message })
+      }
+    })
+    return
+  }
+
+  // Delete QR code
+  if (pathname.match(/^\/sklad\/api\/qr-codes\/[^\/]+$/) && req.method === 'DELETE') {
+    try {
+      const qrCodeId = pathname.split('/')[4]
+      
+      if (!qrCodeId) {
+        sendJSON(res, 400, { error: 'QR Code ID is required' })
+        return
+      }
+
+      // Get QR code info before deletion
+      const qrCode = db.prepare(`
+        SELECT id, code, order_id, order_number, product_id, product_name
+        FROM local_qr_codes
+        WHERE id = ?
+      `).get(qrCodeId)
+
+      if (!qrCode) {
+        sendJSON(res, 404, { error: 'QR Code not found' })
+        return
+      }
+
+      // First delete related operation logs (due to FOREIGN KEY constraint)
+      db.prepare('DELETE FROM operation_logs WHERE qr_code_id = ?').run(qrCodeId)
+
+      // Delete the QR code
+      const result = db.prepare('DELETE FROM local_qr_codes WHERE id = ?').run(qrCodeId)
+
+      sendJSON(res, 200, {
+        success: true,
+        qrCodeId: qrCodeId,
+        code: qrCode.code,
+        deletedAt: new Date().toISOString()
+      })
+    } catch (err) {
+      console.error('Error deleting QR code:', err)
+      sendJSON(res, 500, { error: err.message })
+    }
+    return
+  }
+
+  // Get operation logs with filtering
+  if (pathname === '/sklad/api/operation-logs' && req.method === 'GET') {
+    try {
+      const operationType = url.searchParams.get('type')
+      const employeeId = url.searchParams.get('employee')
+      const orderId = url.searchParams.get('order')
+      const limit = parseInt(url.searchParams.get('limit') || '100', 10)
+      const offset = parseInt(url.searchParams.get('offset') || '0', 10)
+
+      // Build query
+      let query = 'SELECT * FROM operation_logs WHERE 1=1'
+      const params = []
+
+      if (operationType) {
+        query += ' AND operation_type = ?'
+        params.push(operationType)
+      }
+      if (employeeId) {
+        query += ' AND employee_id = ?'
+        params.push(employeeId)
+      }
+      if (orderId) {
+        query += ' AND order_id = ?'
+        params.push(orderId)
+      }
+
+      query += ' ORDER BY created_at DESC LIMIT ? OFFSET ?'
+      params.push(limit, offset)
+
+      const logs = db.prepare(query).all(...params)
+
+      // Parse details JSON
+      const parsedLogs = logs.map(log => ({
+        ...log,
+        details: log.details ? JSON.parse(log.details) : null
+      }))
+
+      sendJSON(res, 200, {
+        logs: parsedLogs,
+        count: parsedLogs.length,
+        limit: limit,
+        offset: offset
+      })
+    } catch (err) {
+      console.error('Error fetching operation logs:', err)
+      sendJSON(res, 500, { error: err.message })
+    }
+    return
+  }
+
+  // Get last N operations for an employee
+  if (pathname.match(/^\/sklad\/api\/employees\/[^\/]+\/operations$/) && req.method === 'GET') {
+    try {
+      const employeeId = pathname.split('/')[4]
+      const limit = parseInt(url.searchParams.get('limit') || '10', 10)
+
+      const logs = db.prepare(`
+        SELECT * FROM operation_logs
+        WHERE employee_id = ?
+        ORDER BY created_at DESC
+        LIMIT ?
+      `).all(employeeId, limit)
+
+      // Parse details JSON
+      const parsedLogs = logs.map(log => ({
+        ...log,
+        details: log.details ? JSON.parse(log.details) : null
+      }))
+
+      sendJSON(res, 200, {
+        employeeId: employeeId,
+        logs: parsedLogs,
+        count: parsedLogs.length,
+        limit: limit
+      })
+    } catch (err) {
+      console.error('Error fetching employee operations:', err)
+      sendJSON(res, 500, { error: err.message })
+    }
+    return
+  }
+
+  // Get operation log statistics
+  if (pathname === '/sklad/api/operation-logs/stats' && req.method === 'GET') {
+    try {
+      const stats = db.prepare(`
+        SELECT 
+          operation_type,
+          COUNT(*) as count,
+          COUNT(DISTINCT employee_id) as unique_employees,
+          MIN(created_at) as first_at,
+          MAX(created_at) as last_at
+        FROM operation_logs
+        GROUP BY operation_type
+        ORDER BY count DESC
+      `).all()
+
+      sendJSON(res, 200, {
+        stats: stats
+      })
+    } catch (err) {
+      console.error('Error fetching operation logs stats:', err)
+      sendJSON(res, 500, { error: err.message })
+    }
+    return
+  }
+
+  // Get shipment history
+  if (pathname === '/sklad/api/shipments/history' && req.method === 'GET') {
+    try {
+      // Get all shipments (operations where type is 'qr_code_shipped')
+      const shipments = db.prepare(`
+        SELECT 
+          id,
+          employee_name,
+          created_at,
+          order_number,
+          product_name,
+          details
+        FROM operation_logs
+        WHERE operation_type = 'qr_code_shipped'
+        ORDER BY created_at DESC
+      `).all()
+
+      // Group shipments by timestamp and employee to show combined shipments
+      const groupedShipments = new Map()
+
+      shipments.forEach(shipment => {
+        // Round to nearest minute to group multiple QR codes scanned in same operation
+        const timestamp = new Date(shipment.created_at)
+        timestamp.setSeconds(0, 0)
+        const key = `${timestamp.toISOString()}-${shipment.employee_name}`
+
+        if (!groupedShipments.has(key)) {
+          groupedShipments.set(key, {
+            id: key,
+            date: shipment.created_at,
+            userName: shipment.employee_name,
+            orders: new Set(),
+            count: 0
+          })
+        }
+
+        const group = groupedShipments.get(key)
+        group.count++
+        if (shipment.order_number) {
+          group.orders.add(shipment.order_number)
+        }
+      })
+
+      // Convert to array and format orders as array
+      const result = Array.from(groupedShipments.values())
+        .map(item => ({
+          id: item.id,
+          date: item.date,
+          userName: item.userName,
+          count: item.count,
+          orders: Array.from(item.orders)
+        }))
+        .slice(0, 100) // Return last 100 shipments
+
+      sendJSON(res, 200, {
+        shipments: result,
+        total: shipments.length
+      })
+    } catch (err) {
+      console.error('Error fetching shipment history:', err)
+      sendJSON(res, 500, { error: err.message })
+    }
+    return
+  }
+
+  // Get all employees
+  if (pathname === '/sklad/api/employees' && req.method === 'GET') {
+    try {
+      const employees = db.prepare(`
+        SELECT * FROM employees ORDER BY created_at DESC
+      `).all()
+
+      sendJSON(res, 200, { employees })
+    } catch (err) {
+      console.error('Error fetching employees:', err)
+      sendJSON(res, 500, { error: err.message })
+    }
+    return
+  }
+
+  // Create employee
+  if (pathname === '/sklad/api/employees' && req.method === 'POST') {
+    let body = ''
+    req.on('data', chunk => { body += chunk })
+    req.on('end', () => {
+      try {
+        const data = JSON.parse(body)
+        let {
+          id,
+          name,
+          email,
+          phone,
+          photo,
+          avatar,
+          position,
+          department,
+          role = 'worker',
+          status = 'active',
+          salary = 0,
+          hireDate,
+          birthDate,
+          address,
+          skills,
+          notes,
+          createdBy
+        } = data
+
+        if (!id || !name || !phone || !position || !department || !hireDate) {
+          sendJSON(res, 400, { error: 'Missing required fields' })
+          return
+        }
+
+        // Generate email if not provided
+        if (!email) {
+          email = `${name.toLowerCase().replace(/\s+/g, '.')}@warehouse.local`
+        }
+
+        // Create user account for the employee
+        // Generate login from email (part before @) or name
+        const loginParts = email.split('@')
+        let baseLogin = loginParts[0] || name.toLowerCase().replace(/\s+/g, '.')
+        let login = baseLogin
+        let counter = 1
+
+        // Check if login already exists and make it unique
+        while (db.prepare('SELECT id FROM users WHERE login = ?').get(login)) {
+          login = `${baseLogin}${counter}`
+          counter++
+        }
+
+        // Use default temporary password for all new employees
+        const temporaryPassword = '12345678'
+        const passwordHash = hashSync(temporaryPassword, 10)
+        const now = new Date().toISOString()
+
+        // Create user
+        const userInsert = db.prepare(`
+          INSERT INTO users (login, password_hash, full_name, role, is_active, needs_password_change, created_at, updated_at)
+          VALUES (?, ?, ?, ?, 1, 1, ?, ?)
+        `).run(login, passwordHash, name, role, now, now)
+
+        const userId = userInsert.lastInsertRowid
+
+        // Create employee with reference to user
+        db.prepare(`
+          INSERT INTO employees (
+            id, user_id, name, email, phone, photo, avatar, position, department,
+            role, status, salary, hire_date, birth_date, address, skills,
+            notes, created_at, updated_at, created_by
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          id, userId, name, email, phone, photo || null, avatar || null, position,
+          department, role, status, salary, hireDate, birthDate || null,
+          address || null, skills ? JSON.stringify(skills) : null, notes || null,
+          now, now, createdBy || 'System'
+        )
+
+        console.log(`✓ Created employee: ${name} (${email})`)
+        console.log(`  Login: ${login}, Password: [temporary: 12345678]`)
+
+        sendJSON(res, 201, {
+          success: true,
+          employee: {
+            id, name, email, phone, photo, avatar, position, department,
+            role, status, salary, hireDate, birthDate, address, skills, notes
+          },
+          credentials: {
+            login,
+            password: temporaryPassword,
+            note: 'Default temporary password: 12345678 - must change on first login'
+          }
+        })
+      } catch (err) {
+        console.error('Error creating employee:', err)
+        sendJSON(res, 500, { error: err.message })
+      }
+    })
+    return
+  }
+
+  // Update employee
+  if (pathname.match(/^\/sklad\/api\/employees\/[^\/]+$/) && req.method === 'PUT') {
+    let body = ''
+    req.on('data', chunk => { body += chunk })
+    req.on('end', () => {
+      try {
+        const employeeId = pathname.split('/')[4]
+        const data = JSON.parse(body)
+
+        const now = new Date().toISOString()
+        const updates = []
+        const values = []
+
+        for (const [key, value] of Object.entries(data)) {
+          if (key === 'id') continue
+          const dbKey = key === 'hireDate' ? 'hire_date'
+            : key === 'birthDate' ? 'birth_date'
+            : key === 'createdBy' ? null
+            : key.replace(/([A-Z])/g, '_$1').toLowerCase()
+          
+          if (dbKey) {
+            updates.push(`${dbKey} = ?`)
+            values.push(
+              Array.isArray(value) ? JSON.stringify(value) : value
+            )
+          }
+        }
+
+        updates.push('updated_at = ?')
+        values.push(now)
+        updates.push('updated_by = ?')
+        values.push(data.updatedBy || 'System')
+        values.push(employeeId)
+
+        db.prepare(`UPDATE employees SET ${updates.join(', ')} WHERE id = ?`).run(...values)
+
+        sendJSON(res, 200, { success: true })
+      } catch (err) {
+        console.error('Error updating employee:', err)
+        sendJSON(res, 500, { error: err.message })
+      }
+    })
+    return
+  }
+
+  // Delete employee
+  if (pathname.match(/^\/sklad\/api\/employees\/[^\/]+$/) && req.method === 'DELETE') {
+    try {
+      const employeeId = pathname.split('/')[4]
+      db.prepare('DELETE FROM employees WHERE id = ?').run(employeeId)
+      sendJSON(res, 200, { success: true })
+    } catch (err) {
+      console.error('Error deleting employee:', err)
+      sendJSON(res, 500, { error: err.message })
+    }
+    return
+  }
+
+  // ===== TOOLS API =====
+  // Get all tools
+  if (pathname === '/sklad/api/tools' && req.method === 'GET') {
+    try {
+      const tools = db.prepare('SELECT * FROM tools ORDER BY created_at DESC').all()
+      sendJSON(res, 200, { 
+        success: true, 
+        tools: tools.map(t => ({
+          id: t.id,
+          name: t.name,
+          inventoryNumber: t.inventory_number,
+          serialNumber: t.serial_number,
+          type: t.type,
+          model: t.model,
+          manufacturer: t.manufacturer,
+          status: t.status,
+          location: t.location,
+          price: t.price,
+          qrCode: t.qr_code,
+          issuedTo: t.issued_to,
+          issuedToName: t.issued_to_name,
+          issuedAt: t.issued_at,
+          breakdownDescription: t.breakdown_description,
+          createdAt: t.created_at,
+          updatedAt: t.updated_at,
+          createdBy: t.created_by
+        }))
+      })
+    } catch (err) {
+      console.error('Error getting tools:', err)
+      sendJSON(res, 500, { error: err.message })
+    }
+    return
+  }
+
+  // Create new tool
+  if (pathname === '/sklad/api/tools' && req.method === 'POST') {
+    let body = ''
+    req.on('data', chunk => { body += chunk })
+    req.on('end', () => {
+      try {
+        const data = JSON.parse(body)
+        const {
+          id,
+          name,
+          inventoryNumber,
+          serialNumber,
+          type = 'hand_tool',
+          model,
+          manufacturer,
+          status = 'in_stock',
+          location,
+          price = 0,
+          qrCode,
+          issuedTo,
+          issuedToName,
+          issuedAt,
+          breakdownDescription,
+          createdBy
+        } = data
+
+        if (!id || !name || !inventoryNumber || !type) {
+          sendJSON(res, 400, { error: 'Missing required fields' })
+          return
+        }
+
+        const now = new Date().toISOString()
+        db.prepare(`
+          INSERT INTO tools (
+            id, name, inventory_number, serial_number, type, model, manufacturer,
+            status, location, price, qr_code, issued_to, issued_to_name, issued_at,
+            breakdown_description, created_at, updated_at, created_by
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          id, name, inventoryNumber, serialNumber, type, model, manufacturer,
+          status, location, price, qrCode, issuedTo, issuedToName, issuedAt,
+          breakdownDescription, now, now, createdBy || 'System'
+        )
+
+        logOperation('tool_created', {
+          tool_id: id,
+          tool_name: name,
+          tool_type: type,
+          created_by: createdBy || 'System'
+        })
+
+        console.log(`✓ Created tool: ${name} (${inventoryNumber})`)
+
+        sendJSON(res, 201, {
+          success: true,
+          tool: {
+            id, name, inventoryNumber, serialNumber, type, model, manufacturer,
+            status, location, price, qrCode, issuedTo, issuedToName, issuedAt,
+            breakdownDescription, createdAt: now, updatedAt: now, createdBy: createdBy || 'System'
+          }
+        })
+      } catch (err) {
+        console.error('Error creating tool:', err)
+        sendJSON(res, 500, { error: err.message })
+      }
+    })
+    return
+  }
+
+  // Update tool
+  if (pathname.match(/^\/sklad\/api\/tools\/[^\/]+$/) && req.method === 'PUT') {
+    let body = ''
+    req.on('data', chunk => { body += chunk })
+    req.on('end', () => {
+      try {
+        const toolId = pathname.split('/')[4]
+        const data = JSON.parse(body)
+
+        const now = new Date().toISOString()
+        const setClause = []
+        const values = []
+
+        // Build dynamic UPDATE query
+        if (data.name !== undefined) { setClause.push('name = ?'); values.push(data.name) }
+        if (data.inventoryNumber !== undefined) { setClause.push('inventory_number = ?'); values.push(data.inventoryNumber) }
+        if (data.serialNumber !== undefined) { setClause.push('serial_number = ?'); values.push(data.serialNumber) }
+        if (data.type !== undefined) { setClause.push('type = ?'); values.push(data.type) }
+        if (data.model !== undefined) { setClause.push('model = ?'); values.push(data.model) }
+        if (data.manufacturer !== undefined) { setClause.push('manufacturer = ?'); values.push(data.manufacturer) }
+        if (data.status !== undefined) { 
+          setClause.push('status = ?')
+          values.push(data.status)
+          // Clear issued fields when status changes to repair/written_off
+          if (data.status === 'repair' || data.status === 'written_off') {
+            setClause.push('issued_to = ?', 'issued_to_name = ?', 'issued_at = ?')
+            values.push(null, null, null)
+          }
+        }
+        if (data.location !== undefined) { setClause.push('location = ?'); values.push(data.location) }
+        if (data.price !== undefined) { setClause.push('price = ?'); values.push(data.price) }
+        if (data.qrCode !== undefined) { setClause.push('qr_code = ?'); values.push(data.qrCode) }
+        if (data.issuedTo !== undefined) { setClause.push('issued_to = ?'); values.push(data.issuedTo || null) }
+        if (data.issuedToName !== undefined) { setClause.push('issued_to_name = ?'); values.push(data.issuedToName || null) }
+        if (data.issuedAt !== undefined) { setClause.push('issued_at = ?'); values.push(data.issuedAt || null) }
+        if (data.breakdownDescription !== undefined) { setClause.push('breakdown_description = ?'); values.push(data.breakdownDescription) }
+
+        setClause.push('updated_at = ?')
+        values.push(now)
+        values.push(toolId)
+
+        db.prepare(`UPDATE tools SET ${setClause.join(', ')} WHERE id = ?`).run(...values)
+
+        logOperation('tool_updated', {
+          tool_id: toolId,
+          changes: data
+        })
+
+        sendJSON(res, 200, { success: true })
+      } catch (err) {
+        console.error('Error updating tool:', err)
+        sendJSON(res, 500, { error: err.message })
+      }
+    })
+    return
+  }
+
+  // Delete tool
+  if (pathname.match(/^\/sklad\/api\/tools\/[^\/]+$/) && req.method === 'DELETE') {
+    try {
+      const toolId = pathname.split('/')[4]
+      db.prepare('DELETE FROM tools WHERE id = ?').run(toolId)
+      
+      logOperation('tool_deleted', {
+        tool_id: toolId
+      })
+
+      sendJSON(res, 200, { success: true })
+    } catch (err) {
+      console.error('Error deleting tool:', err)
+      sendJSON(res, 500, { error: err.message })
+    }
+    return
+  }
+
+  // Get tool breakdowns
+  if (pathname.match(/^\/sklad\/api\/tools\/[^\/]+\/breakdowns$/) && req.method === 'GET') {
+    try {
+      const toolId = pathname.split('/')[4]
+      const breakdowns = db.prepare('SELECT * FROM tool_breakdowns WHERE tool_id = ? ORDER BY reported_at DESC').all(toolId)
+      sendJSON(res, 200, { 
+        success: true, 
+        breakdowns: breakdowns.map(b => ({
+          id: b.id,
+          toolId: b.tool_id,
+          status: b.status,
+          description: b.description,
+          reportedBy: b.reported_by,
+          reportedAt: b.reported_at,
+          repairStatus: b.repair_status,
+          repairNotes: b.repair_notes,
+          completedAt: b.completed_at,
+          createdAt: b.created_at
+        }))
+      })
+    } catch (err) {
+      console.error('Error getting tool breakdowns:', err)
+      sendJSON(res, 500, { error: err.message })
+    }
+    return
+  }
+
+  // Report tool breakdown
+  if (pathname.match(/^\/sklad\/api\/tools\/[^\/]+\/breakdowns$/) && req.method === 'POST') {
+    let body = ''
+    req.on('data', chunk => { body += chunk })
+    req.on('end', () => {
+      try {
+        const toolId = pathname.split('/')[4]
+        const data = JSON.parse(body)
+        const { description, reportedBy } = data
+
+        if (!description) {
+          sendJSON(res, 400, { error: 'Missing description' })
+          return
+        }
+
+        const breakdownId = Math.random().toString(36).substr(2, 9)
+        const now = new Date().toISOString()
+
+        db.prepare(`
+          INSERT INTO tool_breakdowns (id, tool_id, status, description, reported_by, reported_at, created_at)
+          VALUES (?, ?, 'reported', ?, ?, ?, ?)
+        `).run(breakdownId, toolId, description, reportedBy || 'System', now, now)
+
+        // Update tool status to repair
+        db.prepare(`
+          UPDATE tools SET status = 'repair', issued_to = NULL, issued_to_name = NULL, issued_at = NULL
+          WHERE id = ?
+        `).run(toolId)
+
+        logOperation('tool_breakdown_reported', {
+          tool_id: toolId,
+          breakdown_id: breakdownId,
+          description: description,
+          reported_by: reportedBy || 'System'
+        })
+
+        console.log(`✓ Reported breakdown for tool: ${toolId}`)
+
+        sendJSON(res, 201, {
+          success: true,
+          breakdown: {
+            id: breakdownId,
+            toolId,
+            status: 'reported',
+            description,
+            reportedBy: reportedBy || 'System',
+            reportedAt: now,
+            createdAt: now
+          }
+        })
+      } catch (err) {
+        console.error('Error reporting tool breakdown:', err)
+        sendJSON(res, 500, { error: err.message })
+      }
+    })
+    return
+  }
+
+  // Get all material invoices
+  if (pathname === '/sklad/api/material-invoices' && req.method === 'GET') {
+    try {
+      const invoices = db.prepare(`
+        SELECT mi.*, 
+          GROUP_CONCAT(json_object('id', mii.id, 'productName', mii.product_name, 'quantity', mii.quantity, 'unit', mii.unit, 'article', mii.article, 'price', mii.price, 'scannedAt', mii.scanned_at), ',') as items_json
+        FROM material_invoices mi
+        LEFT JOIN material_invoice_items mii ON mi.id = mii.invoice_id
+        GROUP BY mi.id
+        ORDER BY mi.date DESC
+      `).all()
+
+      const result = invoices.map(inv => ({
+        id: inv.id,
+        employeeId: inv.employee_id,
+        date: inv.date,
+        orderNumber: inv.order_number,
+        destination: inv.destination,
+        totalAmount: inv.total_amount,
+        items: inv.items_json ? inv.items_json.split(',').map(item => JSON.parse(item)) : [],
+        createdAt: inv.created_at,
+        updatedAt: inv.updated_at,
+        createdBy: inv.created_by
+      }))
+
+      sendJSON(res, 200, { success: true, invoices: result })
+    } catch (err) {
+      console.error('Error getting material invoices:', err)
+      sendJSON(res, 500, { error: err.message })
+    }
+    return
+  }
+
+  // Create new material invoice
+  if (pathname === '/sklad/api/material-invoices' && req.method === 'POST') {
+    let body = ''
+    req.on('data', chunk => { body += chunk })
+    req.on('end', () => {
+      try {
+        const data = JSON.parse(body)
+        const {
+          employeeId,
+          date,
+          orderNumber,
+          destination,
+          totalAmount = 0,
+          items = [],
+          createdBy
+        } = data
+
+        if (!employeeId || !date || !orderNumber) {
+          sendJSON(res, 400, { error: 'Missing required fields' })
+          return
+        }
+
+        const invoiceId = Math.random().toString(36).substr(2, 9)
+        const now = new Date().toISOString()
+
+        // Insert invoice
+        db.prepare(`
+          INSERT INTO material_invoices (id, employee_id, date, order_number, destination, total_amount, created_at, updated_at, created_by)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(invoiceId, employeeId, date, orderNumber, destination || null, totalAmount, now, now, createdBy || 'System')
+
+        // Insert items
+        items.forEach(item => {
+          const itemId = Math.random().toString(36).substr(2, 9)
+          db.prepare(`
+            INSERT INTO material_invoice_items (id, invoice_id, product_name, quantity, unit, article, price, scanned_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          `).run(
+            itemId,
+            invoiceId,
+            item.productName,
+            item.quantity,
+            item.unit,
+            item.article || null,
+            item.price || 0,
+            item.scannedAt || now
+          )
+        })
+
+        logOperation('invoice_created', {
+          invoice_id: invoiceId,
+          employee_id: employeeId,
+          order_number: orderNumber,
+          items_count: items.length,
+          created_by: createdBy || 'System'
+        })
+
+        sendJSON(res, 201, {
+          success: true,
+          invoice: {
+            id: invoiceId,
+            employeeId,
+            date,
+            orderNumber,
+            destination,
+            totalAmount,
+            items,
+            createdAt: now,
+            updatedAt: now,
+            createdBy: createdBy || 'System'
+          }
+        })
+      } catch (err) {
+        console.error('Error creating material invoice:', err)
+        sendJSON(res, 500, { error: err.message })
+      }
+    })
+    return
+  }
+
+  // Get material invoices for employee
+  if (pathname.match(/^\/sklad\/api\/employees\/[^\/]+\/material-invoices$/) && req.method === 'GET') {
+    try {
+      const employeeId = pathname.split('/')[4]
+      const invoices = db.prepare(`
+        SELECT mi.*, 
+          GROUP_CONCAT(json_object('id', mii.id, 'productName', mii.product_name, 'quantity', mii.quantity, 'unit', mii.unit, 'article', mii.article, 'price', mii.price, 'scannedAt', mii.scanned_at), ',') as items_json
+        FROM material_invoices mi
+        LEFT JOIN material_invoice_items mii ON mi.id = mii.invoice_id
+        WHERE mi.employee_id = ?
+        GROUP BY mi.id
+        ORDER BY mi.date DESC
+      `).all(employeeId)
+
+      const result = invoices.map(inv => ({
+        id: inv.id,
+        employeeId: inv.employee_id,
+        date: inv.date,
+        orderNumber: inv.order_number,
+        destination: inv.destination,
+        totalAmount: inv.total_amount,
+        items: inv.items_json ? inv.items_json.split(',').map(item => JSON.parse(item)) : [],
+        createdAt: inv.created_at,
+        updatedAt: inv.updated_at,
+        createdBy: inv.created_by
+      }))
+
+      sendJSON(res, 200, { success: true, invoices: result })
+    } catch (err) {
+      console.error('Error getting employee material invoices:', err)
+      sendJSON(res, 500, { error: err.message })
+    }
+    return
+  }
+
+  // Reports: Orders summary
+  if (pathname === '/sklad/api/reports/orders-summary' && req.method === 'GET') {
+    try {
+      const invoices = db.prepare(`
+        SELECT mi.*, e.name as employee_name,
+          GROUP_CONCAT(json_object('id', mii.id, 'productName', mii.product_name, 'quantity', mii.quantity, 'unit', mii.unit, 'article', mii.article, 'price', mii.price), ',') as items_json
+        FROM material_invoices mi
+        LEFT JOIN employees e ON mi.employee_id = e.id
+        LEFT JOIN material_invoice_items mii ON mi.id = mii.invoice_id
+        WHERE mi.order_number IS NOT NULL AND mi.order_number NOT IN ('ПРИХОД', 'ПРИХОД (СКЛАД)', 'НОВАЯ КАРТОЧКА', 'ИЗМЕНЕНИЕ ЦЕНЫ')
+        GROUP BY mi.id
+        ORDER BY mi.date DESC
+      `).all()
+
+      const reportMap = {}
+      
+      invoices.forEach(inv => {
+        const items = inv.items_json ? inv.items_json.split(',').map(item => JSON.parse(item)) : []
+        
+        if (!reportMap[inv.order_number]) {
+          reportMap[inv.order_number] = {
+            orderNumber: inv.order_number,
+            items: [],
+            employees: new Set()
+          }
+        }
+        
+        reportMap[inv.order_number].employees.add(inv.employee_name || 'Unknown')
+        
+        items.forEach(item => {
+          const existing = reportMap[inv.order_number].items.find(i => i.article === item.article)
+          if (existing) {
+            existing.quantity += item.quantity
+          } else {
+            reportMap[inv.order_number].items.push(item)
+          }
+        })
+      })
+
+      const result = Object.values(reportMap).map(entry => ({
+        ...entry,
+        employees: Array.from(entry.employees),
+        totalAmount: entry.items.reduce((sum, i) => sum + (i.price || 0) * i.quantity, 0)
+      }))
+
+      sendJSON(res, 200, { success: true, reports: result })
+    } catch (err) {
+      console.error('Error getting orders report:', err)
+      sendJSON(res, 500, { error: err.message })
+    }
+    return
+  }
+
+  // Reports: Movement history
+  if (pathname === '/sklad/api/reports/movement-history' && req.method === 'GET') {
+    try {
+      const invoices = db.prepare(`
+        SELECT mi.*, e.name as employee_name,
+          GROUP_CONCAT(json_object('productName', mii.product_name, 'quantity', mii.quantity, 'unit', mii.unit, 'article', mii.article, 'price', mii.price), ',') as items_json
+        FROM material_invoices mi
+        LEFT JOIN employees e ON mi.employee_id = e.id
+        LEFT JOIN material_invoice_items mii ON mi.id = mii.invoice_id
+        GROUP BY mi.id
+        ORDER BY mi.date DESC
+      `).all()
+
+      const result = invoices.map(inv => {
+        const items = inv.items_json ? inv.items_json.split(',').map(item => JSON.parse(item)) : []
+        const isIncoming = ['ПРИХОД', 'ПРИХОД (СКЛАД)', 'НОВАЯ КАРТОЧКА', 'ИЗМЕНЕНИЕ ЦЕНЫ'].includes(inv.order_number)
+        
+        return {
+          id: inv.id,
+          date: inv.date,
+          type: isIncoming ? 'Приход ТМЦ' : (inv.destination === 'Брак' ? 'Списание брака' : 'Выдача ТМЦ'),
+          tagType: isIncoming ? 'success' : (inv.destination === 'Брак' ? 'warning' : 'info'),
+          employeeName: inv.employee_name || 'System',
+          orderNumber: inv.order_number,
+          itemCount: items.reduce((sum, i) => sum + i.quantity, 0),
+          totalAmount: inv.total_amount
+        }
+      })
+
+      sendJSON(res, 200, { success: true, movements: result })
+    } catch (err) {
+      console.error('Error getting movement history:', err)
+      sendJSON(res, 500, { error: err.message })
+    }
+    return
+  }
+
+  // Reports: Top employees
+  if (pathname === '/sklad/api/reports/top-employees' && req.method === 'GET') {
+    try {
+      const employees = db.prepare(`
+        SELECT e.*, COUNT(mi.id) as operations_count
+        FROM employees e
+        LEFT JOIN material_invoices mi ON e.id = mi.employee_id
+        GROUP BY e.id
+        ORDER BY operations_count DESC
+        LIMIT 5
+      `).all()
+
+      const result = employees.map(emp => ({
+        id: emp.id,
+        name: emp.name,
+        position: emp.position,
+        avatar: emp.avatar,
+        operations: emp.operations_count || 0
+      }))
+
+      sendJSON(res, 200, { success: true, employees: result })
+    } catch (err) {
+      console.error('Error getting top employees:', err)
+      sendJSON(res, 500, { error: err.message })
+    }
+    return
+  }
+
+  // Reports: Critical items (low stock)
+  if (pathname === '/sklad/api/reports/critical-items' && req.method === 'GET') {
+    try {
+      // Note: This requires inventory data which is in memory in current implementation
+      // For now return empty, can be expanded when inventory is moved to database
+      const criticalItems = []
+      
+      sendJSON(res, 200, { success: true, items: criticalItems })
+    } catch (err) {
+      console.error('Error getting critical items:', err)
+      sendJSON(res, 500, { error: err.message })
+    }
+    return
+  }
+
+  // Change password
+  if (pathname === '/sklad/api/auth/change-password' && req.method === 'POST') {
+    let body = ''
+    req.on('data', chunk => { body += chunk })
+    req.on('end', () => {
+      try {
+        const data = JSON.parse(body)
+        const { userId, oldPassword, newPassword } = data
+
+        if (!userId || !oldPassword || !newPassword) {
+          sendJSON(res, 400, { error: 'Missing required fields' })
+          return
+        }
+
+        const user = db.prepare('SELECT id, password_hash FROM users WHERE id = ?').get(userId)
+        if (!user) {
+          sendJSON(res, 404, { error: 'User not found' })
+          return
+        }
+
+        // Verify old password
+        const passwordValid = compareSync(oldPassword, user.password_hash)
+        if (!passwordValid) {
+          sendJSON(res, 401, { error: 'Invalid old password' })
+          return
+        }
+
+        // Hash new password
+        const newPasswordHash = hashSync(newPassword, 10)
+        db.prepare('UPDATE users SET password_hash = ?, needs_password_change = 0, updated_at = ? WHERE id = ?')
+          .run(newPasswordHash, new Date().toISOString(), userId)
+
+        sendJSON(res, 200, { success: true })
+      } catch (err) {
+        console.error('Error changing password:', err)
         sendJSON(res, 500, { error: err.message })
       }
     })
@@ -2456,7 +4336,7 @@ server.listen(PORT, '0.0.0.0', async () => {
   // При старте пытаемся синхронизироваться с 1C
   console.log('\n📡 Attempting to sync with 1C OData...')
   const initialSync = await syncWith1C()
-  
+
   if (initialSync.usedFallback || lastSyncTime.connectionStatus === 'unavailable') {
     console.log('\n❌ 1C IS UNAVAILABLE')
     console.log('⚠️  Data synchronization failed - 1C server is not responding')

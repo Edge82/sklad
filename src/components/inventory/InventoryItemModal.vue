@@ -101,6 +101,11 @@
                         <n-icon><CloudUploadOutline /></n-icon>
                       </template>
                     </n-button>
+                    <n-button @click="printBarcode" :disabled="!formData.barcode" type="info" secondary>
+                      <template #icon>
+                        <n-icon><PrintOutline /></n-icon>
+                      </template>
+                    </n-button>
                   </n-input-group>
                 </n-form-item>
 
@@ -161,6 +166,11 @@
                     <n-icon><CloudUploadOutline /></n-icon>
                   </template>
                 </n-button>
+                <n-button @click="printBarcode" :disabled="!formData.barcode" type="info" secondary>
+                  <template #icon>
+                    <n-icon><PrintOutline /></n-icon>
+                  </template>
+                </n-button>
               </n-input-group>
             </n-form-item>
 
@@ -197,6 +207,11 @@
                     <n-input v-model:value="formData.barcode" placeholder="ID изделия или штрих-код" />
                     <n-button @click="generateBarcode" type="primary" ghost>
                       Генерация
+                    </n-button>
+                    <n-button @click="printBarcode" :disabled="!formData.barcode" type="info" ghost>
+                      <template #icon>
+                        <n-icon><PrintOutline /></n-icon>
+                      </template>
                     </n-button>
                   </n-input-group>
                 </n-form-item>
@@ -250,6 +265,38 @@
         </n-button>
       </div>
     </n-form>
+
+    <!-- Модальное окно для печати штрихкода -->
+    <n-modal v-model:show="showPrintModal" title="Печать штрихкода" preset="dialog" :show-icon="false">
+      <template #header>
+        <div class="font-bold">Печать штрихкода</div>
+      </template>
+      <div class="space-y-4">
+        <div>
+          <div class="text-sm text-gray-400 mb-2">Штрихкод:</div>
+          <div class="text-lg font-mono font-bold text-center p-4 bg-white text-black rounded border border-gray-300">{{ formData.barcode }}</div>
+        </div>
+        <div>
+          <div class="text-sm text-gray-400 mb-2">Название товара:</div>
+          <div class="text-base font-semibold p-2 bg-white text-black rounded border border-gray-300">{{ formData.name || 'Не указано' }}</div>
+        </div>
+        <div>
+          <label class="text-sm text-gray-400 mb-2 block">Дополнительная информация для печати (опционально):</label>
+          <n-input 
+            v-model:value="printInfo" 
+            type="textarea" 
+            placeholder="Например: лот, дата производства, и т.д." 
+            :rows="4"
+          />
+        </div>
+      </div>
+      <template #action>
+        <div class="flex gap-2 justify-end">
+          <n-button @click="showPrintModal = false">Отмена</n-button>
+          <n-button type="primary" @click="handlePrint">Печать</n-button>
+        </div>
+      </template>
+    </n-modal>
   </n-modal>
 </template>
 
@@ -277,9 +324,10 @@ import {
   NImage,
   NIcon,
   NDivider,
+  NDialog,
   type UploadFileInfo
 } from 'naive-ui'
-import { CloudUploadOutline, TrashOutline } from '@vicons/ionicons5'
+import { CloudUploadOutline, TrashOutline, PrintOutline } from '@vicons/ionicons5'
 
 const props = defineProps<{
   show: boolean
@@ -299,6 +347,8 @@ const message = useMessage()
 const formRef = ref<FormInst | null>(null)
 const loading = ref(false)
 const initialDataStr = ref('')
+const showPrintModal = ref(false)
+const printInfo = ref('')
 
 const unitOptions1C = ref<{ label: string, value: string }[]>([])
 const warehouseOptions1C = ref<{ label: string, value: string }[]>([])
@@ -311,14 +361,16 @@ onMounted(async () => {
       stockBalances.fetchWarehouses(),
       stockBalances.fetchCategories()
     ])
-    unitOptions1C.value = units.map(u => ({ label: u.name, value: u.id }))
-    warehouseOptions1C.value = warehouses.map(w => ({ label: w.name, value: w.id }))
-    categoryOptions1C.value = categories.map(c => ({ label: c.name, value: c.id }))
+    unitOptions1C.value = units.map((u: any) => ({ label: u.name, value: u.id }))
+    warehouseOptions1C.value = warehouses.map((w: any) => ({ label: w.name, value: w.id }))
+    categoryOptions1C.value = categories.map((c: any) => ({ label: c.name, value: c.id }))
     
     // Устанавливаем единицу измерения по умолчанию - первую из 1C если есть
     if (unitOptions1C.value.length > 0) {
       const defaultUnit = unitOptions1C.value.find(u => u.label === 'шт') || unitOptions1C.value[0]
-      formData.unit = defaultUnit.value  // Это будет GUID из 1C
+      if (defaultUnit) {
+        formData.unit = defaultUnit.value  // Это будет GUID из 1C
+      }
     }
     
     // Если это создание нового и склады загружены, ставим Основной склад по умолчанию
@@ -514,9 +566,6 @@ const getWarehouseLabel = (warehouseId: string) => {
   let found = warehouseOptions1C.value.find(w => w.value === warehouseId)
   if (found) return found.label
   
-  // Если не нашли по GUID, используем название из formData (уже загружено из API)
-  if (formData.warehouse) return formData.warehouse
-  
   // Последний вариант - показываем GUID если ничего не нашли
   return warehouseId || 'Не указано'
 }
@@ -530,6 +579,73 @@ const generateBarcode = () => {
   const year = new Date().getFullYear().toString().substring(2)
   const random = Math.random().toString(36).substring(2, 8).toUpperCase()
   formData.barcode = `${prefix}-${year}-${random}`
+}
+
+const printBarcode = () => {
+  if (!formData.barcode) {
+    message.warning('Сначала сгенерируйте штрих-код')
+    return
+  }
+  showPrintModal.value = true
+}
+
+const handlePrint = () => {
+  const printWindow = window.open('', '_blank')
+  if (!printWindow) {
+    message.error('Не удалось открыть окно печати')
+    return
+  }
+  
+  const barcode = formData.barcode || ''
+  const itemName = (formData.name || 'Товар').replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+  const additionalInfo = (printInfo.value || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+  
+  let html = '<!DOCTYPE html><html><head><meta charset="UTF-8">'
+  html += '<title>Печать штрихкода</title>'
+  html += '<script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"><\/script>'
+  html += '<style>'
+  html += '* { margin: 0; padding: 0; box-sizing: border-box; }'
+  html += 'body { font-family: Arial, sans-serif; background: white; margin: 0; padding: 5mm; }'
+  html += '.print-container { display: flex; align-items: center; justify-content: center; min-height: 100vh; }'
+  html += '.barcode-label { border: 2px solid #000; padding: 10mm; width: 80mm; text-align: center; background: white; }'
+  html += '#barcode { margin: 8px 0; display: block; max-width: 100%; }'
+  html += '.title { font-size: 11px; color: #666; margin-bottom: 5px; }'
+  html += '.code { font-size: 14px; font-weight: bold; letter-spacing: 1px; margin: 6px 0; font-family: monospace; word-break: break-all; }'
+  html += '.item { font-size: 12px; font-weight: bold; margin: 6px 0; color: #000; word-wrap: break-word; }'
+  html += '.info { font-size: 9px; color: #666; margin-top: 8px; white-space: pre-wrap; text-align: left; }'
+  html += '@media print { body { margin: 0; padding: 5mm; } }'
+  html += '<\/style><\/head><body>'
+  html += '<div class="print-container"><div class="barcode-label">'
+  html += '<div class="title">Штрих-код</div>'
+  html += '<svg id="barcode"><\/svg>'
+  html += '<div class="code">' + barcode + '<\/div>'
+  html += '<div class="item">' + itemName + '<\/div>'
+  if (additionalInfo) {
+    html += '<div class="info">' + additionalInfo + '<\/div>'
+  }
+  html += '<\/div><\/div>'
+  html += '<script>'
+  html += 'document.addEventListener("DOMContentLoaded", function() {'
+  html += '  try {'
+  html += '    JsBarcode("#barcode", "' + barcode + '", {'
+  html += '      format: "CODE128",'
+  html += '      width: 1.5,'
+  html += '      height: 40,'
+  html += '      displayValue: false,'
+  html += '      margin: 3'
+  html += '    });'
+  html += '    setTimeout(() => window.print(), 300);'
+  html += '  } catch(e) {'
+  html += '    console.error("Ошибка:", e);'
+  html += '  }'
+  html += '});'
+  html += '<\/script>'
+  html += '<\/body><\/html>'
+  
+  printWindow.document.write(html)
+  printWindow.document.close()
+  showPrintModal.value = false
+  message.success('Отправлено на печать')
 }
 
 const handleSubmit = async () => {
@@ -566,6 +682,7 @@ const handleSubmit = async () => {
         // Они сохраняются только в локальную БД через API endpoint /sklad/api/onec/stocks/{id}
         created1C = await integrationStore.createNomenclature({
           name: formData.name,
+          sku: formData.sku || formData.barcode || `SKU-${Date.now()}`,
           unitId: unitId,
           categoryId: categoryId,
           image: formData.image,
@@ -573,6 +690,9 @@ const handleSubmit = async () => {
         });
         
         // После создания синхронизируем материалы из 1С
+        // Добавляем задержку чтобы материал успел создаться в 1C
+        await new Promise(resolve => setTimeout(resolve, 2000))
+        
         try {
           // Сначала выполняем полную синхронизацию
           await integrationStore.syncAll()
@@ -595,8 +715,33 @@ const handleSubmit = async () => {
       }
     }
 
-    const item = {
-      ...formData,
+    const item: Partial<InventoryItem> = {
+      name: formData.name,
+      sku: formData.sku,
+      barcode: formData.barcode,
+      categoryId: formData.categoryId,
+      description: formData.description,
+      unit: formData.unit,
+      image: formData.image,
+      imageFileName: formData.imageFileName,
+      status: formData.status as 'in_stock' | 'low_stock' | 'out_of_stock' | 'reserved' | 'on_order' | 'blocked',
+      currentStock: formData.currentStock,
+      minStock: formData.minStock,
+      maxStock: formData.maxStock,
+      reserved: formData.reserved,
+      location: formData.location,
+      storageBin: formData.storageBin,
+      warehouseId: formData.warehouseId,
+      purchasePrice: formData.purchasePrice,
+      averagePrice: formData.averagePrice,
+      lastPurchasePrice: formData.lastPurchasePrice,
+      mainSupplier: formData.mainSupplier,
+      supplierCode: formData.supplierCode,
+      deliveryTime: formData.deliveryTime,
+      minOrderQuantity: formData.minOrderQuantity,
+      totalConsumed: formData.totalConsumed,
+      popularity: formData.popularity,
+      type: formData.type,
       id: props.itemId || created1C?.id || `ITEM-${Math.random().toString(36).substr(2, 9).toUpperCase()}`,
       category: inventoryStore.categories.find(c => c.id === formData.categoryId)?.name || 'Прочее',
       available: formData.currentStock - formData.reserved,

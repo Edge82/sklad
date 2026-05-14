@@ -188,10 +188,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, h } from 'vue'
+import { ref, computed, h, onMounted } from 'vue'
 import { useInventoryStore } from '@/stores/inventory'
 import { useEmployeesStore } from '@/stores/employees'
 import { useToolsStore } from '@/stores/tools'
+import { useReportsStore } from '@/stores/reports'
 import { 
   type InventoryItem, 
   type MaterialInvoice, 
@@ -214,6 +215,7 @@ import {
 const inventoryStore = useInventoryStore()
 const employeesStore = useEmployeesStore()
 const toolsStore = useToolsStore()
+const reportsStore = useReportsStore()
 
 const dateRange = ref<[number, number] | null>(null)
 const activeTab = ref('main')
@@ -221,6 +223,11 @@ const selectedEmployee = ref<Employee | null>(null)
 const showEmployeeModal = ref(false)
 const expandedOrderKeys = ref<string[]>([])
 const expandedWriteOffKeys = ref<string[]>([])
+
+// Load reports on mount
+onMounted(async () => {
+  await reportsStore.loadAllReports()
+})
 
 interface OrderReportEntry {
   orderNumber: string
@@ -400,50 +407,7 @@ interface OrderReportEntry {
   employees: Set<string>
 }
 
-const ordersReport = computed(() => {
-  const reportMap: Record<string, OrderReportEntry> = {}
-  
-  interface FlattenedInvoice extends MaterialInvoice {
-    employeeName: string
-  }
-  
-  const allHistory: FlattenedInvoice[] = []
-  employeesStore.employees.forEach((emp: Employee) => {
-    if (emp.materialHistory) {
-      emp.materialHistory.forEach((h_item: MaterialInvoice) => {
-        allHistory.push({ ...h_item, employeeName: emp.name })
-      })
-    }
-  })
-
-  allHistory.forEach(h_item => {
-    if (!h_item.orderNumber) return 
-
-    if (!reportMap[h_item.orderNumber]) {
-      reportMap[h_item.orderNumber] = { 
-        orderNumber: h_item.orderNumber, 
-        items: [], 
-        employees: new Set() 
-      }
-    }
-    
-    const entry = reportMap[h_item.orderNumber]
-    if (entry) {
-      entry.employees.add(h_item.employeeName)
-      
-      h_item.items.forEach((item: MaterialInvoiceItem) => {
-        const existing = entry.items.find(i => i.article === item.article)
-        if (existing) {
-          existing.quantity += item.quantity
-        } else {
-          entry.items.push({ ...item })
-        }
-      })
-    }
-  })
-
-  return Object.values(reportMap)
-})
+const ordersReport = computed(() => reportsStore.ordersReport)
 
 const writeOffReport = computed(() => {
   const reportMap: Record<string, WriteOffReportEntry> = {}
@@ -484,12 +448,7 @@ const writeOffReport = computed(() => {
   return Object.values(reportMap)
 })
 
-const topEmployees = computed(() => 
-  employeesStore.employees
-    .map((emp: Employee) => ({ ...emp, operations: (emp.materialHistory?.length || 0) }))
-    .sort((a, b) => b.operations - a.operations)
-    .slice(0, 5)
-)
+const topEmployees = computed(() => reportsStore.topEmployees)
 
 const summaryMetrics = computed(() => [
   { id: 'main', label: 'Общая сводка', value: '📊', icon: StatsChartOutline, color: '#666' },
@@ -516,29 +475,7 @@ interface MovementHistoryItem {
   productName?: string // Для расширенного отображения
 }
 
-const movementHistory = computed(() => {
-  const history: MovementHistoryItem[] = []
-  
-  employeesStore.employees.forEach((emp: Employee) => {
-    if (emp.materialHistory) {
-      emp.materialHistory.forEach((h_item: MaterialInvoice) => {
-        const isIncoming = ['ПРИХОД', 'ПРИХОД (СКЛАД)', 'НОВАЯ КАРТОЧКА', 'ИЗМЕНЕНИЕ ЦЕНЫ'].includes(h_item.orderNumber)
-        
-        history.push({ 
-          date: h_item.date,
-          type: isIncoming ? 'Приход ТМЦ' : (h_item.destination === 'Брак' ? 'Списание брака' : 'Выдача ТМЦ'),
-          tagType: isIncoming ? 'success' : (h_item.destination === 'Брак' ? 'warning' : 'info'),
-          employeeName: emp.name, 
-          orderNumber: h_item.orderNumber,
-          itemCount: h_item.items?.reduce((sum: number, i: MaterialInvoiceItem) => sum + i.quantity, 0) || 0,
-          totalAmount: h_item.totalAmount
-        })
-      })
-    }
-  })
-
-  return history.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-})
+const movementHistory = computed(() => reportsStore.movementHistory)
 
 const movementColumns = [
   { 

@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { Order, OrderStatus, OrderShipment, QRCode } from '@/types'
 import { API_BASE_URL } from '@/config/api'
+import { useQRCodesStore } from './qrCodes'
 
 export const useOrdersStore = defineStore('orders', () => {
   const orders = ref<Order[]>([])
@@ -103,8 +104,9 @@ export const useOrdersStore = defineStore('orders', () => {
       if (ordersData && Array.isArray(ordersData)) {
         orders.value = ordersData.map((order: any) => {
           const orderDate = order.date ? new Date(order.date) : new Date()
+          const orderId = order.ref_key || order.id || String(Math.random())  // Prefer ref_key (UUID)
           return {
-            id: order.id || order.ref_key || String(Math.random()),
+            id: orderId,  // Use UUID for API calls
             orderNumber: order.order_number || order.Number || 'N/A',
             customerName: order.customer || order.Контрагент____Presentation || 'Unknown Customer',
             customerPhone: order.customerPhone || '',
@@ -127,9 +129,27 @@ export const useOrdersStore = defineStore('orders', () => {
             partialShipmentAllowed: true,
             plannedDate: order.plannedDate ? new Date(order.plannedDate) : undefined,
             completedAt: undefined,
-            odata_id: order.id || order.ref_key || ''
+            odata_id: order.id || order.ref_key || '',
+            qrCodeCount: 0  // Will be loaded separately
           }
         })
+
+        // Load QR codes for all orders using qrCodes store batch load
+        try {
+          const qrStore = useQRCodesStore()
+          const orderIds = orders.value.map(o => o.id)
+          if (orderIds.length > 0) {
+            await qrStore.loadQRCodesForOrders(orderIds)
+            
+            // Update qrCodeCount for each order based on loaded codes
+            orders.value.forEach(order => {
+              order.qrCodeCount = qrStore.qrCodes.filter(code => code.orderId === order.id).length
+            })
+          }
+        } catch (qrErr) {
+          console.error('Failed to load QR codes:', qrErr)
+        }
+
         if (typeof window !== 'undefined') {
           localStorage.setItem('orders_data', JSON.stringify(orders.value))
         }
@@ -185,6 +205,62 @@ export const useOrdersStore = defineStore('orders', () => {
     }
   }
 
+  // Update painting (окраска) field for an order
+  async function updateOrderPainting(orderId: string, painting: string) {
+    loading.value = true
+    error.value = null
+    
+    try {
+      const response = await fetch(`${API_BASE_URL}/onec/orders/painting`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          orderId: orderId,
+          painting: painting
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to update painting')
+      }
+
+      // Update local order
+      const order = getOrderById(orderId)
+      if (order) {
+        order.notes = painting
+      }
+
+      return true
+    } catch (err) {
+      error.value = err instanceof Error ? err.message : 'Unknown error'
+      console.error('Error updating painting:', err)
+      throw err
+    } finally {
+      loading.value = false
+    }
+  }
+
+  // Log operation on the backend
+  async function logOperation(type: string, data: any) {
+    try {
+      await fetch(`${API_BASE_URL}/operation-logs`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          operationType: type,
+          ...data
+        })
+      })
+    } catch (err) {
+      console.error('Error logging operation:', err)
+      // Don't throw - logging failure shouldn't break the main operation
+    }
+  }
+
   return {
     orders,
     loading,
@@ -201,6 +277,8 @@ export const useOrdersStore = defineStore('orders', () => {
     getOrderProgress,
     getOrderItemProgress,
     loadOrdersFromApi,
-    restoreFromLocalStorage
+    restoreFromLocalStorage,
+    updateOrderPainting,
+    logOperation
   }
 })

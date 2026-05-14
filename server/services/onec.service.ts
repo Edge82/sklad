@@ -1,6 +1,6 @@
 /**
  * server/services/onec.service.ts
- * 
+ *
  * Единая точка входа для всех запросов к 1С OData API
  * Обрабатывает:
  * - Базовую аутентификацию (login:password)
@@ -48,11 +48,11 @@ function getBasicAuthHeader(login: string, password: string): string {
 
 /**
  * Основная функция для запроса к 1С
- * 
+ *
  * @param endpoint - путь после базового URL (например: "/Catalog_Materials")
  * @param options - опции запроса (method, body, timeout)
  * @returns Парсенный JSON ответ от 1С
- * 
+ *
  * @example
  * const materials = await onecRequest('/Catalog_Materials?$format=json')
  * const movement = await onecRequest('/Document_MovementOfMaterials', { method: 'POST', body: {...} })

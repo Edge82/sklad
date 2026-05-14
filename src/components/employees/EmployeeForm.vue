@@ -8,8 +8,8 @@
           <n-input v-model:value="formData.name" placeholder="Введите ФИО сотрудника" />
         </n-form-item>
 
-        <n-form-item label="Email" path="email" required>
-          <n-input v-model:value="formData.email" placeholder="email@company.com" />
+        <n-form-item label="Email" path="email">
+          <n-input v-model:value="formData.email" placeholder="email@company.com (опционально)" />
         </n-form-item>
 
         <n-form-item label="Фото сотрудника" path="avatar">
@@ -256,8 +256,7 @@ const rules: FormRules = {
     { min: 2, message: 'ФИО должно быть не менее 2 символов', trigger: 'blur' }
   ],
   email: [
-    { required: true, message: 'Введите email', trigger: 'blur' },
-    { type: 'email', message: 'Некорректный email', trigger: 'blur' }
+    { type: 'email', message: 'Некорректный email', trigger: 'blur', validator: (rule, value) => !value || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value) }
   ],
   phone: [
     { required: true, message: 'Введите телефон', trigger: 'blur' }

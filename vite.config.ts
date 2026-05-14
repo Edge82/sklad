@@ -20,6 +20,11 @@ export default defineConfig(({ mode }) => {
       port: 3000,
       open: true,
       proxy: {
+        '/sklad/api': {
+          target: 'http://localhost:8000',
+          changeOrigin: true,
+          secure: false
+        },
         '/api-1c': {
           target: env.VITE_1C_PROXY_TARGET || 'https://msk1.1cfresh.com',
           changeOrigin: true,

@@ -259,7 +259,7 @@ function getPlural(count: number, one: string, two: string, five: string): strin
 }
 
 function getTimeSinceSyncByType(type: 'units' | 'warehouses' | 'stocks' | 'orders'): string {
-  return timeSinceSyncByType.value[type]
+  return timeSinceSyncByType.value[type] || '-'
 }
 
 async function fetchStatus() {

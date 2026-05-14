@@ -143,6 +143,12 @@
           </n-card>
         </div>
       </n-tab-pane>
+
+      <n-tab-pane name="operations" tab="История операций">
+        <div class="py-4">
+          <EmployeeOperationHistory :employee-id="currentEmployee.id" :limit="10" />
+        </div>
+      </n-tab-pane>
     </n-tabs>
   </div>
   <div v-else class="flex items-center justify-center min-h-100">
@@ -182,10 +188,11 @@
 
 
 <script setup lang="ts">
-import { ref, computed, h, reactive } from 'vue'
+import { ref, computed, h, reactive, watch, onMounted } from 'vue'
 import { useEmployeesStore } from '@/stores/employees'
 import { useToolsStore } from '@/stores/tools'
 import EmployeeProductionDocument from './EmployeeProductionDocument.vue'
+import EmployeeOperationHistory from './EmployeeOperationHistory.vue'
 import type { Employee } from '@/types'
 import type { DataTableColumns } from 'naive-ui'
 import {
@@ -249,6 +256,15 @@ const currentEmployee = computed(() => {
   return employeesStore.employees.find(e => e.id === props.employee.id) || props.employee
 })
 
+// Load tools when component mounts and when employee changes
+onMounted(async () => {
+  await toolsStore.loadToolsFromApi()
+})
+
+watch(() => props.employee.id, async () => {
+  await toolsStore.loadToolsFromApi()
+})
+
 // Состояние для сдачи инструмента
 const showReturnModal = ref(false)
 const selectedToolId = ref<string | null>(null)
@@ -269,34 +285,27 @@ const handleReturnTool = (toolId: string) => {
   showReturnModal.value = true
 }
 
-const confirmReturn = () => {
+const confirmReturn = async () => {
   if (!selectedToolId.value) return
 
-  if (returnForm.reason === 'repair') {
-    const tool = toolsStore.getToolById(selectedToolId.value)
-    if (tool) {
-      toolsStore.reportBreakdown({
-        toolId: tool.id,
-        toolName: tool.name,
-        inventoryNumber: tool.inventoryNumber,
-        reportedBy: currentEmployee.value.id,
-        reportedByName: currentEmployee.value.name,
-        reportedAt: new Date(),
-        description: returnForm.notes || 'Возврат с дефектом',
-        severity: 'minor',
-        workerId: currentEmployee.value.id,
-        workerName: currentEmployee.value.name
-      })
+  try {
+    if (returnForm.reason === 'repair') {
+      const tool = toolsStore.getToolById(selectedToolId.value)
+      if (tool) {
+        await toolsStore.reportBreakdown(selectedToolId.value, returnForm.notes || 'Возврат с дефектом')
+      }
+    } else {
+      // Обычная сдача на склад
+      await toolsStore.returnTool(selectedToolId.value)
     }
-  } else {
-    // Обычная сдача на склад
-    toolsStore.returnTool(selectedToolId.value)
-    // У инструмента меняется статус в сторе внутри returnTool
-  }
 
-  message.success('Инструмент успешно сдан')
-  showReturnModal.value = false
-  selectedToolId.value = null
+    message.success('Инструмент успешно сдан')
+    showReturnModal.value = false
+    selectedToolId.value = null
+  } catch (err) {
+    message.error('Ошибка при сдаче инструмента')
+    console.error('Error returning tool:', err)
+  }
 }
 
 const invoiceColumns: DataTableColumns<MaterialInvoice> = [
@@ -416,7 +425,7 @@ const avatarKey = computed(() => {
   return `avatar-${currentEmployee.value?.id}-${avatarSrc.value?.length || 0}`
 })
 
-const formatDate = (date: Date) => {
+const formatDate = (date: Date | string) => {
   if (!date) return 'Не указано'
   try {
     return new Intl.DateTimeFormat('ru-RU').format(new Date(date))

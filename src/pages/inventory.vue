@@ -43,7 +43,7 @@
               ({{ integrationStore.syncProgress }}%)
             </template>
           </n-button>
-          <n-button v-if="props.mode !== 'product'" @click="isBulkIssueView = true" type="error">
+          <n-button v-if="mode !== 'product'" @click="isBulkIssueView = true" type="error">
             <template #icon>
               <n-icon>
                 <RemoveCircleOutline />
@@ -51,7 +51,7 @@
             </template>
             Перемещение товара
           </n-button>
-          <n-button @click="showCreateModal = true" type="primary">
+          <n-button v-if="mode !== 'product'" @click="showCreateModal = true" type="primary">
           <template #icon>
             <n-icon>
               <AddOutline />
@@ -65,7 +65,7 @@
     <!-- Режим Продукции (WMS) - Скрываем старую статистику, если нужно, или оставляем -->
     <!-- Статистика -->
     <n-grid :cols="6" :x-gap="12" :y-gap="12" class="mb-6 items-stretch py-2">
-      <n-gi v-if="props.mode === 'product'">
+      <n-gi v-if="mode === 'product'">
         <n-card 
           size="small" 
           hoverable
@@ -104,7 +104,7 @@
         </n-card>
       </n-gi>
 
-      <n-gi v-if="props.mode === 'product'">
+      <n-gi v-if="mode === 'product'">
         <n-card 
           size="small" 
           hoverable
@@ -143,7 +143,7 @@
         </n-card>
       </n-gi>
 
-      <n-gi v-if="props.mode === 'product'">
+      <n-gi v-if="mode === 'product'">
         <n-card 
           size="small" 
           hoverable
@@ -162,7 +162,7 @@
           </div>
         </n-card>
       </n-gi>
-      <n-gi v-if="props.mode !== 'product'">
+      <n-gi v-if="mode !== 'product'">
         <n-card 
           size="small" 
           hoverable
@@ -182,7 +182,7 @@
         </n-card>
       </n-gi>
 
-      <n-gi v-if="props.mode === 'product'">
+      <n-gi v-if="mode === 'product'">
         <n-card 
           size="small" 
           hoverable
@@ -201,7 +201,7 @@
           </div>
         </n-card>
       </n-gi>
-      <n-gi v-if="props.mode !== 'product'">
+      <n-gi v-if="mode !== 'product'">
         <n-card 
           size="small" 
           hoverable
@@ -220,7 +220,7 @@
           </div>
         </n-card>
       </n-gi>
-      <n-gi v-if="props.mode === 'product'">
+      <n-gi v-if="mode === 'product'">
         <n-card 
           size="small" 
           hoverable
@@ -239,7 +239,7 @@
           </div>
         </n-card>
       </n-gi>
-      <n-gi v-if="props.mode === 'product'">
+      <n-gi v-if="mode === 'product'">
         <n-card border-variant="dark" class="metric-card revenue-card h-full flex flex-col justify-center" size="small">
           <div class="flex items-center gap-3 py-1">
             <n-icon size="28" color="#18a058" :component="CashOutline" />
@@ -250,7 +250,7 @@
           </div>
         </n-card>
       </n-gi>
-      <n-gi v-if="props.mode !== 'product'">
+      <n-gi v-if="mode !== 'product'">
         <n-card 
           size="small" 
           hoverable
@@ -269,7 +269,7 @@
           </div>
         </n-card>
       </n-gi>
-      <n-gi v-if="props.mode !== 'product'">
+      <n-gi v-if="mode !== 'product'">
         <n-card border-variant="dark" class="metric-card revenue-card h-full flex flex-col justify-center" size="small">
           <div class="flex items-center gap-3 py-1">
             <n-icon size="28" color="#18a058" :component="CashOutline" />
@@ -286,7 +286,7 @@
     <n-card class="mb-4" size="small">
       <n-space align="center" :size="[16, 12]">
         <n-select 
-          v-if="props.mode !== 'product'" 
+          v-if="mode !== 'product'" 
           v-model:value="filters.category" 
           placeholder="Все категории" 
           :options="categoryOptions" 
@@ -295,7 +295,7 @@
           :consistent-menu-width="false"
         />
         <n-select 
-          v-if="props.mode !== 'product'" 
+          v-if="mode !== 'product'" 
           v-model:value="filters.warehouse" 
           placeholder="Все склады" 
           :options="warehouseOptions" 
@@ -304,7 +304,7 @@
           :consistent-menu-width="false"
         />
         <n-select 
-          v-if="props.mode !== 'product'" 
+          v-if="mode !== 'product'" 
           v-model:value="filters.status" 
           placeholder="Все статусы" 
           :options="statusOptions" 
@@ -338,7 +338,7 @@
           Сбросить
         </n-button>
         <n-button 
-          v-if="props.mode === 'product'" 
+          v-if="mode === 'product'" 
           type="primary" 
           secondary 
           @click="isGrouped = !isGrouped"

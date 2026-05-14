@@ -1,6 +1,6 @@
 /**
  * server/db.ts
- * 
+ *
  * Инициализация SQLite БД
  * Создаёт таблицу users если её нет
  * Предоставляет функции для работы с БД
@@ -140,9 +140,9 @@ export function createUser(
     INSERT INTO users (login, password_hash, full_name, role)
     VALUES (?, ?, ?, ?)
   `)
-  
+
   const result = stmt.run(login, passwordHash, fullName || null, role)
-  
+
   // Возвращаем только что созданного пользователя
   const user = findUserById(result.lastInsertRowid as number)
   if (!user) throw new Error('Failed to create user')
@@ -157,20 +157,20 @@ export function getAllUsers(): User[] {
 
 export function updateUser(id: number, updates: Partial<Omit<User, 'id' | 'created_at'>>): void {
   const db = getDatabase()
-  
+
   // Формируем SET часть динамически
   const fields = Object.keys(updates).filter(k => k !== 'id' && k !== 'created_at')
   if (fields.length === 0) return
 
   const setClause = fields.map(f => `${f} = ?`).join(', ')
   const values = fields.map(f => updates[f as keyof typeof updates])
-  
+
   const stmt = db.prepare(`
-    UPDATE users 
+    UPDATE users
     SET ${setClause}, updated_at = CURRENT_TIMESTAMP
     WHERE id = ?
   `)
-  
+
   stmt.run(...values, id)
 }
 
@@ -192,14 +192,14 @@ export function createSession(
 ): Session {
   const db = getDatabase()
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // +7 дней
-  
+
   const stmt = db.prepare(`
     INSERT INTO sessions (user_id, token, ip_address, user_agent, expires_at)
     VALUES (?, ?, ?, ?, ?)
   `)
-  
+
   const result = stmt.run(userId, token, ipAddress || null, userAgent || null, expiresAt.toISOString())
-  
+
   const session = db.prepare('SELECT * FROM sessions WHERE id = ?')
     .get(result.lastInsertRowid) as Session
   return session
@@ -208,8 +208,8 @@ export function createSession(
 export function getActiveSessions(userId: number): Session[] {
   const db = getDatabase()
   const stmt = db.prepare(`
-    SELECT * FROM sessions 
-    WHERE user_id = ? 
+    SELECT * FROM sessions
+    WHERE user_id = ?
     AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
     ORDER BY created_at DESC
   `)

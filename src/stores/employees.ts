@@ -55,19 +55,60 @@ export const useEmployeesStore = defineStore('employees', () => {
     return employees.value.filter(emp => emp.department === department)
   }
 
-  const addEmployee = (employee: Omit<Employee, 'id'>) => {
+  const addEmployee = async (employee: Omit<Employee, 'id'>) => {
     const newEmployee: Employee = {
       ...employee,
-      id: String(employees.value.length + 1)
+      id: String(Date.now())
     }
     employees.value.push(newEmployee)
+    
+    // Save to API and return credentials
+    const credentials = await saveEmployeeToAPI(newEmployee)
 
     const dept = departments.value.find((d: Department) => d.name === employee.department)
     if (dept) {
       dept.employeeCount++
     }
 
-    return newEmployee
+    return { employee: newEmployee, credentials }
+  }
+
+  const saveEmployeeToAPI = async (employee: Employee): Promise<{ login: string; password: string } | null> => {
+    try {
+      const response = await fetch('/sklad/api/employees', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: employee.id,
+          name: employee.name,
+          email: employee.email,
+          phone: employee.phone,
+          photo: employee.photo,
+          avatar: employee.avatar,
+          position: employee.position,
+          department: employee.department,
+          role: employee.role,
+          status: employee.status,
+          salary: employee.salary,
+          hireDate: employee.hireDate?.toISOString(),
+          birthDate: employee.birthDate?.toISOString(),
+          address: employee.address,
+          skills: employee.skills,
+          notes: employee.notes,
+          createdBy: userStore.user?.name || 'System'
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error(`Failed to save employee: ${response.statusText}`)
+      }
+
+      const data = await response.json()
+      return data.credentials || null
+    } catch (err) {
+      console.error('Error saving employee to API:', err)
+      return null
+    }
   }
 
   const updateEmployee = (id: string, updates: Partial<Employee>) => {
@@ -94,6 +135,30 @@ export const useEmployeesStore = defineStore('employees', () => {
         if (oldDeptObj) oldDeptObj.employeeCount--
         if (newDeptObj) newDeptObj.employeeCount++
       }
+
+      // Save to API
+      updateEmployeeOnAPI(id, updates)
+    }
+  }
+
+  const updateEmployeeOnAPI = async (id: string, updates: Partial<Employee>) => {
+    try {
+      const response = await fetch(`/sklad/api/employees/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...updates,
+          hireDate: updates.hireDate?.toISOString(),
+          birthDate: updates.birthDate?.toISOString(),
+          updatedBy: userStore.user?.name || 'System'
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error(`Failed to update employee: ${response.statusText}`)
+      }
+    } catch (err) {
+      console.error('Error updating employee on API:', err)
     }
   }
 
@@ -108,6 +173,23 @@ export const useEmployeesStore = defineStore('employees', () => {
         }
       }
       employees.value.splice(index, 1)
+
+      // Delete from API
+      deleteEmployeeFromAPI(id)
+    }
+  }
+
+  const deleteEmployeeFromAPI = async (id: string) => {
+    try {
+      const response = await fetch(`/sklad/api/employees/${id}`, {
+        method: 'DELETE'
+      })
+
+      if (!response.ok) {
+        throw new Error(`Failed to delete employee: ${response.statusText}`)
+      }
+    } catch (err) {
+      console.error('Error deleting employee from API:', err)
     }
   }
 
@@ -163,9 +245,32 @@ export const useEmployeesStore = defineStore('employees', () => {
     loading.value = true
     error.value = null
     try {
-      const data = await fetch('/api/onec/employees').then(r => r.json())
-      if (data && Array.isArray(data)) {
-        employees.value = data
+      const response = await fetch('/sklad/api/employees')
+      const data = await response.json()
+      if (data.employees && Array.isArray(data.employees)) {
+        // Transform database format to frontend format
+        employees.value = data.employees.map((emp: any) => ({
+          id: emp.id,
+          userId: emp.user_id,
+          name: emp.name,
+          email: emp.email,
+          phone: emp.phone,
+          photo: emp.photo,
+          avatar: emp.avatar,
+          position: emp.position,
+          department: emp.department,
+          role: emp.role,
+          status: emp.status,
+          salary: emp.salary,
+          hireDate: emp.hire_date ? new Date(emp.hire_date) : new Date(),
+          birthDate: emp.birth_date ? new Date(emp.birth_date) : undefined,
+          address: emp.address,
+          skills: emp.skills ? JSON.parse(emp.skills) : [],
+          notes: emp.notes,
+          currentTools: [],
+          currentOrders: [],
+          productionDocuments: []
+        }))
         if (typeof window !== 'undefined') {
           localStorage.setItem('employees_data', JSON.stringify(employees.value))
         }
@@ -173,6 +278,8 @@ export const useEmployeesStore = defineStore('employees', () => {
     } catch (err: any) {
       error.value = err.message || 'Ошибка загрузки сотрудников'
       console.error('Failed to load employees:', err)
+      // Fallback to localStorage
+      restoreFromLocalStorage()
     } finally {
       loading.value = false
     }

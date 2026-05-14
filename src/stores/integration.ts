@@ -13,6 +13,14 @@ export const useIntegrationStore = defineStore('integration', () => {
   const error = ref<string | null>(null)
   const lastSyncTime = ref<string | null>(typeof window !== 'undefined' ? localStorage.getItem('1c_last_sync') : null)
   const syncProgress = ref(0)
+  const settings = ref({
+    importOrders: true,
+    importNomenclature: true,
+    importEmployees: true,
+    exportShipments: true,
+    exportProduction: true
+  })
+  const syncLogs = ref<any[]>([])
 
   async function syncWith1C() {
     loading.value = true
@@ -230,6 +238,8 @@ export const useIntegrationStore = defineStore('integration', () => {
     error,
     lastSyncTime,
     syncProgress,
+    settings,
+    syncLogs,
     syncWith1C,
     syncOrders,
     syncStocks,

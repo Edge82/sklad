@@ -1,88 +1,76 @@
 <template>
   <n-modal v-model:show="showModal" preset="card" :title="title" class="w-200!" :bordered="false" size="huge">
     <n-form ref="formRef" :model="formData" :rules="rules" label-placement="top">
-      <n-tabs type="line" animated>
+      <n-grid :cols="2" :x-gap="24">
         <!-- Основная информация -->
-        <n-tab-pane name="basic" tab="Основное">
-          <n-grid :cols="2" :x-gap="24">
-            <n-gi>
-              <n-form-item label="Наименование инструмента" path="name" required>
-                <n-input v-model:value="formData.name" placeholder="Введите название" />
-              </n-form-item>
+        <n-gi>
+          <n-form-item label="Наименование инструмента" path="name" required>
+            <n-input v-model:value="formData.name" placeholder="Введите название" />
+          </n-form-item>
 
-              <n-form-item label="Инвентарный номер" path="inventoryNumber" required>
-                <n-input v-model:value="formData.inventoryNumber" placeholder="ИН-0000" />
-              </n-form-item>
+          <n-form-item label="Инвентарный номер" path="inventoryNumber" required>
+            <n-input v-model:value="formData.inventoryNumber" placeholder="ИН-0000" />
+          </n-form-item>
 
-              <n-form-item label="Тип инструмента" path="type" required>
-                <n-select v-model:value="formData.type" :options="typeOptions" placeholder="Выберите тип" />
-              </n-form-item>
+          <n-form-item label="Тип инструмента" path="type" required>
+            <n-select v-model:value="formData.type" :options="typeOptions" placeholder="Выберите тип" />
+          </n-form-item>
 
-              <n-form-item label="Место хранения" path="location">
-                <n-input v-model:value="formData.location" placeholder="Стеллаж/Ячейка" />
-              </n-form-item>
-            </n-gi>
+          <n-form-item label="Место хранения" path="location">
+            <n-input v-model:value="formData.location" placeholder="Стеллаж/Ячейка" />
+          </n-form-item>
+        </n-gi>
 
-            <n-gi>
-              <n-form-item label="Модель" path="model">
-                <n-input v-model:value="formData.model" placeholder="Бренд/Модель" />
-              </n-form-item>
+        <n-gi>
+          <n-form-item label="Модель" path="model">
+            <n-input v-model:value="formData.model" placeholder="Бренд/Модель" />
+          </n-form-item>
 
-              <n-form-item label="Серийный номер" path="serialNumber">
-                <n-input v-model:value="formData.serialNumber" placeholder="S/N" />
-              </n-form-item>
+          <n-form-item label="Серийный номер" path="serialNumber">
+            <n-input v-model:value="formData.serialNumber" placeholder="S/N" />
+          </n-form-item>
 
-              <n-form-item label="Статус" path="status" required>
-                <n-select v-model:value="formData.status" :options="statusOptions" placeholder="Выберите статус" />
-              </n-form-item>
+          <n-form-item label="Статус" path="status" required>
+            <n-select v-model:value="formData.status" :options="statusOptions" placeholder="Выберите статус" />
+          </n-form-item>
 
-              <n-form-item label="Стоимость" path="price">
-                <n-input-number v-model:value="formData.price" :min="0" placeholder="0" class="w-full">
-                  <template #suffix>₽</template>
-                </n-input-number>
-              </n-form-item>
-            </n-gi>
-          </n-grid>
-        </n-tab-pane>
+          <n-form-item label="Стоимость" path="price">
+            <n-input-number v-model:value="formData.price" :min="0" placeholder="0" class="w-full">
+              <template #suffix>₽</template>
+            </n-input-number>
+          </n-form-item>
+        </n-gi>
+      </n-grid>
 
-        <!-- Выдача инструмента -->
-        <n-tab-pane name="issued" tab="Выдача">
-          <n-grid :cols="2" :x-gap="24">
-            <n-gi :span="2">
-              <n-form-item label="Статус" path="status">
-                <n-select v-model:value="formData.status" :options="statusOptions" placeholder="Выберите статус" />
-              </n-form-item>
-            </n-gi>
+      <!-- Выдача инструмента -->
+      <n-grid :cols="2" :x-gap="24" class="mt-6">
+        <n-gi v-if="formData.status === 'issued'" :span="2">
+          <n-form-item label="Кому выдан" path="issuedTo" required>
+            <n-select 
+              v-model:value="formData.issuedTo" 
+              :options="employeeOptions" 
+              placeholder="Выберите сотрудника" 
+              filterable
+              @update:value="handleEmployeeChange"
+            />
+          </n-form-item>
+        </n-gi>
 
-            <n-gi v-if="formData.status === 'issued'" :span="2">
-              <n-form-item label="Кому выдан" path="issuedTo" required>
-                <n-select 
-                  v-model:value="formData.issuedTo" 
-                  :options="employeeOptions" 
-                  placeholder="Выберите сотрудника" 
-                  filterable
-                  @update:value="handleEmployeeChange"
-                />
-              </n-form-item>
-            </n-gi>
+        <n-gi v-if="formData.status === 'repair'" :span="2">
+          <n-form-item label="Описание поломки" path="breakdownDescription" required>
+            <n-input
+              v-model:value="formData.breakdownDescription"
+              type="textarea"
+              placeholder="Опишите, что случилось с инструментом..."
+              :rows="4"
+            />
+          </n-form-item>
+        </n-gi>
 
-            <n-gi v-if="formData.status === 'repair'" :span="2">
-              <n-form-item label="Описание поломки" path="breakdownDescription" required>
-                <n-input
-                  v-model:value="formData.breakdownDescription"
-                  type="textarea"
-                  placeholder="Опишите, что случилось с инструментом..."
-                  :rows="4"
-                />
-              </n-form-item>
-            </n-gi>
-
-            <n-gi v-if="formData.issuedAt" :span="2">
-              <n-text depth="3">Выдан: {{ formatDate(formData.issuedAt) }}</n-text>
-            </n-gi>
-          </n-grid>
-        </n-tab-pane>
-      </n-tabs>
+        <n-gi v-if="formData.issuedAt" :span="2">
+          <n-text depth="3">Выдан: {{ formatDate(formData.issuedAt) }}</n-text>
+        </n-gi>
+      </n-grid>
 
       <div class="flex justify-end gap-3 mt-6">
         <n-button @click="handleCancel">Отмена</n-button>
@@ -95,7 +83,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, watch } from 'vue'
+import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { useMessage } from 'naive-ui'
 import type { FormInst, FormRules } from 'naive-ui'
 import { useToolsStore } from '@/stores/tools'
@@ -110,7 +98,8 @@ import {
   NSelect,
   NGrid,
   NGi,
-  NButton
+  NButton,
+  NText
 } from 'naive-ui'
 
 const props = defineProps<{
@@ -213,8 +202,8 @@ const rules: FormRules = {
   }]
 }
 
-watch(() => props.show, (newShow) => {
-  if (newShow) {
+const updateFormData = () => {
+  if (props.show) {
     if (props.toolId) {
       const tool = toolsStore.getToolById(props.toolId)
       if (tool) {
@@ -262,6 +251,17 @@ watch(() => props.show, (newShow) => {
       })
     }
   }
+}
+
+watch(() => props.show, () => updateFormData())
+watch(() => props.toolId, () => updateFormData())
+watch(() => toolsStore.tools, () => updateFormData(), { deep: false })
+
+// Load employees when modal is shown
+onMounted(async () => {
+  if (employeesStore.employees.length === 0) {
+    await employeesStore.loadEmployeesFromApi()
+  }
 })
 
 const handleSubmit = async () => {
@@ -269,14 +269,31 @@ const handleSubmit = async () => {
     await formRef.value?.validate()
     loading.value = true
     
-    // Simulate API delay
+    emit('submit', { ...formData })
+    
+    // Close modal after emit (parent will handle API call)
     setTimeout(() => {
-      emit('submit', { ...formData })
       loading.value = false
       showModal.value = false
-    }, 500)
+    }, 300)
   } catch {
     message.error('Пожалуйста, заполните обязательные поля')
   }
+}
+
+const handleCancel = () => {
+  showModal.value = false
+}
+
+const formatDate = (date: Date | string | undefined) => {
+  if (!date) return ''
+  const d = new Date(date)
+  return d.toLocaleDateString('ru-RU', { 
+    year: 'numeric', 
+    month: 'long', 
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  })
 }
 </script>

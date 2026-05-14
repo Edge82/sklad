@@ -116,7 +116,7 @@
           placeholder="Все статусы" 
           :options="[
             { label: 'Все инструменты', value: 'all' },
-            { label: 'В наличии', value: 'available' },
+            { label: 'В наличии', value: 'in_stock' },
             { label: 'Выдано', value: 'issued' },
             { label: 'В ремонте', value: 'repair' }
           ]" 
@@ -161,7 +161,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, h, reactive, computed } from 'vue'
+import { ref, h, reactive, computed, onMounted, watch } from 'vue'
 import {
   NTag,
   NButton,
@@ -266,20 +266,28 @@ const handleDeleteTool = (id: string) => {
     content: 'Вы уверены, что хотите удалить этот инструмент?',
     positiveText: 'Удалить',
     negativeText: 'Отмена',
-    onPositiveClick: () => {
-      toolsStore.deleteTool(id)
-      message.success('Инструмент удален')
+    onPositiveClick: async () => {
+      try {
+        await toolsStore.deleteTool(id)
+        message.success('Инструмент удален')
+      } catch (err) {
+        message.error('Ошибка при удалении инструмента')
+      }
     }
   })
 }
 
-const handleToolSubmit = (toolData: Partial<Tool>) => {
-  if (selectedToolId.value) {
-    toolsStore.updateTool(selectedToolId.value, toolData)
-    message.success('Данные инструмента обновлены')
-  } else {
-    toolsStore.addTool(toolData as Omit<Tool, 'id'>)
-    message.success('Инструмент добавлен в реестр')
+const handleToolSubmit = async (toolData: Partial<Tool>) => {
+  try {
+    if (selectedToolId.value) {
+      await toolsStore.updateTool(selectedToolId.value, toolData)
+      message.success('Данные инструмента обновлены')
+    } else {
+      await toolsStore.addTool(toolData as Omit<Tool, 'id'>)
+      message.success('Инструмент добавлен в реестр')
+    }
+  } catch (err) {
+    message.error('Ошибка при сохранении инструмента')
   }
 }
 
@@ -348,6 +356,20 @@ const columns: DataTableColumns<Tool> = [
     }
   }
 ]
+
+// Load tools from API on component mount
+onMounted(() => {
+  toolsStore.loadToolsFromApi()
+})
+
+// Watch for changes in tools store to ensure table updates
+watch(
+  () => toolsStore.tools,
+  () => {
+    // This watch triggers computed property recalculation
+  },
+  { deep: false }
+)
 </script>
 
 <style scoped>

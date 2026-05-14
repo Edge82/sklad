@@ -565,7 +565,7 @@ const columns = [
     }
   },
   {
-    title: 'Прогресс выполнения',
+    title: 'Отгружено',
     key: 'qrProgress',
     render(row: Order) {
       const percentage = ordersStore.getOrderProgress(row.id, qrCodesStore.qrCodes)

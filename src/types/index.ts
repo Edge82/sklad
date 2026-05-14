@@ -10,6 +10,7 @@ export interface User {
   avatar?: string;
   phone?: string;
   createdAt?: Date;
+  needsPasswordChange?: boolean; // Флаг для обязательной смены пароля при первом входе
 }
 
 // Заказ
@@ -35,6 +36,9 @@ export interface Order {
   plannedQuantity: number;       // Плановое количество (сумма по позициям)
   actualQuantity: number;        // Фактически произведено/отсканировано
   remainingQuantity: number;     // Остаток к отгрузке
+  
+  // QR коды для отслеживания прогресса
+  qrCodeCount?: number;          // Количество сгенерированных QR кодов
   
   // Отгрузки
   shipments: OrderShipment[];
@@ -173,10 +177,10 @@ export interface Tool {
   // Статус
   status: 'in_stock' | 'issued' | 'repair' | 'written_off';
   
-  // Если выдан
-  issuedTo?: string;
-  issuedToName?: string;
-  issuedAt?: Date;
+  // Если выдан (can be null when not issued)
+  issuedTo?: string | null;
+  issuedToName?: string | null;
+  issuedAt?: Date | string | null;
   expectedReturnAt?: Date;
   
   // Поверка (для измерительных)
@@ -184,13 +188,18 @@ export interface Tool {
   nextCalibration?: Date;
   
   // Местоположение
-  location?: string;               // Адрес ячейки
+  location?: string | null;               // Адрес ячейки
   
   // Стоимость
   price?: number;                  // Цена приобретения
 
   // Ремонт
-  breakdownDescription?: string;   // Описание поломки
+  breakdownDescription?: string | null;   // Описание поломки
+  
+  // Timestamps
+  createdAt?: string | Date;
+  updatedAt?: string | Date;
+  createdBy?: string;
 }
 
 // Поломка/ремонт
@@ -234,6 +243,7 @@ export interface RepairAction {
 
 export interface MaterialInvoice {
   id: string;
+  employeeId?: string;  // ID сотрудника, создавшего запись
   date: Date;
   orderNumber: string;
   destination?: string;

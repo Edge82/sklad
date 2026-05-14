@@ -141,8 +141,8 @@
                 :rows="4"
               />
               <n-space>
-                <n-button type="primary" @click="savePainting">Сохранить</n-button>
-                <n-button @click="cancelEditingPainting">Отмена</n-button>
+                <n-button type="primary" @click="savePainting" :loading="isSavingPainting" :disabled="isSavingPainting">Сохранить</n-button>
+                <n-button @click="cancelEditingPainting" :disabled="isSavingPainting">Отмена</n-button>
               </n-space>
             </n-space>
           </div>
@@ -200,7 +200,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import type { Order, OrderItem } from '@/types'
 import {
   NCard,
@@ -242,32 +242,51 @@ const message = useMessage()
 // Состояние редактирования окраски
 const isEditingPainting = ref(false)
 const paintingValue = ref(props.order.notes || '')
+const isSavingPainting = ref(false)
+
+// Watch for order changes to update painting value
+watch(() => props.order.notes, (newVal) => {
+  if (!isEditingPainting.value) {
+    paintingValue.value = newVal || ''
+  }
+})
+
+// Load QR codes for this order when component mounts
+const loadQRCodesForOrder = async () => {
+  try {
+    await qrStore.loadQRCodesForOrder(props.order.id)
+  } catch (err) {
+    console.error('Failed to load QR codes:', err)
+  }
+}
+
+// Load QR codes on mount
+loadQRCodesForOrder()
 
 const savePainting = async () => {
+  if (!paintingValue.value.trim()) {
+    message.warning('Пожалуйста, введите информацию об окраске')
+    return
+  }
+
+  isSavingPainting.value = true
   try {
-    // Отправляем на бэкенд для сохранения
-    const response = await fetch('http://localhost:8000/sklad/api/onec/orders/painting', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        orderId: props.order.id,
-        painting: paintingValue.value
-      })
+    await ordersStore.updateOrderPainting(props.order.id, paintingValue.value)
+    
+    // Log the operation
+    await ordersStore.logOperation('order_painting_updated', {
+      orderId: props.order.id,
+      orderNumber: props.order.orderNumber,
+      newValue: paintingValue.value
     })
     
-    if (!response.ok) {
-      const error = await response.json()
-      throw new Error(error.error || 'Failed to save painting')
-    }
-    
-    // Обновляем локальный объект
-    if (props.order) {
-      props.order.notes = paintingValue.value
-    }
     isEditingPainting.value = false
     message.success('Окраска сохранена')
   } catch (err: any) {
-    message.error('Ошибка сохранения: ' + err.message)
+    message.error('Ошибка сохранения: ' + (err.message || 'Unknown error'))
+    console.error('Failed to save painting:', err)
+  } finally {
+    isSavingPainting.value = false
   }
 }
 

@@ -35,7 +35,7 @@ export default {
   nitro: {
     // Директория сервера
     srcDir: 'server',
-    
+
     // Предварительная загрузка
     prerender: {
       crawlLinks: false,

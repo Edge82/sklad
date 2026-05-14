@@ -272,8 +272,8 @@ onMounted(async () => {
     console.log('DEBUG: sourceWarehouseOptions:', sourceWarehouseOptions.value)
     console.log('DEBUG: destinationWarehouseOptions:', destinationWarehouseOptions.value)
 
-    operationOptions.value = operations.map(o => ({ label: o.name, value: o.id }))
-    organizationOptions.value = organizations.map(o => ({ label: o.name, value: o.id }))
+    operationOptions.value = operations.map((o: any) => ({ label: o.name, value: o.id }))
+    organizationOptions.value = organizations.map((o: any) => ({ label: o.name, value: o.id }))
     expenseAccountOptions.value = expenseAccounts.map(e => ({ label: e.name, value: e.id }))
 
     documentData.expenseAccountKey = defaults.expenseAccountKey || expenseAccountOptions.value[0]?.value || ''
@@ -288,10 +288,10 @@ onMounted(async () => {
 
     if (operationOptions.value.length > 0) {
       const moveOperation = operationOptions.value.find(o => o.label === 'Перемещение' || o.value === 'Перемещение')
-      documentData.operationKey = moveOperation?.value || operationOptions.value[0].value
+      documentData.operationKey = moveOperation?.value || operationOptions.value[0]?.value || ''
     }
     if (organizationOptions.value.length > 0) {
-      documentData.organizationKey = organizationOptions.value[0].value
+      documentData.organizationKey = organizationOptions.value[0]?.value || ''
     } else {
       // Если организации не загружены, используем placeholder
       documentData.organizationKey = 'default-org'
@@ -359,19 +359,22 @@ const itemOptions = computed(() => {
 // При расходе цена обычно не вводится вручную (списывается по средней или FIFO в 1С)
 const handleItemChange = async (index: number, itemId: string) => {
   const item = inventoryStore.items.find(i => i.id === itemId)
+  const row = rows.value[index]
+  if (!row) return
+  
   if (item) {
     let price = Number(item.averagePrice || item.purchasePrice || item.lastPurchasePrice || 0)
     if (price === 0) {
       price = await stockBalances.fetchLatestItemPrice(item.id)
     }
-    rows.value[index].price = price
-    rows.value[index].unitId = item.unitId || null
-    if ((item.currentStock || 0) < rows.value[index].quantity) {
+    row.price = price
+    row.unitId = item.unitId || null
+    if ((item.currentStock || 0) < row.quantity) {
       message.warning(`Внимание: остаток ${item.name} составляет ${item.currentStock}`)
     }
   } else {
-    rows.value[index].price = 0
-    rows.value[index].unitId = null
+    row.price = 0
+    row.unitId = null
   }
 }
 
@@ -480,10 +483,10 @@ watch(() => props.show, (newVal) => {
     creationDate.value = Date.now()
     if (operationOptions.value.length > 0) {
       const moveOperation = operationOptions.value.find(o => o.label === 'Перемещение' || o.value === 'Перемещение')
-      documentData.operationKey = moveOperation?.value || operationOptions.value[0].value
+      documentData.operationKey = moveOperation?.value || operationOptions.value[0]?.value || ''
     }
     if (organizationOptions.value.length > 0) {
-      documentData.organizationKey = organizationOptions.value[0].value
+      documentData.organizationKey = organizationOptions.value[0]?.value || ''
     }
   }
 })

@@ -1001,7 +1001,7 @@ export const useInventoryStore = defineStore('inventory', () => {
           })
           console.log('✓ Loaded', items.value.length, 'items from API')
           if (items.value.length > 0) {
-            const firstReserves = items.value[0].reserveDetails
+            const firstReserves = items.value[0]?.reserveDetails
             console.log('  First item reserves type:', firstReserves instanceof Map ? 'Map' : typeof firstReserves)
             console.log('  First item reserves size:', firstReserves?.size || 0)
             if (firstReserves && firstReserves.size > 0) {

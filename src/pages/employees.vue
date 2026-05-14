@@ -307,6 +307,76 @@
       <EmployeeForm :employee-id="selectedEmployeeId" @submit="handleEmployeeSubmit" @cancel="showCreateModal = false" />
     </n-modal>
 
+    <!-- Модалка учетных данных для входа -->
+    <n-modal 
+      v-model:show="showCredentialsModal" 
+      preset="card"
+      :auto-focus="false"
+      title="Учетные данные для входа" 
+      class="w-150!"
+    >
+      <div class="space-y-6">
+        <div>
+          <n-text depth="3" class="text-xs uppercase font-bold">Сотрудник</n-text>
+          <n-h3 class="m-0 mt-2">{{ lastCreatedCredentials?.name }}</n-h3>
+        </div>
+
+        <div class="p-4 bg-gray-900 rounded-lg border border-gray-700">
+          <div class="space-y-3">
+            <div>
+              <n-text depth="3" class="text-xs uppercase font-bold">Логин для входа</n-text>
+              <n-input
+                v-model:value="lastCreatedCredentials!.login"
+                readonly
+                class="mt-2"
+              >
+                <template #suffix>
+                  <n-button 
+                    text 
+                    type="primary" 
+                    @click="copyToClipboard(lastCreatedCredentials!.login)"
+                  >
+                    Копировать
+                  </n-button>
+                </template>
+              </n-input>
+            </div>
+
+            <div>
+              <n-text depth="3" class="text-xs uppercase font-bold">Временный пароль</n-text>
+              <n-input 
+                v-model:value="lastCreatedCredentials!.password"
+                readonly
+                type="text"
+                class="mt-2"
+              >
+                <template #suffix>
+                  <n-button 
+                    text 
+                    type="primary" 
+                    @click="copyToClipboard(lastCreatedCredentials!.password)"
+                  >
+                    Копировать
+                  </n-button>
+                </template>
+              </n-input>
+            </div>
+          </div>
+        </div>
+
+        <n-alert type="warning">
+          <template #icon>
+            <n-icon><TimeOutline /></n-icon>
+          </template>
+          После первого входа сотрудник должен изменить пароль в профиле для безопасности
+        </n-alert>
+      </div>
+
+      <template #footer>
+        <n-button type="primary" block @click="showCredentialsModal = false">Закрыть</n-button>
+      </template>
+    </n-modal>
+
     <!-- Модалка просмотра сотрудника -->
     <n-modal 
       v-model:show="showViewModal" 
@@ -340,12 +410,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, h } from 'vue'
+import { ref, reactive, computed, h, onMounted } from 'vue'
 import { useEmployeesStore } from '@/stores/employees'
 import type { Employee } from '@/types'
 import type { DataTableColumns, SelectOption } from 'naive-ui'
 import {
   NH1,
+  NH3,
   NText,
   NButton,
   NIcon,
@@ -361,7 +432,8 @@ import {
   NAvatar,
   NBadge,
   NPagination,
-  NFlex
+  NFlex,
+  NAlert
 } from 'naive-ui'
 import {
   PeopleOutline,
@@ -392,6 +464,8 @@ const selectedInlineEmployee = ref<Employee | null>(null)
 const detailsRef = ref<InstanceType<typeof EmployeeDetails> | null>(null)
 const showCreateModal = ref(false)
 const showViewModal = ref(false)
+const showCredentialsModal = ref(false)
+const lastCreatedCredentials = ref<{ login: string; password: string; name: string } | null>(null)
 const selectedEmployeeIdForView = ref<string | null>(null)
 const viewDetailMode = ref<'full' | 'slim'>('full')
 
@@ -683,13 +757,49 @@ const deleteEmployee = (id: string) => {
   })
 }
 
-const handleEmployeeSubmit = (employeeData: Partial<Employee>) => {
+// Load employees from API when page mounts
+onMounted(() => {
+  employeesStore.loadEmployeesFromApi()
+})
+
+const copyToClipboard = async (text: string) => {
+  try {
+    if (navigator && navigator.clipboard) {
+      await navigator.clipboard.writeText(text)
+      message.success('Скопировано в буфер обмена')
+    } else {
+      // Fallback for older browsers
+      const textarea = document.createElement('textarea')
+      textarea.value = text
+      document.body.appendChild(textarea)
+      textarea.select()
+      document.execCommand('copy')
+      document.body.removeChild(textarea)
+      message.success('Скопировано в буфер обмена')
+    }
+  } catch (err) {
+    console.error('Failed to copy:', err)
+    message.error('Не удалось скопировать в буфер обмена')
+  }
+}
+
+const handleEmployeeSubmit = async (employeeData: Partial<Employee>) => {
   if (selectedEmployeeId.value) {
     employeesStore.updateEmployee(selectedEmployeeId.value, employeeData)
     message.success('Данные сотрудника обновлены')
   } else {
-    employeesStore.addEmployee(employeeData as Omit<Employee, 'id'>)
+    const result = await employeesStore.addEmployee(employeeData as Omit<Employee, 'id'>)
     message.success('Сотрудник успешно добавлен')
+    
+    // Show credentials modal if available
+    if (result.credentials) {
+      lastCreatedCredentials.value = {
+        login: result.credentials.login,
+        password: result.credentials.password,
+        name: employeeData.name || 'Новый сотрудник'
+      }
+      showCredentialsModal.value = true
+    }
   }
   showCreateModal.value = false
   selectedEmployeeId.value = null

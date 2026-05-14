@@ -80,46 +80,6 @@
       </n-gi>
 
       <n-gi>
-        <n-card 
-          size="small" 
-          hoverable
-          class="metric-card h-full flex flex-col justify-center" 
-          :class="{ 'active': filterDestination === 'Производство' }"
-          @click="filterDestination = 'Производство'"
-        >
-          <div class="flex items-center gap-3 py-1">
-            <n-icon size="28" color="#2080f0">
-              <BusinessOutline />
-            </n-icon>
-            <div>
-              <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">Выдано в пр-во</n-text>
-              <n-h3 class="m-0 leading-none">{{ statsByType.production }}</n-h3>
-            </div>
-          </div>
-        </n-card>
-      </n-gi>
-
-      <n-gi>
-        <n-card 
-          size="small" 
-          hoverable
-          class="metric-card h-full flex flex-col justify-center" 
-          :class="{ 'active': filterDestination === 'Брак' }"
-          @click="filterDestination = 'Брак'"
-        >
-          <div class="flex items-center gap-3 py-1">
-            <n-icon size="28" color="#d03050">
-              <CloseCircleOutline />
-            </n-icon>
-            <div>
-              <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">Брак</n-text>
-              <n-h3 class="m-0 leading-none">{{ statsByType.defect }}</n-h3>
-            </div>
-          </div>
-        </n-card>
-      </n-gi>
-
-      <n-gi>
         <n-card border-variant="dark" class="metric-card revenue-card h-full flex flex-col justify-center" size="small">
           <div class="flex items-center gap-3 py-1">
             <n-icon size="28" color="#18a058" :component="AnalyticsOutline" />
@@ -243,10 +203,13 @@ import {
   AnalyticsOutline
 } from '@vicons/ionicons5'
 import { useEmployeesStore } from '@/stores/employees'
+import { useShipmentsStore } from '@/stores/shipments'
 import type { Employee, MaterialInvoice, MaterialInvoiceItem } from '@/types'
 import type { DataTableColumns } from 'naive-ui'
+import { onMounted } from 'vue'
 
 const employeesStore = useEmployeesStore()
+const shipmentsStore = useShipmentsStore()
 const searchQuery = ref('')
 const filterDestination = ref('all')
 
@@ -261,36 +224,26 @@ const expandedKeys = ref<string[]>([])
 const destinationOptions = [
   { label: 'Все направления', value: 'all' },
   { label: 'Производство', value: 'Производство' },
-  { label: 'Клиент', value: 'Клиент' },
-  { label: 'Брак', value: 'Брак' }
+  { label: 'Клиент', value: 'Клиент' }
 ]
 
 const pagination = {
   pageSize: 15
 }
 
-// Собираем все накладные из всех сотрудников
+// Собираем все накладные
 const allInvoices = computed(() => {
   const invoices: InvoiceWithWorker[] = []
-  if (!employeesStore.employees) return invoices
-
-  employeesStore.employees.forEach((emp: Employee) => {
-    if (emp && emp.materialHistory) {
-      emp.materialHistory.forEach((history: MaterialInvoice) => {
-        // Рассчитываем сумму накладной сразу при сборке
-        const calculatedTotal = Number(history.totalAmount) || 
-          (history.items ? history.items.reduce((acc: number, item: MaterialInvoiceItem) => 
-            acc + (Number(item.price) || 0) * (Number(item.quantity) || 0), 0) : 0)
-        
-        invoices.push({
-          ...history,
-          totalAmount: calculatedTotal,
-          workerName: emp.name || 'Неизвестно',
-          workerId: emp.id
-        })
-      })
-    }
+  
+  shipmentsStore.materialInvoices.forEach((history: MaterialInvoice) => {
+    const employee = employeesStore.employees.find(emp => emp.id === history.employeeId)
+    invoices.push({
+      ...history,
+      workerName: employee?.name || 'Неизвестно',
+      workerId: employee?.id || history.employeeId || 'unknown'
+    })
   })
+  
   // Сортируем по дате (сначала новые)
   return invoices.sort((a, b) => {
     const dateA = a.date ? new Date(a.date).getTime() : 0
@@ -318,8 +271,7 @@ const rowProps = (row: InvoiceWithWorker) => {
 const statsByType = computed(() => {
   return {
     production: allInvoices.value.filter(inv => inv.destination === 'Производство').length,
-    client: allInvoices.value.filter(inv => inv.destination === 'Клиент').length,
-    defect: allInvoices.value.filter(inv => inv.destination === 'Брак').length
+    client: allInvoices.value.filter(inv => inv.destination === 'Клиент').length
   }
 })
 
@@ -347,6 +299,13 @@ const filteredInvoices = computed(() => {
     )
   }
   return list
+})
+
+// Load invoices from API on mount
+onMounted(async () => {
+  if (shipmentsStore.materialInvoices.length === 0) {
+    await shipmentsStore.loadInvoicesFromApi()
+  }
 })
 
 const columns: DataTableColumns<InvoiceWithWorker> = [
