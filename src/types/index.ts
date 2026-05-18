@@ -121,6 +121,9 @@ export interface QRCode {
   shipmentId?: string;
   shippedAt?: Date;
   
+  // Флаг упаковки
+  isPackage?: boolean;
+  
   // Метаданные
   generatedAt: Date;
   generatedBy: string;
@@ -249,6 +252,7 @@ export interface MaterialInvoice {
   destination?: string;
   totalAmount?: number;
   items: MaterialInvoiceItem[];
+  createdBy?: string;
 }
 
 export interface MaterialInvoiceItem {
@@ -358,6 +362,7 @@ export interface InventoryItem {
 
   // 1C Integration
   unitId?: string;
+  warehouse?: string; // Название склада
   warehouseId?: string;
   
   // Статус

@@ -945,6 +945,11 @@ export const useInventoryStore = defineStore('inventory', () => {
             const reserved = Number(item.reserved || 0)
             const minStock = Number(item.minStock || 0)
             const available = currentStock - reserved
+            const isFinishedGoods =
+              item.type === 'product' ||
+              item.categoryId === '99' ||
+              item.category === 'Готовая продукция' ||
+              item.warehouse === 'Готовая продукция'
             
             // Определяем статус
             let status: InventoryItem['status'] = 'in_stock'
@@ -958,9 +963,10 @@ export const useInventoryStore = defineStore('inventory', () => {
               name: item.name || item.product || 'Без названия',
               sku: item.sku || '',
               product: item.product || item.name || 'Без названия',
+              type: item.type || (isFinishedGoods ? 'product' : 'material'),
               barcode: item.barcode || '',
-              category: item.category || '',
-              categoryId: item.categoryId || '',
+              category: item.category || (isFinishedGoods ? 'Готовая продукция' : ''),
+              categoryId: item.categoryId || (isFinishedGoods ? '99' : ''),
               description: item.description || '',
               unit: item.unit || 'шт',
               unit_key: item.unit_key || item.unitId || '',
@@ -980,7 +986,6 @@ export const useInventoryStore = defineStore('inventory', () => {
               lastPurchasePrice: Number(item.lastPurchasePrice || item.purchasePrice || 0),
               totalValue: currentStock * Number(item.averagePrice || item.purchasePrice || 0),
               status: status,
-              type: item.type || 'material',
               image: item.image || '',
               mainSupplier: item.mainSupplier || '',
               alternativeSuppliers: item.alternativeSuppliers || [],

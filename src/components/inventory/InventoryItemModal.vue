@@ -117,14 +117,45 @@
 
           </n-gi>
 
-          <!-- Правая колонка: Единица измерения -->
-          <n-gi :span="8" class="p-4 rounded-lg">
+          <!-- Правая колонка: Единица измерения и Изображение -->
+          <n-gi :span="8">
             <div class="font-bold mb-4 border-b pb-1 text-gray-500 uppercase">ОСНОВНОЕ</div>
-            
+
             <n-form-item label="Единица измерения" path="unit" required>
               <n-select v-model:value="formData.unit" :options="combinedUnitOptions" placeholder="Выберите единицу" />
             </n-form-item>
 
+            <div class="font-bold mb-4 border-b pb-1 text-gray-500 mt-6">ИЗОБРАЖЕНИЕ</div>
+            <n-form-item label="Фото материала">
+              <div class="w-full">
+                <div v-if="formData.image" class="relative group mb-2 border rounded-md overflow-hidden bg-gray-50 flex items-center justify-center min-h-40">
+                  <n-image :src="formData.image" class="max-h-60 object-contain" />
+                  <div class="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <n-button type="error" circle size="small" @click="removeImage">
+                      <template #icon><n-icon><TrashOutline /></n-icon></template>
+                    </n-button>
+                  </div>
+                </div>
+                <n-upload
+                  v-else
+                  @change="handleImageChange"
+                  :show-file-list="false"
+                  accept="image/*"
+                  trigger-class="w-full"
+                >
+                  <n-upload-dragger class="w-full py-6">
+                    <div class="mb-2">
+                      <n-icon size="40" :depth="3">
+                        <CloudUploadOutline />
+                      </n-icon>
+                    </div>
+                    <n-text style="font-size: 12px">
+                      Нажми или перетащи
+                    </n-text>
+                  </n-upload-dragger>
+                </n-upload>
+              </div>
+            </n-form-item>
           </n-gi>
         </n-grid>
       </div>
@@ -133,7 +164,7 @@
       <div v-else-if="props.itemId && props.mode === 'material'" class="py-2">
         <div class="mb-6">
           <div class="font-bold mb-4 border-b pb-2 text-gray-500">ОСНОВНАЯ ИНФОРМАЦИЯ</div>
-          
+
           <!-- Readonly информация из 1C -->
           <div class="grid grid-cols-2 gap-6 mb-4">
             <div>
@@ -150,13 +181,13 @@
             </div>
             <div>
               <div class="text-sm text-gray-400 mb-1">Склад</div>
-              <div class="text-base font-medium">{{ getWarehouseLabel(formData.warehouseId) || 'Не указано' }}</div>
+              <div class="text-base font-medium">{{ formData.warehouse || 'Не указано' }}</div>
             </div>
           </div>
 
           <!-- Два редактируемых локальных поля -->
           <div class="font-bold border-b pb-2 text-gray-500" style="margin-top: 24px; margin-bottom: 16px; padding-left: 16px;">РЕДАКТИРУЕМЫЕ ПОЛЯ</div>
-          
+
           <div style="padding-left: 16px;">
             <n-form-item label="Штрих-код (QR-код)" path="barcode">
               <n-input-group>
@@ -177,54 +208,8 @@
             <n-form-item label="Место хранения (полка/ячейка)" path="storageBin">
               <n-input v-model:value="formData.storageBin" placeholder="Например: Ячейка-1 или А/2" />
             </n-form-item>
-          </div>
-        </div>
-      </div>
 
-      <!-- Режим изделий (product) - остаётся как было -->
-      <div v-else class="py-2">
-        <n-grid :cols="24" :x-gap="24">
-          <n-gi :span="16">
-            <n-grid :cols="2" :x-gap="12">
-              <n-gi>
-                <div class="font-bold mb-4 border-b pb-1 text-gray-500">ОСНОВНАЯ ИНФОРМАЦИЯ</div>
-                <n-form-item label="Название изделия" path="name" required>
-                  <n-input v-model:value="formData.name" placeholder="Введите название изделия" />
-                </n-form-item>
-
-                <n-form-item label="Единица измерения" path="unit" required>
-                  <n-select v-model:value="formData.unit" :options="combinedUnitOptions" placeholder="Выберите единицу" />
-                </n-form-item>
-              </n-gi>
-              <n-gi>
-                <n-form-item label="Текущее количество на складе" path="currentStock">
-                  <n-input-number v-model:value="formData.currentStock" :min="0" placeholder="Введите количество"
-                    class="w-full" />
-                </n-form-item>
-
-                <n-form-item label="Штрих-код (QR-код)" path="barcode">
-                  <n-input-group>
-                    <n-input v-model:value="formData.barcode" placeholder="ID изделия или штрих-код" />
-                    <n-button @click="generateBarcode" type="primary" ghost>
-                      Генерация
-                    </n-button>
-                    <n-button @click="printBarcode" :disabled="!formData.barcode" type="info" ghost>
-                      <template #icon>
-                        <n-icon><PrintOutline /></n-icon>
-                      </template>
-                    </n-button>
-                  </n-input-group>
-                </n-form-item>
-              </n-gi>
-            </n-grid>
-            <n-form-item label="Описание" path="description">
-              <n-input v-model:value="formData.description" type="textarea" :rows="4"
-                placeholder="Дополнительная информация об изделии" />
-            </n-form-item>
-          </n-gi>
-
-          <n-gi :span="8">
-            <n-form-item label="Изображение">
+            <n-form-item label="Фото материала">
               <div class="w-full">
                 <div v-if="formData.image" class="relative group mb-2 border rounded-md overflow-hidden bg-gray-50 flex items-center justify-center min-h-40">
                   <n-image :src="formData.image" class="max-h-60 object-contain" />
@@ -241,21 +226,21 @@
                   accept="image/*"
                   trigger-class="w-full"
                 >
-                  <n-upload-dragger class="w-full py-8">
-                    <div class="mb-3">
-                      <n-icon size="48" :depth="3">
+                  <n-upload-dragger class="w-full py-6">
+                    <div class="mb-2">
+                      <n-icon size="40" :depth="3">
                         <CloudUploadOutline />
                       </n-icon>
                     </div>
-                    <n-text style="font-size: 14px">
-                      Нажмите или перетащите картинку
+                    <n-text style="font-size: 12px">
+                      Нажми или перетащи
                     </n-text>
                   </n-upload-dragger>
                 </n-upload>
               </div>
             </n-form-item>
-          </n-gi>
-        </n-grid>
+          </div>
+        </div>
       </div>
 
       <div class="flex justify-end gap-3 mt-6 pt-4 border-t">
@@ -264,6 +249,8 @@
           Сохранить
         </n-button>
       </div>
+
+
     </n-form>
 
     <!-- Модальное окно для печати штрихкода -->
@@ -282,10 +269,10 @@
         </div>
         <div>
           <label class="text-sm text-gray-400 mb-2 block">Дополнительная информация для печати (опционально):</label>
-          <n-input 
-            v-model:value="printInfo" 
-            type="textarea" 
-            placeholder="Например: лот, дата производства, и т.д." 
+          <n-input
+            v-model:value="printInfo"
+            type="textarea"
+            placeholder="Например: лот, дата производства, и т.д."
             :rows="4"
           />
         </div>
@@ -364,7 +351,7 @@ onMounted(async () => {
     unitOptions1C.value = units.map((u: any) => ({ label: u.name, value: u.id }))
     warehouseOptions1C.value = warehouses.map((w: any) => ({ label: w.name, value: w.id }))
     categoryOptions1C.value = categories.map((c: any) => ({ label: c.name, value: c.id }))
-    
+
     // Устанавливаем единицу измерения по умолчанию - первую из 1C если есть
     if (unitOptions1C.value.length > 0) {
       const defaultUnit = unitOptions1C.value.find(u => u.label === 'шт') || unitOptions1C.value[0]
@@ -372,18 +359,18 @@ onMounted(async () => {
         formData.unit = defaultUnit.value  // Это будет GUID из 1C
       }
     }
-    
+
     // Если это создание нового и склады загружены, ставим Основной склад по умолчанию
     if (warehouseOptions1C.value.length > 0) {
-      const mainWh = warehouseOptions1C.value.find(w => 
-        w.label && (w.label.toLowerCase().includes('основной') || 
+      const mainWh = warehouseOptions1C.value.find(w =>
+        w.label && (w.label.toLowerCase().includes('основной') ||
         w.label.toLowerCase().includes('склад'))
       ) || warehouseOptions1C.value[0]
       if (mainWh) {
         formData.warehouseId = mainWh.value
       }
     }
-    
+
     // Не устанавливаем категорию по умолчанию - пусть пользователь выбирает
   } catch (e) {
     console.error('Ошибка загрузки данных из 1С:', e)
@@ -417,6 +404,7 @@ const formData = reactive({
   reserved: 0,
   location: '',
   storageBin: '', // Полка/Ячейка (только в БД, не в 1С)
+  warehouse: '', // Название склада для отображения
   warehouseId: '', // Новый параметр: GUID склада в 1С
   purchasePrice: 0,
   averagePrice: 0,
@@ -451,13 +439,14 @@ watch(() => props.show, (newShow) => {
   if (newShow && props.itemId) {
     const item = inventoryStore.getItemById(props.itemId)
     if (item) {
-      Object.assign(formData, { 
+      Object.assign(formData, {
         ...item,
         image: item.image || '',
         sku: item.sku || '',  // Артикул из 1С (не изменяется)
         barcode: item.barcode || '',  // Штрих-код из БД (локальное поле)
         unit: item.unit || item.unitId || '',  // unit (название) в приоритете перед unitId (GUID)
         warehouseId: item.warehouseId || '',  // warehouseId из 1C
+        warehouse: item.warehouse || '',  // Название склада для отображения
         categoryId: item.categoryId || '',  // categoryId из 1C
         location: item.location || '',  // Место хранения из 1C
         storageBin: item.storageBin || ''  // Ячейка/полка из БД
@@ -481,6 +470,8 @@ watch(() => props.show, (newShow) => {
       reserved: 0,
       location: '',
       storageBin: '',
+      warehouse: 'Основной склад',  // Название склада по умолчанию
+      warehouseId: '',  // GUID склада из 1C
       purchasePrice: 0,
       averagePrice: 0,
       lastPurchasePrice: 0,
@@ -501,10 +492,10 @@ const isDirty = computed(() => {
 })
 
 const categoryOptions = computed(() => {
-  const categories = props.mode === 'product' 
-    ? inventoryStore.categories.filter(c => c.id === '99') 
+  const categories = props.mode === 'product'
+    ? inventoryStore.categories.filter(c => c.id === '99')
     : inventoryStore.categories.filter(c => c.id !== '99')
-    
+
   return categories.map(cat => ({
     label: cat.name,
     value: cat.id
@@ -565,7 +556,7 @@ const getWarehouseLabel = (warehouseId: string) => {
   // Сначала ищем по GUID
   let found = warehouseOptions1C.value.find(w => w.value === warehouseId)
   if (found) return found.label
-  
+
   // Последний вариант - показываем GUID если ничего не нашли
   return warehouseId || 'Не указано'
 }
@@ -586,6 +577,7 @@ const printBarcode = () => {
     message.warning('Сначала сгенерируйте штрих-код')
     return
   }
+  printInfo.value = ''
   showPrintModal.value = true
 }
 
@@ -595,44 +587,43 @@ const handlePrint = () => {
     message.error('Не удалось открыть окно печати')
     return
   }
-  
+
   const barcode = formData.barcode || ''
   const itemName = (formData.name || 'Товар').replace(/\\/g, '\\\\').replace(/"/g, '\\"')
   const additionalInfo = (printInfo.value || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"')
-  
+
   let html = '<!DOCTYPE html><html><head><meta charset="UTF-8">'
   html += '<title>Печать штрихкода</title>'
   html += '<script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"><\/script>'
   html += '<style>'
   html += '* { margin: 0; padding: 0; box-sizing: border-box; }'
-  html += 'body { font-family: Arial, sans-serif; background: white; margin: 0; padding: 5mm; }'
-  html += '.print-container { display: flex; align-items: center; justify-content: center; min-height: 100vh; }'
-  html += '.barcode-label { border: 2px solid #000; padding: 10mm; width: 80mm; text-align: center; background: white; }'
-  html += '#barcode { margin: 8px 0; display: block; max-width: 100%; }'
-  html += '.title { font-size: 11px; color: #666; margin-bottom: 5px; }'
-  html += '.code { font-size: 14px; font-weight: bold; letter-spacing: 1px; margin: 6px 0; font-family: monospace; word-break: break-all; }'
-  html += '.item { font-size: 12px; font-weight: bold; margin: 6px 0; color: #000; word-wrap: break-word; }'
-  html += '.info { font-size: 9px; color: #666; margin-top: 8px; white-space: pre-wrap; text-align: left; }'
-  html += '@media print { body { margin: 0; padding: 5mm; } }'
+  html += 'html, body { width: 58mm; height: 38mm; margin: 0; padding: 0; overflow: hidden; }'
+  html += 'body { font-family: Arial, sans-serif; background: white; }'
+  html += '.barcode-label { width: 58mm; height: 38mm; text-align: center; background: white; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 1mm; box-sizing: border-box; }'
+  html += '#barcode { margin: 0; display: block; max-width: 100%; flex-shrink: 0; }'
+  html += '.title { font-size: 7px; color: #666; line-height: 1; margin-bottom: 1px; }'
+  html += '.item { font-size: 9px; font-weight: bold; letter-spacing: 0.3px; margin: 1px 0; font-family: monospace; color: #000; word-break: break-all; line-height: 1.1; }'
+  html += '.info { font-size: 8px; font-weight: bold; letter-spacing: 0.3px; margin-top: 1px; font-family: monospace; color: #000; white-space: pre-wrap; text-align: center; line-height: 1.1; }'
+  html += '@page { size: 58mm 38mm; margin: 0; }'
+  html += '@media print { html, body { margin: 0; padding: 0; width: 58mm; height: 38mm; } }'
   html += '<\/style><\/head><body>'
-  html += '<div class="print-container"><div class="barcode-label">'
+  html += '<div class="barcode-label">'
   html += '<div class="title">Штрих-код</div>'
   html += '<svg id="barcode"><\/svg>'
-  html += '<div class="code">' + barcode + '<\/div>'
   html += '<div class="item">' + itemName + '<\/div>'
   if (additionalInfo) {
     html += '<div class="info">' + additionalInfo + '<\/div>'
   }
-  html += '<\/div><\/div>'
+  html += '<\/div>'
   html += '<script>'
   html += 'document.addEventListener("DOMContentLoaded", function() {'
   html += '  try {'
   html += '    JsBarcode("#barcode", "' + barcode + '", {'
   html += '      format: "CODE128",'
-  html += '      width: 1.5,'
-  html += '      height: 40,'
+  html += '      width: 1.2,'
+  html += '      height: 22,'
   html += '      displayValue: false,'
-  html += '      margin: 3'
+  html += '      margin: 1'
   html += '    });'
   html += '    setTimeout(() => window.print(), 300);'
   html += '  } catch(e) {'
@@ -641,7 +632,7 @@ const handlePrint = () => {
   html += '});'
   html += '<\/script>'
   html += '<\/body><\/html>'
-  
+
   printWindow.document.write(html)
   printWindow.document.close()
   showPrintModal.value = false
@@ -667,7 +658,7 @@ const handleSubmit = async () => {
     if (!props.itemId) {
       try {
         message.loading('Создание в 1С...');
-        
+
         // unitId должен быть GUID (содержит дефисы)
         // Если это был выбран элемент из комбинированного списка, то formData.unit уже будет правильным значением
         let unitId = undefined;
@@ -688,11 +679,11 @@ const handleSubmit = async () => {
           image: formData.image,
           imageFileName: formData.imageFileName
         });
-        
+
         // После создания синхронизируем материалы из 1С
         // Добавляем задержку чтобы материал успел создаться в 1C
         await new Promise(resolve => setTimeout(resolve, 2000))
-        
+
         try {
           // Сначала выполняем полную синхронизацию
           await integrationStore.syncAll()
@@ -700,7 +691,7 @@ const handleSubmit = async () => {
         } catch (syncErr) {
           console.error('⚠️ Sync error:', syncErr);
         }
-        
+
         // После синхронизации ВСЕГДА загружаем данные из API
         try {
           await inventoryStore.loadStocksFromApi()
@@ -731,6 +722,7 @@ const handleSubmit = async () => {
       reserved: formData.reserved,
       location: formData.location,
       storageBin: formData.storageBin,
+      warehouse: formData.warehouse,
       warehouseId: formData.warehouseId,
       purchasePrice: formData.purchasePrice,
       averagePrice: formData.averagePrice,
@@ -747,17 +739,18 @@ const handleSubmit = async () => {
       available: formData.currentStock - formData.reserved,
       totalValue: formData.currentStock * formData.averagePrice
     }
-    
-    // Save local fields (barcode, storageBin) to local DB only
+
+    // Save local fields (barcode, storageBin, image) to local DB only
     const itemIdToUse = props.itemId || created1C?.id || item.id
-    if (itemIdToUse && (formData.barcode || formData.storageBin)) {
+    if (itemIdToUse && (formData.barcode || formData.storageBin || formData.image)) {
       try {
         const response = await fetch(`${API_BASE_URL}/onec/stocks/${itemIdToUse}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             barcode: formData.barcode || '',  // Штрих-код (локальное поле)
-            storageBin: formData.storageBin || ''  // Место хранения (полка/ячейка)
+            storageBin: formData.storageBin || '',  // Место хранения (полка/ячейка)
+            image: formData.image || ''  // Картинка (base64)
           })
         })
         if (response.ok) {
@@ -776,7 +769,7 @@ const handleSubmit = async () => {
         console.error('Error saving local fields:', err)
       }
     }
-    
+
     emit('submit', item)
     loading.value = false
     showModal.value = false

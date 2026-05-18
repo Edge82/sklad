@@ -24,13 +24,97 @@
 
     <!-- Список заказов -->
     <div v-if="!selectedOrderId">
-      <n-spin :show="loading">
-        <n-empty v-if="orders.length === 0" description="Нет заказов на перемещение" />
-        
-        <n-data-table
+      <!-- Статистика -->
+      <n-grid :cols="4" :x-gap="12" :y-gap="12" class="mb-6 items-stretch py-2">
+        <n-gi>
+          <n-card 
+            size="small" 
+            hoverable
+            class="metric-card h-full flex flex-col justify-center"
+            :class="{ 'active': !filterStatus }"
+            @click="filterStatus = ''"
+          >
+            <div class="flex items-center gap-3 py-1">
+              <n-icon size="28" color="#2080f0">
+                <CubeOutline />
+              </n-icon>
+              <div>
+                <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">Всего заказов</n-text>
+                <n-h3 class="m-0 leading-none">{{ orders.length }}</n-h3>
+              </div>
+            </div>
+          </n-card>
+        </n-gi>
+
+        <n-gi>
+          <n-card 
+            size="small" 
+            hoverable
+            class="metric-card h-full flex flex-col justify-center"
+            :class="{ 'active': filterStatus === 'draft' }"
+            @click="filterStatus = 'draft'"
+          >
+            <div class="flex items-center gap-3 py-1">
+              <n-icon size="28" color="#f0a020">
+                <PencilOutline />
+              </n-icon>
+              <div>
+                <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">Черновики</n-text>
+                <n-h3 class="m-0 leading-none">{{ draftOrdersCount }}</n-h3>
+              </div>
+            </div>
+          </n-card>
+        </n-gi>
+
+        <n-gi>
+          <n-card 
+            size="small" 
+            hoverable
+            class="metric-card h-full flex flex-col justify-center"
+            :class="{ 'active': filterStatus === 'completed' }"
+            @click="filterStatus = 'completed'"
+          >
+            <div class="flex items-center gap-3 py-1">
+              <n-icon size="28" color="#18a058">
+                <CheckmarkCircleOutline />
+              </n-icon>
+              <div>
+                <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">Завершено</n-text>
+                <n-h3 class="m-0 leading-none">{{ completedOrdersCount }}</n-h3>
+              </div>
+            </div>
+          </n-card>
+        </n-gi>
+
+        <n-gi>
+          <n-card 
+            size="small" 
+            hoverable
+            class="metric-card h-full flex flex-col justify-center"
+            :class="{ 'active': filterStatus === 'active' }"
+            @click="filterStatus = 'active'"
+          >
+            <div class="flex items-center gap-3 py-1">
+              <n-icon size="28" color="#f0a020">
+                <TimeOutline />
+              </n-icon>
+              <div>
+                <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">В работе</n-text>
+                <n-h3 class="m-0 leading-none">{{ activeOrdersCount }}</n-h3>
+              </div>
+            </div>
+          </n-card>
+        </n-gi>
+      </n-grid>
+
+      <div style="margin-top: 24px;">
+        <n-spin :show="loading">
+          <n-empty v-if="orders.length === 0" description="Нет заказов на перемещение" />
+          
+          <n-data-table
           v-else
           :columns="columns"
-          :data="orders"
+          :data="filteredOrders"
           :pagination="pagination"
           :bordered="false"
           :single-line="false"
@@ -54,6 +138,7 @@
           })"
         />
       </n-spin>
+      </div>
     </div>
 
     <!-- Детали заказа -->
@@ -263,7 +348,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, h, onBeforeUnmount, watch } from 'vue'
+import { ref, computed, onMounted, h, onBeforeUnmount, watch } from 'vue'
 import { useStockBalances } from '@/composables/useStockBalances'
 import { useMessage } from 'naive-ui'
 import {
@@ -278,10 +363,11 @@ import {
   NText,
   NTag,
   NH1,
+  NH3,
   NAlert,
   NInput
 } from 'naive-ui'
-import { ArrowBackOutline, CameraOutline, ReloadOutline, CloseCircleOutline } from '@vicons/ionicons5'
+import { ArrowBackOutline, CameraOutline, ReloadOutline, CloseCircleOutline, CubeOutline, PencilOutline, CheckmarkCircleOutline, TimeOutline } from '@vicons/ionicons5'
 import type { DataTableColumns } from 'naive-ui'
 
 interface TransferOrder {
@@ -319,6 +405,7 @@ const scanningMode = ref(false)
 const scanningComplete = ref(false)
 const barcodeBuffer = ref('')
 const lastBarcode = ref('')
+const filterStatus = ref('')
 const orders = ref<TransferOrder[]>([])
 const selectedOrderId = ref<string | null>(null)
 const selectedOrder = ref<TransferOrder | null>(null)
@@ -461,6 +548,35 @@ const formatDate = (dateStr: string) => {
     return dateStr
   }
 }
+
+// Вычисляемые свойства для статистики
+const draftOrdersCount = computed(() => 
+  orders.value.filter(o => !o.Posted).length
+)
+
+const completedOrdersCount = computed(() => 
+  orders.value.filter(o => o.statusDescription === 'Завершен').length
+)
+
+const activeOrdersCount = computed(() => 
+  orders.value.filter(o => o.Posted && o.statusDescription !== 'Завершен').length
+)
+
+// Отфильтрованные заказы для таблицы
+const filteredOrders = computed(() => {
+  if (!filterStatus.value) return orders.value
+  
+  switch (filterStatus.value) {
+    case 'draft':
+      return orders.value.filter(o => !o.Posted)
+    case 'completed':
+      return orders.value.filter(o => o.statusDescription === 'Завершен')
+    case 'active':
+      return orders.value.filter(o => o.Posted && o.statusDescription !== 'Завершен')
+    default:
+      return orders.value
+  }
+})
 
 const columns: DataTableColumns<TransferOrder> = [
   {
@@ -875,7 +991,14 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .transfer-orders-page {
-  min-height: 100vh;
+  max-width: 1600px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+@media (max-width: 768px) {
+  .transfer-orders-page {
+    padding: 0 12px;
+  }
 }
 
 .space-y-6 > * + * {
@@ -916,5 +1039,24 @@ kbd {
 
 .border-blue-500 {
   border-color: #3b82f6;
+}
+
+.metric-card {
+  height: 100%;
+  background-color: #2a2a2a;
+  border-bottom: 4px solid transparent;
+  transition: all 0.3s ease;
+  cursor: pointer;
+}
+
+.metric-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  background-color: #333;
+}
+
+.metric-card.active {
+  background-color: #333;
+  border-bottom-color: #18a058;
 }
 </style>

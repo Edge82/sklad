@@ -73,10 +73,10 @@
             <th>Наименование</th>
             <th>Количество</th>
             <th>QR Коды</th>
-            <th>Цена за ед.</th>
+            <th v-if="userStore.canSeePrices">Цена за ед.</th>
             <th>Материалы</th>
             <th>Краски</th>
-            <th class="text-right">Сумма</th>
+            <th v-if="userStore.canSeePrices" class="text-right">Сумма</th>
           </tr>
         </thead>
         <tbody>
@@ -101,16 +101,17 @@
                 />
               </div>
             </td>
-            <td>{{ formatCurrency(item.unitPrice) }}</td>
+            <td v-if="userStore.canSeePrices">{{ formatCurrency(item.unitPrice) }}</td>
             <td>{{ item.materialUsed || '-' }}</td>
             <td>{{ (item as any).paintUsed || '-' }}</td>
-            <td class="text-right">{{ formatCurrency(item.totalPrice) }}</td>
+            <td v-if="userStore.canSeePrices" class="text-right">{{ formatCurrency(item.totalPrice) }}</td>
           </tr>
         </tbody>
         <tfoot>
           <tr>
-            <td colspan="7" class="text-right font-bold">Итого:</td>
-            <td class="font-bold text-lg text-right">{{ formatCurrency(order.totalAmount) }}</td>
+            <td v-if="userStore.canSeePrices" colspan="7" class="text-right font-bold">Итого:</td>
+            <td v-else colspan="6" class="text-right font-bold">Итого:</td>
+            <td v-if="userStore.canSeePrices" class="font-bold text-lg text-right">{{ formatCurrency(order.totalAmount) }}</td>
           </tr>
         </tfoot>
       </n-table>
@@ -229,6 +230,7 @@ import {
 } from '@vicons/ionicons5'
 import { useQRCodesStore } from '@/stores/qrCodes'
 import { useOrdersStore } from '@/stores/orders'
+import { useUserStore } from '@/stores/user'
 
 const props = defineProps<{
   order: Order
@@ -237,6 +239,7 @@ const props = defineProps<{
 
 const qrStore = useQRCodesStore()
 const ordersStore = useOrdersStore()
+const userStore = useUserStore()
 const message = useMessage()
 
 // Состояние редактирования окраски

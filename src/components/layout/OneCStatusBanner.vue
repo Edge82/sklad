@@ -264,7 +264,7 @@ function getTimeSinceSyncByType(type: 'units' | 'warehouses' | 'stocks' | 'order
 
 async function fetchStatus() {
   try {
-    const response = await fetch('http://localhost:8000/sklad/api/1c/status')
+    const response = await fetch('/sklad/api/1c/status')
     if (response.ok) {
       status.value = await response.json()
     } else {

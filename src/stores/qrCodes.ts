@@ -20,7 +20,8 @@ export const useQRCodesStore = defineStore('qrCodes', () => {
     employeeId?: string,
     employeeName?: string,
     labelInfo?: string,
-    labelOrder?: string
+    labelOrder?: string,
+    isPackage?: boolean
   }) {
     loading.value = true
     error.value = null
@@ -39,7 +40,8 @@ export const useQRCodesStore = defineStore('qrCodes', () => {
           employeeId: params.employeeId,
           employeeName: params.employeeName,
           labelInfo: params.labelInfo,
-          labelOrder: params.labelOrder
+          labelOrder: params.labelOrder,
+          isPackage: params.isPackage
         })
       })
 
@@ -61,6 +63,7 @@ export const useQRCodesStore = defineStore('qrCodes', () => {
           order: code.label_order || params.labelOrder || params.orderNumber,
           info: code.label_info || params.labelInfo || ''  // Use actual value or empty
         },
+        isPackage: code.is_package || params.isPackage || false,
         status: code.status as QRCodeStatus,
         isActive: true,
         version: 1,
@@ -111,6 +114,7 @@ export const useQRCodesStore = defineStore('qrCodes', () => {
           version: 1,
           generatedAt: new Date(code.generated_at),
           generatedBy: code.generated_by,
+          isPackage: code.is_package || false,
           scannedAt: code.scanned_at ? new Date(code.scanned_at) : undefined,
           scannedBy: code.scanned_by
         }
@@ -237,6 +241,7 @@ export const useQRCodesStore = defineStore('qrCodes', () => {
               version: 1,
               generatedAt: code.generated_at ? new Date(code.generated_at) : new Date(),
               generatedBy: code.generated_by || 'System',
+              isPackage: code.is_package || false,
               scannedAt: code.scanned_at ? new Date(code.scanned_at) : undefined,
               scannedBy: code.scanned_by
             }))

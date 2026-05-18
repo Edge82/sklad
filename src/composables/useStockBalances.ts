@@ -16,7 +16,7 @@ export interface Balance {
   quantity: number;
 }
 
-const baseURL = import.meta.env.VITE_1C_BASE_URL || 'http://localhost:8000/api-1c';
+const baseURL = import.meta.env.VITE_1C_BASE_URL || '/api-1c';
 const authUser = import.meta.env.VITE_1C_USERNAME;
 const authPass = import.meta.env.VITE_1C_PASSWORD;
 const warehouseGuid = import.meta.env.VITE_1C_WAREHOUSE_GUID;
@@ -808,7 +808,7 @@ export function useStockBalances() {
 
       // Fallback: загружаем из нашего backend API если 1С недоступна или данные неверные
       try {
-        const response = await fetch('http://localhost:8000/sklad/api/onec/warehouses', {
+        const response = await fetch('/sklad/api/onec/warehouses', {
           method: 'GET',
           headers: { 'Content-Type': 'application/json' }
         })

@@ -5,23 +5,20 @@ import vue from '@vitejs/plugin-vue'
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
+  const backendTarget = env.VITE_BACKEND_PROXY_TARGET || 'http://127.0.0.1:8000'
   
   return {
     plugins: [
       vue()
     ],
-    base: '/sklad/',
-    resolve: {
-      alias: {
-        '@': fileURLToPath(new URL('./src', import.meta.url))
-      }
-    },
+    base: env.VITE_APP_BASE || '/sklad/',
     server: {
-      port: 3000,
+      host: '0.0.0.0',
+      port: Number(env.VITE_PORT || 3000),
       open: true,
       proxy: {
         '/sklad/api': {
-          target: 'http://localhost:8000',
+          target: backendTarget,
           changeOrigin: true,
           secure: false
         },
@@ -31,6 +28,11 @@ export default defineConfig(({ mode }) => {
           secure: false,
           rewrite: (path) => path.replace(/^\/api-1c/, '')
         }
+      }
+    },
+    resolve: {
+      alias: {
+        '@': fileURLToPath(new URL('./src', import.meta.url))
       }
     },
     build: {

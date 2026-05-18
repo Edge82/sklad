@@ -37,3 +37,5 @@ coverage
 
 # Vitest
 __screenshots__/
+
+.env.example

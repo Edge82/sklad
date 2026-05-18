@@ -58,24 +58,8 @@
               </n-card>
             </n-gi>
 
-            <n-gi>
-              <n-card title="Оборачиваемость по категориям">
-                <div class="flex flex-col gap-6 py-2">
-                  <div v-for="item in turnoverStats" :key="item.category">
-                    <div class="flex justify-between mb-2">
-                      <n-text strong>{{ item.category }}</n-text>
-                      <n-text type="info" strong>{{ item.value }}%</n-text>
-                    </div>
-                    <n-progress type="line" :percentage="item.value" :color="item.color" :show-indicator="false" :height="12" />
-                  </div>
-                </div>
-              </n-card>
-            </n-gi>
-          </n-grid>
 
-          <n-card title="История последних движений ТМЦ" border-variant="dark">
-            <n-data-table :columns="movementColumns" :data="movementHistory" :pagination="{ pageSize: 12 }" />
-          </n-card>
+          </n-grid>
         </div>
 
         <!-- Детальный отчет по заказам -->
@@ -97,6 +81,7 @@
               :data="ordersReport" 
               :row-key="(row: OrderReportEntry) => row.orderNumber"
               v-model:expanded-row-keys="expandedOrderKeys"
+              :pagination="{ pageSize: 15 }"
               :row-props="(row: OrderReportEntry) => ({
                  class: 'cursor-pointer',
                  onClick: () => handleOrderReportRowClick(row)
@@ -104,13 +89,6 @@
             />
           </n-card>
           <n-empty v-if="ordersReport.length === 0" description="За выбранный период данных не найдено" class="mt-20" />
-        </div>
-
-        <!-- Детальный отчет по оборачиваемости -->
-        <div v-else-if="activeTab === 'turnover'">
-          <n-card border-variant="dark">
-            <n-data-table :columns="turnoverDetailedColumns" :data="turnoverItems" :pagination="{ pageSize: 20 }" />
-          </n-card>
         </div>
 
         <!-- Детальный отчет по критическим остаткам -->
@@ -122,38 +100,23 @@
 
         <!-- Детальный отчет по инструменту -->
         <div v-else-if="activeTab === 'tools'">
-          <n-card border-variant="dark">
-            <n-data-table :columns="toolsDetailedColumns" :data="forgottenTools" :pagination="{ pageSize: 20 }" />
-          </n-card>
-        </div>
-
-        <!-- Детальный отчет по списанию на изделия -->
-        <div v-else-if="activeTab === 'write_off'">
           <div class="mb-4 flex justify-between items-center">
-            <n-h2 class="m-0">Списание материалов на изделия</n-h2>
-            <n-date-picker 
-              v-model:value="dateRange" 
-              type="daterange" 
-              clearable 
-              placeholder="Период"
+            <n-h2 class="m-0">Инструмент на руках</n-h2>
+            <n-input 
+              v-model:value="searchToolsQuery" 
+              type="text" 
+              placeholder="Поиск по названию или сотруднику..."
+              clearable
               class="w-65"
             />
           </div>
 
           <n-card border-variant="dark" class="table-card shadow-sm">
-            <n-data-table 
-              :columns="writeOffReportColumns" 
-              :data="writeOffReport" 
-              :row-key="(row: WriteOffReportEntry) => row.productName"
-              v-model:expanded-row-keys="expandedWriteOffKeys"
-              :row-props="(row: WriteOffReportEntry) => ({
-                 class: 'cursor-pointer',
-                 onClick: () => handleWriteOffReportRowClick(row)
-              })"
-            />
+            <n-data-table :columns="toolsDetailedColumns" :data="filteredForgottenTools" :pagination="{ pageSize: 20 }" />
           </n-card>
-          <n-empty v-if="writeOffReport.length === 0" description="За выбраный период списаний на изделия не найдено" class="mt-20" />
+          <n-empty v-if="filteredForgottenTools.length === 0" description="Инструменты не найдены" class="mt-20" />
         </div>
+
       </div>
 
       <!-- Модалка только для профиля сотрудника -->
@@ -168,7 +131,6 @@
               </div>
             </div>
             <n-tag type="success" size="large" round>
-              <template #icon><n-icon><CheckmarkCircleOutline /></n-icon></template>
               В штате
             </n-tag>
           </div>
@@ -176,7 +138,7 @@
           <n-grid :cols="4" :x-gap="12" class="mb-6">
             <n-gi><n-card size="small"><n-statistic label="Заказов" :value="selectedEmployeeUniqueOrders"><template #prefix><n-icon><CubeOutline /></n-icon></template></n-statistic></n-card></n-gi>
             <n-gi><n-card size="small"><n-statistic label="Операций" :value="selectedEmployeeOperations"><template #prefix><n-icon><StatsChartOutline /></n-icon></template></n-statistic></n-card></n-gi>
-            <n-gi><n-card size="small"><n-statistic label="Эффективность" :value="89"><template #suffix>%</template><template #prefix><n-icon><TrendingUpOutline /></n-icon></template></n-statistic></n-card></n-gi>
+            <n-gi><n-card size="small"><n-statistic label="Эффективность" :value="89"><template #suffix>%</template></n-statistic></n-card></n-gi>
             <n-gi><n-card size="small"><n-statistic label="Ошибок" :value="0"><template #prefix><n-icon><WarningOutline /></n-icon></template></n-statistic></n-card></n-gi>
           </n-grid>
 
@@ -201,15 +163,14 @@ import {
   type Tool
 } from '@/types'
 import {
-  TrendingUpOutline, WarningOutline, 
-  TimeOutline, StatsChartOutline, CubeOutline,
-  CheckmarkCircleOutline
+  WarningOutline, 
+  TimeOutline, StatsChartOutline, CubeOutline
 } from '@vicons/ionicons5'
 import {
   NIcon, NH1, NText, NGrid, NGi, NCard, NH3, 
   NDatePicker, NDataTable, NProgress, NList, NListItem,
   NThing, NAvatar, NTag, NH2, NStatistic, NTable, NEmpty, NModal,
-  NSpace, type DataTableColumns
+  NSpace, NInput, type DataTableColumns
 } from 'naive-ui'
 
 const inventoryStore = useInventoryStore()
@@ -222,21 +183,18 @@ const activeTab = ref('main')
 const selectedEmployee = ref<Employee | null>(null)
 const showEmployeeModal = ref(false)
 const expandedOrderKeys = ref<string[]>([])
-const expandedWriteOffKeys = ref<string[]>([])
+const searchToolsQuery = ref('')
 
 // Load reports on mount
 onMounted(async () => {
-  await reportsStore.loadAllReports()
+  await Promise.all([
+    reportsStore.loadAllReports(),
+    toolsStore.loadToolsFromApi()
+  ])
 })
 
 interface OrderReportEntry {
   orderNumber: string
-  items: MaterialInvoiceItem[]
-  employees: Set<string>
-}
-
-interface WriteOffReportEntry {
-  productName: string
   items: MaterialInvoiceItem[]
   employees: Set<string>
 }
@@ -279,7 +237,7 @@ const ordersReportColumns: DataTableColumns<OrderReportEntry> = [
     render: (row: OrderReportEntry) => h(NText, { strong: true, class: 'text-lg font-mono' }, { default: () => row.orderNumber })
   },
   {
-    title: 'Мастера',
+    title: 'Заказчик',
     key: 'employees',
     render: (row: OrderReportEntry) => h(NSpace, { size: 'small' }, {
       default: () => Array.from(row.employees).map(name => h(NTag, { size: 'small', round: true, quaternary: true, type: 'info' }, { default: () => name }))
@@ -309,78 +267,9 @@ const handleOrderReportRowClick = (row: OrderReportEntry) => {
   }
 }
 
-const handleWriteOffReportRowClick = (row: WriteOffReportEntry) => {
-  const index = expandedWriteOffKeys.value.indexOf(row.productName)
-  if (index > -1) {
-    expandedWriteOffKeys.value.splice(index, 1)
-  } else {
-    expandedWriteOffKeys.value.push(row.productName)
-  }
-}
-
-const writeOffReportColumns: DataTableColumns<WriteOffReportEntry> = [
-  {
-    type: 'expand',
-    expandable: () => true,
-    renderExpand: (row) => {
-      return h('div', { class: 'p-4 bg-[rgba(255,255,255,0.02)] border-t border-gray-800' }, [
-        h(NTable, { size: 'small', singleLine: false, striped: true }, {
-          default: () => [
-            h('thead', [
-              h('tr', [
-                h('th', 'Наименование'),
-                h('th', 'Артикул'),
-                h('th', 'Цена'),
-                h('th', 'Кол-во'),
-                h('th', 'Ед.'),
-                h('th', 'Сумма')
-              ])
-            ]),
-            h('tbody', row.items.map(item => h('tr', [
-              h('td', item.productName),
-              h('td', h(NText, { depth: 3, code: true }, { default: () => item.article || '—' })),
-              h('td', `${(item.price || 0).toLocaleString('ru-RU')} ₽`),
-              h('td', h(NText, { strong: true }, { default: () => item.quantity })),
-              h('td', item.unit),
-              h('td', h(NText, { strong: true }, { default: () => `${((item.price || 0) * item.quantity).toLocaleString('ru-RU')} ₽` }))
-            ])))
-          ]
-        })
-      ])
-    }
-  },
-  {
-    title: 'Изделие',
-    key: 'productName',
-    render: (row: WriteOffReportEntry) => h(NText, { strong: true, class: 'text-lg' }, { default: () => row.productName })
-  },
-  {
-    title: 'Мастера',
-    key: 'employees',
-    render: (row: WriteOffReportEntry) => h(NSpace, { size: 'small' }, {
-      default: () => Array.from(row.employees).map(name => h(NTag, { size: 'small', round: true, quaternary: true, type: 'info' }, { default: () => name }))
-    })
-  },
-  {
-    title: 'Позиций материалов',
-    key: 'itemsCount',
-    render: (row: WriteOffReportEntry) => h(NTag, { type: 'success', quaternary: true }, { default: () => `${row.items.length} наим.` })
-  },
-  {
-    title: 'Итоговая стоимость',
-    key: 'totalAmount',
-    render: (row: WriteOffReportEntry) => {
-      const total = row.items.reduce((sum, i) => sum + (i.price || 0) * i.quantity, 0)
-      return h(NText, { strong: true, type: 'success', class: 'text-lg' }, { default: () => `${total.toLocaleString('ru-RU')} ₽` })
-    }
-  }
-]
-
 const pageHeader = computed(() => {
   switch (activeTab.value) {
     case 'orders': return 'Расход материала по заказам'
-    case 'write_off': return 'Списание материалов на изделия'
-    case 'turnover': return 'Аналитика оборачиваемости'
     case 'critical': return 'Критические остатки ТМЦ'
     case 'tools': return 'Инструмент на руках'
     default: return 'Отчеты и аналитика'
@@ -390,8 +279,6 @@ const pageHeader = computed(() => {
 const pageSubHeader = computed(() => {
   switch (activeTab.value) {
     case 'orders': return 'Детальный перечень затрат ТМЦ'
-    case 'write_off': return 'Детализация материалов, списанных на конкретные изделия'
-    case 'turnover': return 'Контроль интенсивности использования ресурсов'
     case 'critical': return 'Список позиций, требующих пополнения'
     case 'tools': return 'Контроль выданного оборудования'
     default: return 'Контроль ключевых показателей и история движений'
@@ -401,6 +288,15 @@ const pageSubHeader = computed(() => {
 const criticalItems = computed(() => inventoryStore.items.filter((item: InventoryItem) => item.currentStock <= (item.minStock || 5)))
 const forgottenTools = computed(() => toolsStore.tools.filter(t => t.status === 'issued'))
 
+const filteredForgottenTools = computed(() => {
+  const query = searchToolsQuery.value.toLowerCase()
+  if (!query) return forgottenTools.value
+  return forgottenTools.value.filter(tool => 
+    tool.name.toLowerCase().includes(query) || 
+    (tool.issuedToName || '').toLowerCase().includes(query)
+  )
+})
+
 interface OrderReportEntry {
   orderNumber: string
   items: MaterialInvoiceItem[]
@@ -409,111 +305,16 @@ interface OrderReportEntry {
 
 const ordersReport = computed(() => reportsStore.ordersReport)
 
-const writeOffReport = computed(() => {
-  const reportMap: Record<string, WriteOffReportEntry> = {}
-  
-  employeesStore.employees.forEach((emp: Employee) => {
-    if (emp.materialHistory) {
-      emp.materialHistory.forEach((h_item: MaterialInvoice) => {
-        // Проверяем, является ли это списанием на изделие
-        if (!h_item.destination?.startsWith('Списание: ')) return
-
-        const productName = h_item.destination.replace('Списание: ', '')
-
-        if (!reportMap[productName]) {
-          reportMap[productName] = { 
-            productName, 
-            items: [], 
-            employees: new Set() 
-          }
-        }
-        
-        const entry = reportMap[productName]
-        if (entry) {
-          entry.employees.add(emp.name)
-          
-          h_item.items.forEach((item: MaterialInvoiceItem) => {
-            const existing = entry.items.find(i => i.article === item.article)
-            if (existing) {
-              existing.quantity += item.quantity
-            } else {
-              entry.items.push({ ...item })
-            }
-          })
-        }
-      })
-    }
-  })
-
-  return Object.values(reportMap)
-})
-
 const topEmployees = computed(() => reportsStore.topEmployees)
 
 const summaryMetrics = computed(() => [
   { id: 'main', label: 'Общая сводка', value: '📊', icon: StatsChartOutline, color: '#666' },
   { id: 'orders', label: 'Расход по заказам', value: ordersReport.value.length.toString(), icon: CubeOutline, color: '#9c27b0' },
-  { id: 'write_off', label: 'Списание на изд.', value: writeOffReport.value.length.toString(), icon: CheckmarkCircleOutline, color: '#f0a020' },
-  { id: 'turnover', label: 'Оборачиваемость', value: '3.2x', icon: TrendingUpOutline, color: '#2080f0' },
-  { id: 'critical', label: 'Крит. остатки', value: criticalItems.value.length.toString(), icon: WarningOutline, color: '#d03050' }
+  { id: 'critical', label: 'Крит. остатки', value: criticalItems.value.length.toString(), icon: WarningOutline, color: '#d03050' },
+  { id: 'tools', label: 'Инструмент', value: forgottenTools.value.length.toString(), icon: WarningOutline, color: '#2080f0' }
 ])
 
-const turnoverStats = [
-  { category: 'Плита (ЛДСП/МДФ)', value: 85, color: '#18a058' },
-  { category: 'Кромка ПВХ', value: 62, color: '#2080f0' },
-  { category: 'Фурнитура', value: 45, color: '#f0a020' }
-]
 
-interface MovementHistoryItem {
-  date: Date
-  type: string
-  tagType: 'success' | 'warning' | 'info' | 'error' | 'primary' | 'default'
-  employeeName: string
-  orderNumber: string
-  itemCount: number
-  totalAmount?: number
-  productName?: string // Для расширенного отображения
-}
-
-const movementHistory = computed(() => reportsStore.movementHistory)
-
-const movementColumns = [
-  { 
-    title: 'Дата', 
-    key: 'date', 
-    width: 160,
-    render: (row: MovementHistoryItem) => new Date(row.date).toLocaleString('ru-RU', { 
-      day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' 
-    }) 
-  },
-  { 
-    title: 'Тип', 
-    key: 'type', 
-    width: 140,
-    render: (row: MovementHistoryItem) => h(NTag, { type: row.tagType, quaternary: true }, { default: () => row.type }) 
-  },
-  { title: 'Источник/Сотрудник', key: 'employeeName' },
-  { 
-    title: 'Заказ / Артикул / Товар', 
-    key: 'orderNumber', 
-    render: (row: MovementHistoryItem) => h('div', [
-      h('div', { class: 'font-mono font-bold' }, row.orderNumber),
-      row.productName ? h('div', { style: 'font-size: 11px; opacity: 0.7; margin-top: 2px' }, row.productName) : null
-    ])
-  },
-  { 
-    title: 'Кол-во', 
-    key: 'itemCount',
-    width: 100,
-    render: (row: MovementHistoryItem) => `${row.itemCount} шт.`
-  },
-  { 
-    title: 'Сумма', 
-    key: 'totalAmount', 
-    width: 130,
-    render: (row: MovementHistoryItem) => row.totalAmount ? `${row.totalAmount.toLocaleString('ru-RU')} ₽` : '-' 
-  }
-]
 
 const employeeHistoryColumns = [
   { title: 'Дата', key: 'date', render: (row: MaterialInvoice) => new Date(row.date).toLocaleDateString() },
@@ -535,19 +336,6 @@ const toolsDetailedColumns = [
     title: 'Срок (дней)', key: 'issuedAt', 
     render: (row: Tool) => row.issuedAt ? Math.floor((Date.now() - new Date(row.issuedAt).getTime()) / (1000 * 60 * 60 * 24)) : '-'
   }
-]
-
-const turnoverDetailedColumns = [
-  { title: 'Категория', key: 'category' },
-  { title: 'Средний остаток', key: 'avg' },
-  { title: 'Расход за период', key: 'usage' },
-  { title: 'Коэф. оборачиваемости', key: 'ratio' }
-]
-
-const turnoverItems = [
-  { category: 'Плита ЛДСП', avg: '450 л.', usage: '1200 л.', ratio: '2.6' },
-  { category: 'Кромка ПВХ', avg: '2500 м.', usage: '8000 м.', ratio: '3.2' },
-  { category: 'Метизы', avg: '15000 шт.', usage: '45000 шт.', ratio: '3.0' }
 ]
 
 const openEmployeeProfile = (emp: Employee) => {

@@ -117,7 +117,7 @@
               <n-icon size="28" color="#18a058" :component="CashOutline" />
               <div>
                 <n-text depth="3" class="revenue-label block mb-1">Стоимость заказов</n-text>
-                <n-h3 class="m-0 leading-none revenue-value text-[22px]">{{ formatCurrency(revenueInWork) }}</n-h3>
+                <n-h3 class="m-0 leading-none revenue-value text-[22px]">{{ userStore.canSeePrices ? formatCurrency(revenueInWork) : '-' }}</n-h3>
               </div>
             </div>
           </n-card>
@@ -244,6 +244,7 @@
 import { ref, h, computed, reactive, onMounted, watch } from 'vue'
 import { useOrdersStore } from '@/stores/orders'
 import { useQRCodesStore } from '@/stores/qrCodes'
+import { useUserStore } from '@/stores/user'
 import type { Order } from '@/types'
 import { syncEvents } from '@/utils/syncEvents'
 import { 
@@ -301,6 +302,7 @@ interface InvoiceRow {
 const ordersStore = useOrdersStore()
 const integrationStore = useIntegrationStore()
 const qrCodesStore = useQRCodesStore()
+const userStore = useUserStore()
 const message = useMessage()
 // Состояние синхронизации
 const isSyncingOrders = ref(false)
@@ -527,7 +529,7 @@ const goBack = () => {
 }
 
 
-const columns = [
+const columnsBase = [
   { 
     title: 'Номер', 
     key: 'orderNumber',
@@ -565,7 +567,7 @@ const columns = [
     }
   },
   {
-    title: 'Отгружено',
+    title: 'Выполнено',
     key: 'qrProgress',
     render(row: Order) {
       const percentage = ordersStore.getOrderProgress(row.id, qrCodesStore.qrCodes)
@@ -662,12 +664,22 @@ const columns = [
     }
   }
 ]
+
+// Фильтруем колонки по правам доступа
+const columns = computed(() => {
+  return columnsBase.filter(col => {
+    // Скрываем колонку "Сумма" для пользователей без доступа к ценам
+    if (col.key === 'totalAmount' && !userStore.canSeePrices) {
+      return false
+    }
+    return true
+  })
+})
 </script>
 
 <style scoped>
 .orders-page {
-  max-width: none;
-  width: 100%;
+  max-width: 1600px;
   margin: 0 auto;
   padding: 0 24px;
 }

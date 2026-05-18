@@ -91,7 +91,7 @@
             <n-icon size="28" color="#18a058" :component="CashOutline" />
             <div>
               <n-text depth="3" class="revenue-label block mb-1">Стоимость инстр.</n-text>
-              <n-h3 class="m-0 leading-none revenue-value text-[22px]">{{ formatCurrency(totalToolsCost) }}</n-h3>
+              <n-h3 class="m-0 leading-none revenue-value text-[22px]">{{ userStore.canSeePrices ? formatCurrency(totalToolsCost) : '-' }}</n-h3>
             </div>
           </div>
         </n-card>
@@ -178,6 +178,7 @@ import {
   type DataTableColumns
 } from 'naive-ui'
 import { useToolsStore } from '@/stores/tools'
+import { useUserStore } from '@/stores/user'
 import {
   TrashOutline,
   QrCodeOutline,
@@ -193,6 +194,7 @@ import QRPrintModal from '@/components/common/QRPrintModal.vue'
 import type { Tool } from '@/types'
 
 const toolsStore = useToolsStore()
+const userStore = useUserStore()
 const dialog = useDialog()
 const message = useMessage()
 

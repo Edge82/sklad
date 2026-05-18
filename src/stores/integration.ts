@@ -56,7 +56,7 @@ export const useIntegrationStore = defineStore('integration', () => {
   async function syncOrders() {
     try {
       // Вызываем backend endpoint для синхронизации только заказов
-      const response = await fetch('http://localhost:8000/sklad/api/sync/orders', {
+      const response = await fetch(`${API_BASE_URL}/sync/orders`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' }
       })
@@ -75,7 +75,7 @@ export const useIntegrationStore = defineStore('integration', () => {
   async function syncStocks() {
     try {
       // Вызываем backend endpoint для синхронизации только материалов
-      const response = await fetch('http://localhost:8000/sklad/api/sync/stocks', {
+      const response = await fetch(`${API_BASE_URL}/sync/stocks`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' }
       })
@@ -143,7 +143,7 @@ export const useIntegrationStore = defineStore('integration', () => {
       console.log('📦 Request Data:')
       console.log(JSON.stringify(data, null, 2))
       
-      const response = await fetch('http://localhost:8000/sklad/api/1c/material-transfer', {
+      const response = await fetch(`${API_BASE_URL}/1c/material-transfer`, {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
@@ -200,7 +200,7 @@ export const useIntegrationStore = defineStore('integration', () => {
         payload.imageFileName = data.imageFileName
       }
 
-      const response = await fetch('http://localhost:8000/sklad/api/1c/nomenclature', {
+      const response = await fetch(`${API_BASE_URL}/1c/nomenclature`, {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',

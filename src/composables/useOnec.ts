@@ -1,5 +1,6 @@
 import { ref, computed } from 'vue'
 import { useUserStore } from '@/stores/user'
+import { API_BASE_URL } from '@/config/api'
 
 export function useOnec() {
   const userStore = useUserStore() as any
@@ -17,7 +18,7 @@ export function useOnec() {
     error.value = null
 
     try {
-      const url = `http://localhost:8000/sklad/api/onec/${endpoint}`
+      const url = `${API_BASE_URL}/onec/${endpoint}`
 
       const headers: HeadersInit = {
         ...(options.headers || {}),

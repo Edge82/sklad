@@ -71,7 +71,7 @@ const pageTitle = computed(() => {
 async function handleLogout() {
   try {
     // Запрос на логаут
-    await fetch('http://localhost:8000/sklad/api/logout', { method: 'POST' })
+    await fetch('/sklad/api/logout', { method: 'POST' })
   } catch {
     // Даже если запрос ошибок - чистим локально
   }

@@ -52,6 +52,7 @@
               <tr v-for="code in orderCodes" :key="code.id">
                 <td>
                   <n-text code>{{ code.id }}</n-text>
+                  <n-tag v-if="code.isPackage" size="tiny" type="info" class="ml-1">📦</n-tag>
                 </td>
                 <td>{{ code.productName || '—' }}</td>
                 <td>
@@ -109,6 +110,17 @@
                 filterable
               />
             </n-form-item>
+            <n-form-item label="Упаковать">
+              <n-checkbox 
+                v-model:checked="genForm.isPackage" 
+                :disabled="hasPackageCodesForSelected"
+              >
+                Генерировать как код упаковки
+                <n-text v-if="hasPackageCodesForSelected" depth="3" class="ml-1 text-xs">
+                  (уже есть упаковочные коды для этого изделия)
+                </n-text>
+              </n-checkbox>
+            </n-form-item>
             <n-form-item label="Количество">
               <n-input-number v-model:value="genForm.count" :min="1" :max="1000" />
             </n-form-item>
@@ -126,6 +138,7 @@
               <div class="preview-line">Заказ: {{ orderNumber }}</div>
               <div class="preview-name text-lg">{{ previewName }}</div>
               <div v-if="genForm.labelInfo" class="preview-info opacity-70">{{ genForm.labelInfo }}</div>
+              <div v-if="genForm.isPackage" class="text-[10px] text-blue-400 font-bold mt-1">📦 Код упаковки</div>
               <div class="text-[10px] opacity-50 mt-2">Будет создано {{ genForm.count }} шт.</div>
             </div>
 
@@ -178,7 +191,7 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { 
   NModal, NTabs, NTabPane, NTable, NText, NTag, NButton, 
   NSpace, NIcon, NInputNumber, NForm, NFormItem, NSelect, 
-  NDivider, NEmpty, NInput, useDialog, useMessage 
+  NDivider, NEmpty, NInput, NCheckbox, useDialog, useMessage 
 } from 'naive-ui'
 import { 
   PrintOutline, TrashOutline, QrCodeOutline 
@@ -232,7 +245,8 @@ const genForm = ref({
   productId: null as string | null,
   count: 1,
   productName: '',
-  labelInfo: ''
+  labelInfo: '',
+  isPackage: false
 })
 
 const showSinglePrintModal = ref(false)
@@ -244,13 +258,27 @@ const singlePrintData = ref({
 
 const canPrintLast = computed(() => lastGeneratedCodes.value.length > 0)
 
-// При смене позиции обновляем предлагаемое название и инфо
+// Проверяем, есть ли у выбранного изделия упаковочные коды
+const hasPackageCodesForSelected = computed(() => {
+  if (!genForm.value.productId) return false
+  return qrStore.qrCodes.some(q =>
+    q.productId === genForm.value.productId && q.isPackage
+  )
+})
+
+// При смене позиции проверяем, есть ли уже упаковочные коды
 watch(() => genForm.value.productId, (newId) => {
   if (newId) {
     const item = props.items.find(i => (i.productId || i.id) === newId)
     if (item) {
       genForm.value.productName = item.productName || item.itemName || ''
       genForm.value.labelInfo = ''
+      
+      // Проверяем, есть ли у этого изделия уже упаковочные коды
+      const existingPackageCodes = qrStore.qrCodes.filter(q =>
+        q.productId === newId && q.isPackage
+      )
+      genForm.value.isPackage = existingPackageCodes.length > 0
     }
   }
 })
@@ -299,6 +327,11 @@ onMounted(() => {
       genForm.value.productId = item.productId || item.id
       genForm.value.productName = item.productName || item.itemName || ''
       genForm.value.labelInfo = ''
+      // Проверяем упаковочные коды
+      const existingPackageCodes = qrStore.qrCodes.filter(q =>
+        q.productId === genForm.value.productId && q.isPackage
+      )
+      genForm.value.isPackage = existingPackageCodes.length > 0
     }
   }
 })
@@ -311,6 +344,7 @@ watch(() => props.show, async (isShown) => {
     genForm.value.productName = ''
     genForm.value.labelInfo = ''
     genForm.value.count = 1
+    genForm.value.isPackage = false
     lastGeneratedCodes.value = []
 
     // Загружаем существующие QR коды для этого заказа с сервера
@@ -326,6 +360,10 @@ watch(() => props.show, async (isShown) => {
       if (item) {
         genForm.value.productId = item.productId || item.id || null
         genForm.value.productName = item.productName || item.itemName || ''
+        const existingPackageCodes = qrStore.qrCodes.filter(q =>
+          q.productId === genForm.value.productId && q.isPackage
+        )
+        genForm.value.isPackage = existingPackageCodes.length > 0
       }
     }
   }
@@ -567,6 +605,45 @@ const handlePrintLastGenerated = async () => {
   message.success(`Отправлено на печать: ${codes.length} шт.`)
 }
 
+async function handleGenerate() {
+  if (!genForm.value.productId) return
+  if (isGenerating.value) return // Prevent double submission
+  
+  const item = props.items.find(i => (i.productId || i.id) === genForm.value.productId)
+  if (!item) return
+
+  isGenerating.value = true
+  try {
+    // Если есть упаковочные коды — генерируем только упаковки
+    const hasPackages = qrStore.qrCodes.some(q =>
+      q.productId === genForm.value.productId && q.isPackage
+    )
+    if (hasPackages && !genForm.value.isPackage) {
+      genForm.value.isPackage = true
+    }
+
+    const newCodes = await qrStore.generateQRCodes({
+      orderId: props.orderId,
+      orderNumber: props.orderNumber,
+      productId: genForm.value.productId,
+      productName: genForm.value.productName || item?.productName || item?.itemName || 'Без названия',
+      labelInfo: genForm.value.labelInfo,
+      count: genForm.value.count,
+      isPackage: genForm.value.isPackage,
+      generatedBy: userStore.user?.name || 'Система'
+    })
+    
+    lastGeneratedCodes.value = newCodes
+    
+    message.success(`Сгенерировано ${genForm.value.count} кодов`)
+    emit('updated')
+  } catch {
+    message.error('Ошибка при генерации')
+  } finally {
+    isGenerating.value = false
+  }
+}
+
 // Печать последних сгенерированных кодов (без новой генерации)
 function handlePrintLastOnly() {
   if (lastGeneratedCodes.value.length === 0) {
@@ -590,6 +667,14 @@ async function handleGenerateAndPrint() {
 
   isGenerating.value = true
   try {
+    // Если есть упаковочные коды — генерируем только упаковки
+    const hasPackages = qrStore.qrCodes.some(q =>
+      q.productId === genForm.value.productId && q.isPackage
+    )
+    if (hasPackages && !genForm.value.isPackage) {
+      genForm.value.isPackage = true
+    }
+
     const newCodes = await qrStore.generateQRCodes({
       orderId: props.orderId,
       orderNumber: props.orderNumber,
@@ -597,6 +682,7 @@ async function handleGenerateAndPrint() {
       productName: genForm.value.productName || item?.productName || item?.itemName || 'Без названия',
       labelInfo: genForm.value.labelInfo,
       count: genForm.value.count,
+      isPackage: genForm.value.isPackage,
       generatedBy: userStore.user?.name || 'Система'
     })
     
@@ -610,37 +696,6 @@ async function handleGenerateAndPrint() {
       }
     }
   } catch (err) {
-    message.error('Ошибка при генерации')
-  } finally {
-    isGenerating.value = false
-  }
-}
-
-async function handleGenerate() {
-  if (!genForm.value.productId) return
-  if (isGenerating.value) return // Prevent double submission
-  
-  const item = props.items.find(i => (i.productId || i.id) === genForm.value.productId)
-  if (!item) return
-
-  isGenerating.value = true
-  try {
-    const newCodes = await qrStore.generateQRCodes({
-      orderId: props.orderId,
-      orderNumber: props.orderNumber,
-      productId: genForm.value.productId,
-      productName: genForm.value.productName || item?.productName || item?.itemName || 'Без названия',
-      labelInfo: genForm.value.labelInfo,
-      count: genForm.value.count,
-      generatedBy: userStore.user?.name || 'Система'
-    })
-    
-    lastGeneratedCodes.value = newCodes
-    // Убрал автоматическую очистку поля, так как пользователь хочет очищать её сам крестиком
-    
-    message.success(`Сгенерировано ${genForm.value.count} кодов`)
-    emit('updated')
-  } catch {
     message.error('Ошибка при генерации')
   } finally {
     isGenerating.value = false

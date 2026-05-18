@@ -31,6 +31,7 @@ const API_BASE = '/sklad/api'
 
 export const useReportsStore = defineStore('reports', () => {
   const ordersReport = ref<OrderReportEntry[]>([])
+  const writeOffReport = ref<any[]>([])
   const movementHistory = ref<MovementHistoryItem[]>([])
   const topEmployees = ref<TopEmployee[]>([])
   const criticalItems = ref<any[]>([])
@@ -47,6 +48,20 @@ export const useReportsStore = defineStore('reports', () => {
     } catch (err) {
       error.value = err instanceof Error ? err.message : 'Unknown error'
       console.error('Error loading orders report:', err)
+      throw err
+    }
+  }
+
+  // Load write-off report
+  async function loadWriteOffReport() {
+    try {
+      const response = await fetch(`${API_BASE}/reports/write-off`)
+      if (!response.ok) throw new Error('Failed to load write-off report')
+      const data = await response.json()
+      writeOffReport.value = data.writeoffs || []
+    } catch (err) {
+      error.value = err instanceof Error ? err.message : 'Unknown error'
+      console.error('Error loading write-off report:', err)
       throw err
     }
   }
@@ -100,6 +115,7 @@ export const useReportsStore = defineStore('reports', () => {
     try {
       await Promise.all([
         loadOrdersReport(),
+        loadWriteOffReport(),
         loadMovementHistory(),
         loadTopEmployees(),
         loadCriticalItems()
@@ -113,12 +129,14 @@ export const useReportsStore = defineStore('reports', () => {
 
   return {
     ordersReport,
+    writeOffReport,
     movementHistory,
     topEmployees,
     criticalItems,
     loading,
     error,
     loadOrdersReport,
+    loadWriteOffReport,
     loadMovementHistory,
     loadTopEmployees,
     loadCriticalItems,

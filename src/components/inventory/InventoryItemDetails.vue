@@ -110,18 +110,18 @@
               <n-card title="Финансы" size="small">
                 <n-list>
                   <n-list-item>
-                    <n-thing title="Цена закупки" :description="formatCurrency(item.purchasePrice)" />
+                    <n-thing title="Цена закупки" :description="userStore.canSeePrices ? formatCurrency(item.purchasePrice) : '-'" />
                   </n-list-item>
                   <n-list-item>
-                    <n-thing title="Средняя цена" :description="formatCurrency(item.averagePrice)" />
+                    <n-thing title="Средняя цена" :description="userStore.canSeePrices ? formatCurrency(item.averagePrice) : '-'" />
                   </n-list-item>
                   <n-list-item>
-                    <n-thing title="Последняя цена" :description="formatCurrency(item.lastPurchasePrice)" />
+                    <n-thing title="Последняя цена" :description="userStore.canSeePrices ? formatCurrency(item.lastPurchasePrice) : '-'" />
                   </n-list-item>
                   <n-list-item>
                     <n-thing title="Общая стоимость">
                       <template #description>
-                        <n-text strong type="primary">{{ formatCurrency(item.totalValue) }}</n-text>
+                        <n-text strong type="primary">{{ userStore.canSeePrices ? formatCurrency(item.totalValue) : '-' }}</n-text>
                       </template>
                     </n-thing>
                   </n-list-item>
@@ -247,6 +247,7 @@
 import { ref, computed, h } from 'vue'
 import { useInventoryStore } from '@/stores/inventory'
 import { useOrdersStore } from '@/stores/orders'
+import { useUserStore } from '@/stores/user'
 import type {  InventoryTransaction } from '@/types'
 import type { DataTableColumns } from 'naive-ui'
 import {
@@ -291,6 +292,7 @@ const emit = defineEmits<{
 
 const inventoryStore = useInventoryStore()
 const ordersStore = useOrdersStore()
+const userStore = useUserStore()
 const message = useMessage()
 const historyDateRange = ref<[number, number] | null>(null)
 const showPrintModal = ref(false)
@@ -337,7 +339,7 @@ const filteredHistory = computed(() => {
   return history
 })
 
-const historyColumns: DataTableColumns<InventoryTransaction> = [
+const historyColumnsBase: DataTableColumns<InventoryTransaction> = [
   {
     title: 'Тип',
     key: 'type',
@@ -395,6 +397,17 @@ const historyColumns: DataTableColumns<InventoryTransaction> = [
     width: 120
   }
 ]
+
+// Фильтруем колонки по правам доступа
+const historyColumns = computed(() => {
+  return historyColumnsBase.filter(col => {
+    // Скрываем колонки с ценами для пользователей без доступа
+    if ((col.key === 'unitPrice' || col.key === 'totalPrice') && !userStore.canSeePrices) {
+      return false
+    }
+    return true
+  })
+})
 
 // Вспомогательные функции
 const formatCurrency = (amount: number) => {

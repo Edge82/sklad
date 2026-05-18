@@ -42,6 +42,34 @@
           </n-form>
         </n-card>
 
+        <!-- Выданные инструменты (для worker, production и storekeeper) -->
+        <n-card v-if="['worker', 'production', 'storekeeper'].includes(userStore.user?.role || '')" title="Мои инструменты" class="mt-4">
+          <n-empty v-if="issuedTools.length === 0" description="Вам не выданы инструменты" />
+          <n-space v-else vertical>
+            <div v-for="tool in issuedTools" :key="tool.id" class="flex items-center justify-between p-3 border rounded">
+              <div class="flex-1">
+                <div class="font-semibold">{{ tool.name }}</div>
+                <n-text depth="3" class="text-sm">
+                  Инвентарный номер: {{ tool.inventoryNumber }}
+                </n-text>
+                <div v-if="tool.issuedAt" class="text-xs text-gray-500 mt-1">
+                  Выдан: {{ new Date(tool.issuedAt).toLocaleDateString() }}
+                </div>
+              </div>
+              <n-popconfirm
+                positive-text="Сдать"
+                negative-text="Отмена"
+                @positive-click="handleReturnTool(tool.id)"
+              >
+                <template #trigger>
+                  <n-button type="warning" size="small">Сдать инструмент</n-button>
+                </template>
+                Вы уверены, что хотите сдать этот инструмент?
+              </n-popconfirm>
+            </div>
+          </n-space>
+        </n-card>
+
         <!-- Статистика -->
         <n-card title="Статистика активности" class="mt-4">
           <n-grid :cols="3" :y-gap="8">
@@ -187,6 +215,7 @@
 import { ref, reactive, onMounted, computed } from 'vue'
 import { useUserStore } from '@/stores/user'
 import { useEmployeesStore } from '@/stores/employees'
+import { useToolsStore } from '@/stores/tools'
 import type { User } from '@/types'
 import {
   NGrid,
@@ -211,7 +240,8 @@ import {
   NCollapse,
   NCollapseItem,
   NTable,
-  useMessage
+  useMessage,
+  NPopconfirm
 } from 'naive-ui'
 import type { FormInst, FormRules } from 'naive-ui'
 import {
@@ -227,13 +257,33 @@ import {
 
 const userStore = useUserStore()
 const employeesStore = useEmployeesStore()
+const toolsStore = useToolsStore()
 const formRef = ref<FormInst | null>(null)
 const message = useMessage()
 
 // Получаем историю накладных текущего пользователя
 const myInvoices = computed(() => {
-  const employee = employeesStore.employees.find(e => e.userId === userStore.user?.id)
+  const employee = employeesStore.employees.find(e => {
+    // Преобразуем userId в число для правильного сравнения
+    const empUserId = parseInt(String(e.userId).split('.')[0])
+    return empUserId === userStore.user?.id
+  })
   return employee?.materialHistory || []
+})
+
+// Получаем инструменты, выданные текущему пользователю (для worker, production и storekeeper)
+const issuedTools = computed(() => {
+  if (!userStore.user?.id || !['worker', 'production', 'storekeeper'].includes(userStore.user?.role)) {
+    return []
+  }
+  // Найти employee по userId с преобразованием типа
+  const employee = employeesStore.employees.find(e => {
+    const empUserId = parseInt(String(e.userId).split('.')[0])
+    return empUserId === userStore.user?.id
+  })
+  if (!employee) return []
+  // Получить инструменты, выданные этому employee по его id
+  return toolsStore.getToolsIssuedToEmployee(employee.id)
 })
 
 // Тип для формы (без служебных полей)
@@ -321,6 +371,16 @@ const handleSave = () => {
   })
 }
 
+const handleReturnTool = async (toolId: string) => {
+  try {
+    await toolsStore.returnTool(toolId)
+    message.success('Инструмент успешно сдан')
+  } catch (err) {
+    message.error('Ошибка при сдаче инструмента')
+    console.error(err)
+  }
+}
+
 const resetForm = () => {
   if (userStore.user) {
     Object.assign(userForm, {
@@ -335,6 +395,14 @@ const resetForm = () => {
 
 onMounted(() => {
   resetForm()
+  // Load employees if not already loaded
+  if (employeesStore.employees.length === 0) {
+    employeesStore.loadEmployeesFromApi()
+  }
+  // Load tools if not already loaded
+  if (toolsStore.tools.length === 0) {
+    toolsStore.loadToolsFromApi()
+  }
 })
 </script>
 

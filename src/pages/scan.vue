@@ -6,8 +6,8 @@
         <n-button type="error" ghost @click="clearSession">
           Очистить
         </n-button>
-        <n-button type="primary" size="large" @click="completeShipment">
-          Завершить отгрузку ({{ scannedCodes.length }})
+        <n-button :type="actionButtonType" size="large" @click="handlePrimaryAction">
+          {{ actionButtonLabel }} ({{ actionButtonCount }})
         </n-button>
       </n-space>
     </div>
@@ -23,6 +23,9 @@
           ref="scanInputRef"
         />
       </n-form-item>
+      <n-alert v-if="workflowHint" type="info" class="mt-4">
+        {{ workflowHint }}
+      </n-alert>
     </n-card>
 
     <!-- Статус-сообщение -->
@@ -50,7 +53,7 @@
     </n-card>
 
     <!-- История отгрузки -->
-    <n-collapse default-expanded-names="shipment-history">
+    <n-collapse default-expanded-names="shipment-history" style="margin-top: 24px;">
       <n-collapse-item title="История отгрузки" name="shipment-history">
         <n-card size="small">
           <n-list v-if="recentShipments.length > 0">
@@ -79,7 +82,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, h, nextTick, onMounted } from 'vue'
+import { ref, computed, h, nextTick, onMounted, watch } from 'vue'
 import { TrashOutline } from '@vicons/ionicons5'
 import {
   NInput,
@@ -104,12 +107,16 @@ import {
 } from 'naive-ui'
 import { useUserStore } from '@/stores/user'
 import { useQRCodesStore } from '@/stores/qrCodes'
+import { useInventoryStore } from '@/stores/inventory'
 
 interface ScannedQRCode {
   code: string // QR код
   qrId: string // ID в базе QR кодов
   orderNumber: string // Номер заказа покупателя
   productName: string // Название продукта
+  scanCount: number // Количество сканирований (1 = принят на склад, 2 = готов к отгрузке)
+  warehouseState: 'pending' | 'received' | 'shipped'
+  receivedAt?: Date // Время приёмки на склад (первое сканирование)
 }
 
 interface ShipmentHistory {
@@ -122,6 +129,7 @@ interface ShipmentHistory {
 
 const lastScannedCode = ref('')
 const scanInputRef = ref<InputInst | null>(null)
+let scanTimeout: ReturnType<typeof setTimeout> | null = null
 const scannedCodes = ref<ScannedQRCode[]>([])
 const scanHistory = ref<{ time: Date; code: string; resultMessage: string; resultType: 'success' | 'error' | 'warning' }[]>([])
 const shipmentHistory = ref<ShipmentHistory[]>([])
@@ -130,6 +138,25 @@ const statusMessage = ref<{ type: 'success' | 'error' | 'warning' | 'info'; text
 const message = useMessage()
 const qrStore = useQRCodesStore()
 const userStore = useUserStore()
+const inventoryStore = useInventoryStore()
+
+const pendingTransferItems = computed(() => scannedCodes.value.filter(item => item.warehouseState === 'pending'))
+const readyToShipItems = computed(() => scannedCodes.value.filter(item => item.scanCount === 2))
+const hasReadyToShipItems = computed(() => readyToShipItems.value.length > 0)
+const actionButtonLabel = computed(() => hasReadyToShipItems.value ? 'Отгрузить' : 'Переместить на склад')
+const actionButtonType = computed(() => hasReadyToShipItems.value ? 'primary' : 'success')
+const actionButtonCount = computed(() => hasReadyToShipItems.value ? readyToShipItems.value.length : pendingTransferItems.value.length)
+const workflowHint = computed(() => {
+  if (pendingTransferItems.value.length > 0) {
+    return 'Сканируйте товар для приёмки на склад готовой продукции. После этого нажмите «Переместить на склад».'
+  }
+
+  if (readyToShipItems.value.length > 0) {
+    return 'Товар уже принят на склад. Сканируйте его повторно, чтобы добавить в текущую отгрузку.'
+  }
+
+  return 'Отсканируйте товар для приёмки на склад готовой продукции, повторное сканирование добавит его в для отгрузки.'
+})
 
 // Группируем отсканированные коды по заказам
 const groupedByOrder = computed(() => {
@@ -184,6 +211,38 @@ const columns = computed<DataTableColumns>(() => [
     align: 'center'
   },
   {
+    title: 'Статус',
+    key: 'status',
+    width: 200,
+    align: 'center',
+    render: (row: any) => {
+      const codes = row.items as ScannedQRCode[]
+      const statuses = codes.map(c => ({
+        code: c.code,
+        scanCount: c.scanCount
+      }))
+
+      return h('div', { class: 'flex flex-col gap-2' },
+        statuses.map(s =>
+          h(NTag, {
+            type: s.scanCount === 1
+              ? (s.code ? 'warning' : 'default')
+              : 'success',
+            quaternary: false,
+            size: 'small'
+          }, {
+            default: () => {
+              const currentItem = codes.find(c => c.code === s.code)
+              if (currentItem?.warehouseState === 'pending') return '↻ Ожидает перемещения'
+              if (s.scanCount === 1) return '✓ На складе'
+              return '✓✓ К отгрузке'
+            }
+          })
+        )
+      )
+    }
+  },
+  {
     title: 'Действие',
     key: 'actions',
     width: 80,
@@ -202,7 +261,7 @@ const columns = computed<DataTableColumns>(() => [
   }
 ])
 
-const handleScan = () => {
+const handleScan = async () => {
   const code = lastScannedCode.value.trim()
   if (!code) return
 
@@ -224,41 +283,84 @@ const handleScan = () => {
     return
   }
 
-  // Проверяем, не добавлен ли уже этот код
-  const alreadyScanned = scannedCodes.value.some(item => item.code === code)
-  if (alreadyScanned) {
-    scanHistory.value.unshift({
-      time: new Date(),
-      code: code,
-      resultMessage: 'QR код уже отсканирован',
-      resultType: 'warning'
-    })
-    message.warning('Этот QR код уже отсканирован')
-    lastScannedCode.value = ''
-    nextTick(() => {
-      scanInputRef.value?.focus()
-    })
-    return
+  // Проверяем, был ли этот код уже отсканирован
+  const existingItem = scannedCodes.value.find(item => item.code === code)
+  const isAlreadyInWarehouse = qrCode.status === 'scanned'
+  const isAlreadyShipped = qrCode.status === 'shipped'
+
+  if (existingItem) {
+    // Повторный скан в рамках текущей сессии добавляет товар в отгрузку
+    if (existingItem.scanCount === 1 && existingItem.warehouseState === 'received') {
+      existingItem.scanCount = 2
+      existingItem.warehouseState = 'received'
+      scanHistory.value.unshift({
+        time: new Date(),
+        code: code,
+        resultMessage: `Добавлено к отгрузке: ${qrCode.productName}`,
+        resultType: 'success'
+      })
+      message.success(`✓ Товар добавлен к отгрузке: ${qrCode.productName}`)
+    } else {
+      // Уже находится в текущей отгрузке или не требует повторного сканирования
+      scanHistory.value.unshift({
+        time: new Date(),
+        code: code,
+        resultMessage: 'Товар уже добавлен к текущей отгрузке',
+        resultType: 'warning'
+      })
+      message.warning('Этот товар уже добавлен к текущей отгрузке')
+    }
+  } else {
+    if (isAlreadyShipped) {
+      scanHistory.value.unshift({
+        time: new Date(),
+        code: code,
+        resultMessage: 'Товар уже отгружен',
+        resultType: 'warning'
+      })
+      message.warning(`Товар уже отгружен: ${qrCode.productName}`)
+    } else if (isAlreadyInWarehouse) {
+      scannedCodes.value.push({
+        code: code,
+        qrId: qrCode.id,
+        orderNumber: qrCode.orderNumber || 'Без номера',
+        productName: qrCode.productName,
+        scanCount: 2,
+        warehouseState: 'received',
+        receivedAt: new Date()
+      })
+
+      scanHistory.value.unshift({
+        time: new Date(),
+        code: code,
+        resultMessage: `Добавлено к отгрузке: ${qrCode.productName}`,
+        resultType: 'success'
+      })
+
+      message.success(`✓ Товар добавлен к отгрузке: ${qrCode.productName}`)
+    } else {
+      // ПЕРВОЕ СКАНИРОВАНИЕ - товар ждет перемещения на склад готовой продукции
+      scannedCodes.value.push({
+        code: code,
+        qrId: qrCode.id,
+        orderNumber: qrCode.orderNumber || 'Без номера',
+        productName: qrCode.productName,
+        scanCount: 1,
+        warehouseState: 'pending',
+        receivedAt: new Date()
+      })
+
+      scanHistory.value.unshift({
+        time: new Date(),
+        code: code,
+        resultMessage: `Добавлено к перемещению: ${qrCode.productName}`,
+        resultType: 'warning'
+      })
+
+      message.warning(`✓ Товар добавлен в список перемещения: ${qrCode.productName}`)
+      checkOrderStatus(qrCode.orderNumber)
+    }
   }
-
-  scannedCodes.value.push({
-    code: code,
-    qrId: qrCode.id,
-    orderNumber: qrCode.orderNumber || 'Без номера',
-    productName: qrCode.productName
-  })
-
-  scanHistory.value.unshift({
-    time: new Date(),
-    code: code,
-    resultMessage: `Добавлено: ${qrCode.productName}`,
-    resultType: 'success'
-  })
-
-  message.success(`Добавлено: ${qrCode.productName}`)
-
-  // Проверяем статус заказа
-  checkOrderStatus(qrCode.orderNumber)
 
   lastScannedCode.value = ''
   nextTick(() => {
@@ -271,7 +373,7 @@ const checkOrderStatus = (orderNumber: string | undefined) => {
 
   const scannedForOrder = scannedCodes.value.filter(item => item.orderNumber === orderNumber)
   // Только коды со статусом 'generated' нужно отгружать
-  const pendingOrderQRs = qrStore.qrCodes.filter(q => 
+  const pendingOrderQRs = qrStore.qrCodes.filter(q =>
     q.orderNumber === orderNumber && q.status === 'generated'
   )
 
@@ -302,16 +404,72 @@ const clearSession = () => {
   lastScannedCode.value = ''
 }
 
+const transferToWarehouse = async () => {
+  const itemsToTransfer = scannedCodes.value.filter(item => item.warehouseState === 'pending')
+
+  if (itemsToTransfer.length === 0) {
+    message.warning('Нет товаров для перемещения на склад')
+    return
+  }
+
+  try {
+    for (const item of itemsToTransfer) {
+      const response = await fetch('/sklad/api/inventory/receive-finished-product', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          qrId: item.qrId,
+          productName: item.productName,
+          quantity: 1,
+          orderNumber: item.orderNumber,
+          employeeId: userStore.user?.id,
+          employeeName: userStore.user?.name
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error(`Не удалось переместить товар ${item.productName}`)
+      }
+
+      item.warehouseState = 'received'
+      await qrStore.updateQRCodeStatus(item.qrId, 'scanned', userStore.user?.name || 'System', userStore.user?.id)
+      scanHistory.value.unshift({
+        time: new Date(),
+        code: item.code,
+        resultMessage: `Перемещено на склад готовой продукции: ${item.productName}`,
+        resultType: 'success'
+      })
+    }
+
+    await inventoryStore.loadStocksFromApi()
+
+    message.success(`Перемещено на склад: ${itemsToTransfer.length} шт.`)
+  } catch (err) {
+    scanHistory.value.unshift({
+      time: new Date(),
+      code: '',
+      resultMessage: `Ошибка перемещения: ${err instanceof Error ? err.message : 'неизвестная ошибка'}`,
+      resultType: 'error'
+    })
+    message.error(`Ошибка перемещения: ${err instanceof Error ? err.message : 'неизвестная ошибка'}`)
+  }
+}
+
 const completeShipment = async () => {
-  // Получаем уникальные номера заказов
-  const uniqueOrders = Array.from(new Set(scannedCodes.value.map(item => item.orderNumber)))
+  // Фильтруем только товары, которые добавлены в текущую отгрузку
+  const itemsToShip = scannedCodes.value.filter(item => item.scanCount === 2)
+
+  if (itemsToShip.length === 0) {
+    message.warning('Нет товаров, добавленных к отгрузке. Отсканируйте принятые товары повторно.')
+    return
+  }
 
   // Обновляем статусы QR кодов на "отгружены"
-  scannedCodes.value.forEach(item => {
-    qrStore.updateQRCodeStatus(item.qrId, 'shipped', userStore.user?.name || 'System')
-  })
+  for (const item of itemsToShip) {
+    await qrStore.updateQRCodeStatus(item.qrId, 'shipped', userStore.user?.name || 'System', userStore.user?.id)
+  }
 
-  const count = scannedCodes.value.length
+  const count = itemsToShip.length
   message.success(`Отгрузка завершена! Отправлено ${count} QR кодов`)
   clearSession()
 
@@ -319,14 +477,31 @@ const completeShipment = async () => {
   await loadShipmentHistory()
 }
 
+const handlePrimaryAction = async () => {
+  if (hasReadyToShipItems.value) {
+    await completeShipment()
+    return
+  }
+
+  await transferToWarehouse()
+}
+
 // Показываем только последние 5 отгрузок
 const recentShipments = computed(() => shipmentHistory.value.slice(0, 5))
+
+watch(lastScannedCode, (val) => {
+  if (scanTimeout) clearTimeout(scanTimeout)
+  if (!val.trim()) return
+  scanTimeout = setTimeout(() => {
+    handleScan()
+  }, 300)
+})
 
 onMounted(() => {
   nextTick(() => {
     scanInputRef.value?.focus()
   })
-  
+
   // Load shipment history from backend
   loadShipmentHistory()
 })
@@ -346,7 +521,14 @@ const loadShipmentHistory = async () => {
 
 <style scoped>
 .scan-page {
-  max-width: 1400px;
+  max-width: 1600px;
   margin: 0 auto;
+  padding: 0 24px;
+}
+
+@media (max-width: 768px) {
+  .scan-page {
+    padding: 0 12px;
+  }
 }
 </style>

@@ -127,7 +127,7 @@
             <n-icon size="28" color="#18a058" :component="CashOutline" />
             <div>
               <n-text depth="3" class="revenue-label block mb-1">ФОТ в месяц</n-text>
-              <n-h3 class="m-0 leading-none revenue-value text-[22px]">{{ formatCurrency(filteredTotalSalary) }}</n-h3>
+              <n-h3 class="m-0 leading-none revenue-value text-[22px]">{{ userStore.canSeePrices ? formatCurrency(filteredTotalSalary) : '-' }}</n-h3>
             </div>
           </div>
         </n-card>
@@ -312,21 +312,21 @@
       v-model:show="showCredentialsModal" 
       preset="card"
       :auto-focus="false"
-      title="Учетные данные для входа" 
+      :title="credentialsModalTitle" 
       class="w-150!"
     >
       <div class="space-y-6">
         <div>
           <n-text depth="3" class="text-xs uppercase font-bold">Сотрудник</n-text>
-          <n-h3 class="m-0 mt-2">{{ lastCreatedCredentials?.name }}</n-h3>
+          <n-h3 class="m-0 mt-2">{{ credentialEmployeeName }}</n-h3>
         </div>
 
-        <div class="p-4 bg-gray-900 rounded-lg border border-gray-700">
+        <div v-if="credentialsMode === 'created'" class="p-4 bg-gray-900 rounded-lg border border-gray-700">
           <div class="space-y-3">
             <div>
               <n-text depth="3" class="text-xs uppercase font-bold">Логин для входа</n-text>
               <n-input
-                v-model:value="lastCreatedCredentials!.login"
+                v-model:value="lastCredentials!.login"
                 readonly
                 class="mt-2"
               >
@@ -334,7 +334,7 @@
                   <n-button 
                     text 
                     type="primary" 
-                    @click="copyToClipboard(lastCreatedCredentials!.login)"
+                    @click="copyToClipboard(lastCredentials!.login)"
                   >
                     Копировать
                   </n-button>
@@ -345,7 +345,7 @@
             <div>
               <n-text depth="3" class="text-xs uppercase font-bold">Временный пароль</n-text>
               <n-input 
-                v-model:value="lastCreatedCredentials!.password"
+                v-model:value="lastCredentials!.password"
                 readonly
                 type="text"
                 class="mt-2"
@@ -354,7 +354,7 @@
                   <n-button 
                     text 
                     type="primary" 
-                    @click="copyToClipboard(lastCreatedCredentials!.password)"
+                    @click="copyToClipboard(lastCredentials!.password)"
                   >
                     Копировать
                   </n-button>
@@ -364,16 +364,56 @@
           </div>
         </div>
 
+        <div v-else class="p-4 bg-gray-900 rounded-lg border border-gray-700">
+          <div class="space-y-3">
+            <div>
+              <n-text depth="3" class="text-xs uppercase font-bold">Новый логин</n-text>
+              <n-input
+                v-model:value="credentialForm.login"
+                class="mt-2"
+                placeholder="Введите новый логин"
+              />
+            </div>
+
+            <div>
+              <n-text depth="3" class="text-xs uppercase font-bold">Новый пароль</n-text>
+              <n-input
+                v-model:value="credentialForm.password"
+                type="password"
+                class="mt-2"
+                placeholder="Введите новый пароль"
+                show-password-on="click"
+              />
+            </div>
+
+            <div>
+              <n-text depth="3" class="text-xs uppercase font-bold">Подтвердите пароль</n-text>
+              <n-input
+                v-model:value="credentialForm.passwordConfirm"
+                type="password"
+                class="mt-2"
+                placeholder="Повторите новый пароль"
+                show-password-on="click"
+              />
+            </div>
+          </div>
+        </div>
+
         <n-alert type="warning">
           <template #icon>
             <n-icon><TimeOutline /></n-icon>
           </template>
-          После первого входа сотрудник должен изменить пароль в профиле для безопасности
+          {{ credentialsModalNote }}
         </n-alert>
       </div>
 
       <template #footer>
-        <n-button type="primary" block @click="showCredentialsModal = false">Закрыть</n-button>
+        <div class="flex gap-3">
+          <n-button v-if="credentialsMode === 'change'" type="primary" :loading="credentialsSaving" @click="handleSaveCredentials">
+            Сохранить изменения
+          </n-button>
+          <n-button :block="credentialsMode !== 'change'" @click="showCredentialsModal = false">{{ credentialsMode === 'change' ? 'Отмена' : 'Закрыть' }}</n-button>
+        </div>
       </template>
     </n-modal>
 
@@ -412,6 +452,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, h, onMounted } from 'vue'
 import { useEmployeesStore } from '@/stores/employees'
+import { useUserStore } from '@/stores/user'
 import type { Employee } from '@/types'
 import type { DataTableColumns, SelectOption } from 'naive-ui'
 import {
@@ -450,13 +491,15 @@ import {
   AppsOutline,
   ArrowBackOutline,
   BuildOutline,
-  TimeOutline
+  TimeOutline,
+  KeyOutline
 } from '@vicons/ionicons5'
 import EmployeeForm from '@/components/employees/EmployeeForm.vue'
 import EmployeeDetails from '@/components/employees/EmployeeDetails.vue'
 import { useDialog, useMessage } from 'naive-ui'
 
 const employeesStore = useEmployeesStore()
+const userStore = useUserStore()
 const dialog = useDialog()
 const message = useMessage()
 
@@ -465,9 +508,27 @@ const detailsRef = ref<InstanceType<typeof EmployeeDetails> | null>(null)
 const showCreateModal = ref(false)
 const showViewModal = ref(false)
 const showCredentialsModal = ref(false)
-const lastCreatedCredentials = ref<{ login: string; password: string; name: string } | null>(null)
+const credentialsMode = ref<'created' | 'change'>('created')
+const lastCredentials = ref<{ login: string; password: string; name: string } | null>(null)
+const credentialEmployeeName = ref('')
+const credentialsSaving = ref(false)
+const credentialForm = reactive({
+  login: '',
+  password: '',
+  passwordConfirm: ''
+})
 const selectedEmployeeIdForView = ref<string | null>(null)
 const viewDetailMode = ref<'full' | 'slim'>('full')
+
+const credentialsModalTitle = computed(() => credentialsMode.value === 'created'
+  ? 'Учетные данные для входа'
+  : 'Изменение учетных данных'
+)
+
+const credentialsModalNote = computed(() => credentialsMode.value === 'created'
+  ? 'После первого входа сотрудник должен изменить пароль в профиле для безопасности'
+  : 'Введите новый логин и пароль. Старые данные перестанут работать.'
+)
 
 const selectedEmployeeForView = computed(() => {
   if (!selectedEmployeeIdForView.value) return null
@@ -661,7 +722,7 @@ const employeeColumns: DataTableColumns<Employee> = [
   {
     title: 'Действия',
     key: 'actions',
-    width: 150,
+    width: 200,
     render: (row) => h('div', { class: 'flex gap-2' }, [
       h(NTooltip, null, {
         trigger: () => h(NButton, {
@@ -686,6 +747,19 @@ const employeeColumns: DataTableColumns<Employee> = [
           }
         }, { icon: () => h(NIcon, null, { default: () => h(PencilOutline) }) }),
         default: () => 'Редактировать'
+      }),
+      h(NTooltip, null, {
+        trigger: () => h(NButton, {
+          size: 'small',
+          type: 'primary',
+          quaternary: true,
+          disabled: !userStore.isAdminOrManager,
+          onClick: (e) => {
+            e.stopPropagation()
+            handleChangeCredentials(row.id)
+          }
+        }, { icon: () => h(NIcon, null, { default: () => h(KeyOutline) }) }),
+        default: () => 'Изменить учетные данные'
       }),
       h(NTooltip, null, {
         trigger: () => h(NButton, {
@@ -730,10 +804,11 @@ const viewEmployee = (id: string, mode: 'full' | 'slim' = 'slim') => {
   const emp = employeesStore.employees.find(e => e.id === id)
   if (!emp) return
 
+  selectedEmployeeIdForView.value = id
+
   if (mode === 'slim') {
     selectedInlineEmployee.value = emp
   } else {
-    selectedEmployeeIdForView.value = id
     viewDetailMode.value = mode
     showViewModal.value = true
   }
@@ -755,6 +830,73 @@ const deleteEmployee = (id: string) => {
       message.success('Сотрудник удален')
     }
   })
+}
+
+const handleChangeCredentials = async (id: string) => {
+  const employee = employeesStore.getEmployeeById(id)
+  if (!employee) return
+
+  const credentials = await employeesStore.getEmployeeCredentials(id)
+  if (!credentials) {
+    message.error('Не удалось загрузить учетные данные сотрудника')
+    return
+  }
+
+  selectedEmployeeIdForView.value = id
+  credentialsMode.value = 'change'
+  credentialEmployeeName.value = employee.name
+  credentialForm.login = credentials.login || employee.email || ''
+  credentialForm.password = ''
+  credentialForm.passwordConfirm = ''
+  showCredentialsModal.value = true
+}
+
+const handleSaveCredentials = async () => {
+  const employeeId = selectedEmployeeIdForView.value
+  if (!employeeId) {
+    message.error('Не выбран сотрудник для изменения учетных данных')
+    return
+  }
+
+  if (!credentialForm.login.trim()) {
+    message.error('Введите новый логин')
+    return
+  }
+
+  if (!credentialForm.password) {
+    message.error('Введите новый пароль')
+    return
+  }
+
+  if (credentialForm.password !== credentialForm.passwordConfirm) {
+    message.error('Пароли не совпадают')
+    return
+  }
+
+  credentialsSaving.value = true
+  try {
+    const updatedCredentials = await employeesStore.updateEmployeeCredentials(
+      employeeId,
+      credentialForm.login.trim(),
+      credentialForm.password
+    )
+
+    if (!updatedCredentials) {
+      message.error('Не удалось обновить учетные данные')
+      return
+    }
+
+    lastCredentials.value = {
+      login: updatedCredentials.login,
+      password: credentialForm.password,
+      name: updatedCredentials.name || credentialEmployeeName.value
+    }
+    credentialsMode.value = 'created'
+    showCredentialsModal.value = false
+    message.success('Учетные данные обновлены')
+  } finally {
+    credentialsSaving.value = false
+  }
 }
 
 // Load employees from API when page mounts
@@ -793,7 +935,9 @@ const handleEmployeeSubmit = async (employeeData: Partial<Employee>) => {
     
     // Show credentials modal if available
     if (result.credentials) {
-      lastCreatedCredentials.value = {
+      credentialsMode.value = 'created'
+      credentialEmployeeName.value = employeeData.name || 'Новый сотрудник'
+      lastCredentials.value = {
         login: result.credentials.login,
         password: result.credentials.password,
         name: employeeData.name || 'Новый сотрудник'

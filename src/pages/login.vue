@@ -272,7 +272,7 @@ async function handlePasswordChange() {
   console.log('[PasswordChange] New password length:', passwordChangeForm.newPassword.length)
 
   try {
-    const response = await fetch('http://localhost:8000/sklad/api/auth/change-password', {
+    const response = await fetch('/sklad/api/auth/change-password', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

@@ -62,7 +62,7 @@ const menuOptions = computed<MenuOption[]>(() => {
         },
         {
           label: 'Готовая продукция',
-          key: '/inventory/finished',
+          key: '/finished-products',
         }
       ]
     },
@@ -77,20 +77,18 @@ const menuOptions = computed<MenuOption[]>(() => {
       icon: renderIcon(SyncOutline)
     },
     {
-      label: 'Отгрузка',
+      label: 'Приём и отгрузка готовой продукции',
       key: '/scan',
       icon: renderIcon(QrCodeOutline)
     }
   ]
 
-  // Инструменты доступны всем кроме Рабочего (Рабочий не видит, Кладовщик видит)
-  if (!userStore.isWorker) {
-    options.push({
-      label: 'Инструменты',
-      key: '/tools',
-      icon: renderIcon(HammerOutline)
-    })
-  }
+  // Инструменты доступны всем ролям
+  options.push({
+    label: 'Инструменты',
+    key: '/tools',
+    icon: renderIcon(HammerOutline)
+  })
 
   // Сотрудники для Рабочего превращаются в Личный кабинет
   if (userStore.isWorker) {

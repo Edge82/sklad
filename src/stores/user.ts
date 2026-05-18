@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { User } from '@/types'
+import { API_BASE_URL } from '@/config/api'
 
 export interface UserSettings {
   theme: 'dark' | 'light'
@@ -49,6 +50,11 @@ export const useUserStore = defineStore('user', () => {
   const isWorker = computed(() => user.value?.role === 'worker')
   const isAdminOrManager = computed(() => ['director', 'manager'].includes(user.value?.role || ''))
   const isWarehouseStaff = computed(() => ['director', 'manager', 'storekeeper'].includes(user.value?.role || ''))
+  const canSeePrices = computed(() => {
+    const role = user.value?.role || ''
+    // Показываем цены для director и manager, скрываем для остальных
+    return ['director', 'manager'].includes(role)
+  })
 
   // Логин с API
   const login = async (login: string, password: string) => {
@@ -56,24 +62,35 @@ export const useUserStore = defineStore('user', () => {
     error.value = null
     
     try {
-      const response = await fetch('http://localhost:8000/sklad/api/auth/login', {
+      const response = await fetch(`${API_BASE_URL}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ login, password })
-      }).then(r => r.json())
+      })
+
+      const data = await response.json().catch(() => ({}))
+
+      if (!response.ok) {
+        token.value = null
+        user.value = null
+        error.value = data.error || 'Ошибка логина'
+        return false
+      }
       
-      token.value = response.token
-      user.value = response.user
+      token.value = data.token
+      user.value = data.user
       
       // Сохраняем в localStorage для восстановления сессии
       if (typeof window !== 'undefined') {
-        localStorage.setItem('auth_token', response.token)
-        localStorage.setItem('user_data', JSON.stringify(response.user))
+        localStorage.setItem('auth_token', data.token)
+        localStorage.setItem('user_data', JSON.stringify(data.user))
       }
       
       return true
     } catch (err: any) {
-      error.value = err.data?.message || 'Ошибка логина'
+      token.value = null
+      user.value = null
+      error.value = err?.message || 'Ошибка логина'
       return false
     } finally {
       loading.value = false
@@ -83,7 +100,7 @@ export const useUserStore = defineStore('user', () => {
   // Логаут
   const logout = async () => {
     try {
-      await fetch('http://localhost:8000/sklad/api/logout', { method: 'POST' })
+      await fetch(`${API_BASE_URL}/logout`, { method: 'POST' })
     } catch (err) {
       console.error('Logout error:', err)
     } finally {
@@ -158,6 +175,7 @@ export const useUserStore = defineStore('user', () => {
     isWorker,
     isAdminOrManager,
     isWarehouseStaff,
+    canSeePrices,
     restoreSession,
     login,
     logout,

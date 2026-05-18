@@ -14,6 +14,7 @@ import Integration from '@/pages/integration.vue'
 import Reports from '@/pages/reports.vue'
 import EmployeeDetails from '@/pages/employeedetails.vue'
 import TransferOrders from '@/pages/transferorders.vue'
+import FinishedProducts from '@/pages/finished-products.vue'
 
 const routes: RouteRecordRaw[] = [
   {
@@ -32,7 +33,12 @@ const routes: RouteRecordRaw[] = [
   },
   {
     path: '/inventory/finished',
-    component: Inventory,
+    component: FinishedProducts,
+    meta: { title: 'Готовая продукция' }
+  },
+  {
+    path: '/finished-products',
+    component: FinishedProducts,
     meta: { title: 'Готовая продукция' }
   },
   {

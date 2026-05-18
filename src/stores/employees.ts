@@ -162,6 +162,43 @@ export const useEmployeesStore = defineStore('employees', () => {
     }
   }
 
+  const getEmployeeCredentials = async (id: string): Promise<{ login: string; name: string; email?: string } | null> => {
+    try {
+      const response = await fetch(`/sklad/api/employees/${id}/credentials`)
+
+      if (!response.ok) {
+        throw new Error(`Failed to load employee credentials: ${response.statusText}`)
+      }
+
+      const data = await response.json()
+      return data.credentials || null
+    } catch (err) {
+      console.error('Error loading employee credentials:', err)
+      return null
+    }
+  }
+
+  const updateEmployeeCredentials = async (id: string, login: string, password: string): Promise<{ login: string; name: string } | null> => {
+    try {
+      const response = await fetch(`/sklad/api/employees/${id}/credentials`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ login, password })
+      })
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        throw new Error(data.error || `Failed to update employee credentials: ${response.statusText}`)
+      }
+
+      const data = await response.json()
+      return data.credentials || null
+    } catch (err) {
+      console.error('Error updating employee credentials:', err)
+      return null
+    }
+  }
+
   const deleteEmployee = (id: string) => {
     const index = employees.value.findIndex(emp => emp.id === id)
     if (index !== -1) {
@@ -313,6 +350,8 @@ export const useEmployeesStore = defineStore('employees', () => {
     addEmployee,
     updateEmployee,
     deleteEmployee,
+    getEmployeeCredentials,
+    updateEmployeeCredentials,
     getRoleLabel,
     getStatusLabel,
     getStatusColor,

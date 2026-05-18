@@ -9,9 +9,9 @@
           </template>
         </n-button>
         <div>
-          <n-h1 class="m-0">{{ selectedInvoice ? 'Детали накладной' : 'Движение материалов' }}</n-h1>
+          <n-h1 class="m-0">{{ selectedInvoice ? 'Детали накладной' : 'Приём и отгрузка готовой продукции' }}</n-h1>
           <n-text depth="3">
-            {{ selectedInvoice ? `Накладная #${selectedInvoice.id.slice(-6).toUpperCase()}` : 'История всех сканирований и движений ТМЦ' }}
+            {{ selectedInvoice ? `Накладная #${selectedInvoice.id.slice(-6).toUpperCase()}` : 'История приёма на склад и последующей отгрузки готовой продукции' }}
           </n-text>
         </div>
       </div>
@@ -64,15 +64,15 @@
           size="small" 
           hoverable
           class="metric-card h-full flex flex-col justify-center" 
-          :class="{ 'active': filterDestination === 'Производство' }"
-          @click="filterDestination = 'Производство'"
+          :class="{ 'active': filterDestination === 'Готовая продукция' }"
+          @click="filterDestination = 'Готовая продукция'"
         >
           <div class="flex items-center gap-3 py-1">
             <n-icon size="28" color="#2080f0">
               <BusinessOutline />
             </n-icon>
             <div>
-              <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">Выдано в пр-во</n-text>
+              <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">Товар на складе готовой продукции</n-text>
               <n-h3 class="m-0 leading-none">{{ statsByType.production }}</n-h3>
             </div>
           </div>
@@ -85,7 +85,7 @@
             <n-icon size="28" color="#18a058" :component="AnalyticsOutline" />
             <div>
               <n-text depth="3" class="revenue-label block mb-1">Сумма накладных</n-text>
-              <n-h3 class="m-0 leading-none revenue-value text-[22px]">{{ totalRevenue.toLocaleString() }} ₽</n-h3>
+              <n-h3 class="m-0 leading-none revenue-value text-[22px]">{{ userStore.canSeePrices ? totalRevenue.toLocaleString() + ' ₽' : '-' }}</n-h3>
             </div>
           </div>
         </n-card>
@@ -119,7 +119,7 @@
       </n-space>
     </n-card>
 
-    <n-card bordered class="table-card shadow-sm">
+    <n-card bordered class="table-card shadow-sm" style="margin-top: 24px;">
       <div v-if="!selectedInvoice">
         <n-data-table
           :columns="columns"
@@ -162,12 +162,12 @@
             <tr v-for="(item, idx) in selectedInvoice.items" :key="idx">
               <td><n-text depth="3">{{ item.article ?? '—' }}</n-text></td>
               <td><n-text strong>{{ item.productName }}</n-text></td>
-              <td class="text-right">{{ (item.price || 0).toLocaleString() }} ₽</td>
+              <td class="text-right">{{ userStore.canSeePrices ? (item.price || 0).toLocaleString() + ' ₽' : '-' }}</td>
               <td class="text-right">
                 <n-text depth="2" strong>{{ item.quantity }} {{ item.unit }}</n-text>
               </td>
               <td class="text-right">
-                <n-text type="success" strong>{{ ((item.price || 0) * item.quantity).toLocaleString() }} ₽</n-text>
+                <n-text type="success" strong>{{ userStore.canSeePrices ? ((item.price || 0) * item.quantity).toLocaleString() + ' ₽' : '-' }}</n-text>
               </td>
             </tr>
           </tbody>
@@ -176,7 +176,7 @@
               <th colspan="4" class="text-right">Итого к списанию:</th>
               <th class="text-right">
                 <n-text type="success" strong class="text-[1.1em]">
-                  {{ (selectedInvoice.totalAmount || selectedInvoice.items.reduce((sum: number, i: any) => sum + (i.price || 0) * i.quantity, 0)).toLocaleString() }} ₽
+                  {{ userStore.canSeePrices ? (selectedInvoice.totalAmount || selectedInvoice.items.reduce((sum: number, i: any) => sum + (i.price || 0) * i.quantity, 0)).toLocaleString() + ' ₽' : '-' }}
                 </n-text>
               </th>
             </tr>
@@ -188,7 +188,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, h } from 'vue'
+import { ref, computed, h, onMounted } from 'vue'
 import { 
   NText, NCard, NDataTable, NButton, NIcon, NSpace, NInput,
   NDescriptions, NDescriptionsItem, NTag,
@@ -204,26 +204,39 @@ import {
 } from '@vicons/ionicons5'
 import { useEmployeesStore } from '@/stores/employees'
 import { useShipmentsStore } from '@/stores/shipments'
+import { useUserStore } from '@/stores/user'
 import type { Employee, MaterialInvoice, MaterialInvoiceItem } from '@/types'
 import type { DataTableColumns } from 'naive-ui'
-import { onMounted } from 'vue'
 
 const employeesStore = useEmployeesStore()
 const shipmentsStore = useShipmentsStore()
+const userStore = useUserStore()
 const searchQuery = ref('')
 const filterDestination = ref('all')
 
-interface InvoiceWithWorker extends MaterialInvoice {
+interface InvoiceWithWorker extends Omit<MaterialInvoice, 'date'> {
+  date: string | Date
   workerName: string
   workerId: string
+  operationLabel: string
+  movementType: 'receipt' | 'shipment'
+  movementCount: number
+  shipmentOrders?: string[]
 }
 
 const selectedInvoice = ref<InvoiceWithWorker | null>(null)
 const expandedKeys = ref<string[]>([])
+const shipmentHistory = ref<Array<{
+  id: string
+  date: string
+  userName: string
+  count: number
+  orders: string[]
+}>>([])
 
 const destinationOptions = [
   { label: 'Все направления', value: 'all' },
-  { label: 'Производство', value: 'Производство' },
+  { label: 'Готовая продукция', value: 'Готовая продукция' },
   { label: 'Клиент', value: 'Клиент' }
 ]
 
@@ -237,10 +250,37 @@ const allInvoices = computed(() => {
   
   shipmentsStore.materialInvoices.forEach((history: MaterialInvoice) => {
     const employee = employeesStore.employees.find(emp => emp.id === history.employeeId)
+    const operationLabel = history.destination === 'Готовая продукция'
+      ? 'Поступил на склад'
+      : (history.destination === 'Клиент' ? 'Отгружен клиенту' : (history.destination || 'Операция'))
     invoices.push({
       ...history,
-      workerName: employee?.name || 'Неизвестно',
-      workerId: employee?.id || history.employeeId || 'unknown'
+      workerName: employee?.name || history.createdBy || 'Неизвестно',
+      workerId: employee?.id || history.employeeId || 'unknown',
+      operationLabel,
+      movementType: 'receipt',
+      movementCount: history.items?.length || 0
+    })
+  })
+
+  shipmentHistory.value.forEach(shipment => {
+    invoices.push({
+      id: shipment.id,
+      employeeId: '',
+      date: shipment.date,
+      orderNumber: shipment.orders.join(', ') || 'Без номера',
+      destination: 'Клиент',
+      totalAmount: 0,
+      items: [],
+      createdAt: shipment.date,
+      updatedAt: shipment.date,
+      createdBy: shipment.userName,
+      workerName: shipment.userName || 'System',
+      workerId: 'unknown',
+      operationLabel: 'Отгружен клиенту',
+      movementType: 'shipment',
+      movementCount: shipment.count,
+      shipmentOrders: shipment.orders
     })
   })
   
@@ -269,9 +309,13 @@ const rowProps = (row: InvoiceWithWorker) => {
 
 // Статистика по типам
 const statsByType = computed(() => {
+  const warehouseReceipts = allInvoices.value.filter(inv =>
+    inv.movementType === 'receipt' && inv.destination === 'Готовая продукция'
+  )
+
   return {
-    production: allInvoices.value.filter(inv => inv.destination === 'Производство').length,
-    client: allInvoices.value.filter(inv => inv.destination === 'Клиент').length
+    production: warehouseReceipts.length,
+    client: allInvoices.value.filter(inv => inv.movementType === 'shipment').length
   }
 })
 
@@ -303,8 +347,22 @@ const filteredInvoices = computed(() => {
 
 // Load invoices from API on mount
 onMounted(async () => {
+  if (employeesStore.employees.length === 0) {
+    await employeesStore.loadEmployeesFromApi()
+  }
+
   if (shipmentsStore.materialInvoices.length === 0) {
     await shipmentsStore.loadInvoicesFromApi()
+  }
+
+  try {
+    const response = await fetch('/sklad/api/shipments/history')
+    if (response.ok) {
+      const data = await response.json()
+      shipmentHistory.value = data.shipments || []
+    }
+  } catch (err) {
+    console.error('Error loading shipment history:', err)
   }
 })
 
@@ -314,6 +372,16 @@ const columns: DataTableColumns<InvoiceWithWorker> = [
     expandable: () => true,
     renderExpand: (row) => {
       const items = row.items || []
+      if (row.movementType === 'shipment') {
+        return h('div', { class: 'p-4 bg-[rgba(255,255,255,0.02)] border-t border-gray-800' }, [
+          h(NH3, { class: 'mb-4' }, { default: () => 'Состав отгрузки' }),
+          h('div', { class: 'space-y-2' }, [
+            h(NText, { depth: 3 }, { default: () => `Отгружено QR-кодов: ${row.movementCount}` }),
+            h(NText, { depth: 3 }, { default: () => `Заказы: ${(row.shipmentOrders || []).join(', ') || '—'}` })
+          ])
+        ])
+      }
+
       return h('div', { class: 'p-4 bg-[rgba(255,255,255,0.02)] border-t border-gray-800' }, [
         h(NH3, { class: 'mb-4' }, { default: () => 'Состав накладной' }),
         h(NTable, { singleLine: false, size: 'small', striped: true }, {
@@ -330,9 +398,9 @@ const columns: DataTableColumns<InvoiceWithWorker> = [
             h('tbody', items.map(item => h('tr', [
               h('td', item.article || '—'),
               h('td', item.productName),
-              h('td', { class: 'text-right' }, (item.price || 0).toLocaleString() + ' ₽'),
+              h('td', { class: 'text-right' }, userStore.canSeePrices ? (item.price || 0).toLocaleString() + ' ₽' : '-'),
               h('td', { class: 'text-right' }, `${item.quantity} ${item.unit}`),
-              h('td', { class: 'text-right font-bold text-green-500' }, ((item.price || 0) * item.quantity).toLocaleString() + ' ₽')
+              h('td', { class: 'text-right font-bold text-green-500' }, userStore.canSeePrices ? ((item.price || 0) * item.quantity).toLocaleString() + ' ₽' : '-')
             ])))
           ]
         })
@@ -361,6 +429,25 @@ const columns: DataTableColumns<InvoiceWithWorker> = [
     }
   },
   {
+    title: 'Операция',
+    key: 'operationLabel',
+    width: 180,
+    render: (row) => {
+      const isIncoming = row.operationLabel === 'Поступил на склад'
+      const isShipment = row.operationLabel.startsWith('Отгружен')
+      const type: 'success' | 'warning' | 'info' = isIncoming ? 'success' : (isShipment ? 'warning' : 'info')
+
+      return h(NTag, {
+        type,
+        bordered: false,
+        round: true
+      }, {
+        default: () => row.operationLabel,
+        icon: () => h(NIcon, null, { default: () => isIncoming ? h(BusinessOutline) : h(CarOutline) })
+      })
+    }
+  },
+  {
     title: 'Заказ',
     key: 'orderNumber',
     render: (row) => h(NText, { depth: 2, strong: true }, { default: () => row.orderNumber || '—' })
@@ -372,14 +459,14 @@ const columns: DataTableColumns<InvoiceWithWorker> = [
   {
     title: 'Позиций',
     key: 'itemsCount',
-    render: (row) => row.items.length
+    render: (row) => row.movementCount
   },
   {
     title: 'Сумма',
     key: 'totalAmount',
     render: (row) => {
       const amount = row.totalAmount || row.items.reduce((sum, i) => sum + (i.price || 0) * i.quantity, 0)
-      return h(NText, { type: 'success', strong: true }, { default: () => amount.toLocaleString() + ' ₽' })
+      return h(NText, { type: 'success', strong: true }, { default: () => userStore.canSeePrices ? amount.toLocaleString() + ' ₽' : '-' })
     }
   }
 ]

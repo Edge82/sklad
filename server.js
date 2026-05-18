@@ -264,6 +264,10 @@ db.exec(`
     reserved REAL DEFAULT 0,
     purchasePrice REAL DEFAULT 0,
     status TEXT DEFAULT 'in_stock',
+    barcode TEXT,
+    storageBin TEXT,
+    image TEXT,
+    local_only INTEGER DEFAULT 0,
     synced_at DATETIME DEFAULT CURRENT_TIMESTAMP
   )
 `)
@@ -307,6 +311,15 @@ try {
 } catch(e) { /* already exists */ }
 try {
   db.exec(`ALTER TABLE onec_stocks ADD COLUMN storageBin TEXT`)
+} catch(e) { /* already exists */ }
+try {
+  db.exec(`ALTER TABLE onec_stocks ADD COLUMN barcode TEXT`)
+} catch(e) { /* already exists */ }
+try {
+  db.exec(`ALTER TABLE onec_stocks ADD COLUMN image TEXT`)
+} catch(e) { /* already exists */ }
+try {
+  db.exec(`ALTER TABLE onec_stocks ADD COLUMN local_only INTEGER DEFAULT 0`)
 } catch(e) { /* already exists */ }
 try {
   db.exec(`ALTER TABLE onec_orders ADD COLUMN items TEXT DEFAULT '[]'`)
@@ -1191,10 +1204,12 @@ function loadCacheFromDB() {
         id, ref_key, name, sku, product, warehouse, location,
         COALESCE(current_stock, quantity) as currentStock,
         COALESCE(current_stock, quantity) as quantity,
-        unit, unit_key, category, status, reserved, purchasePrice, averagePrice, reservesByOrder, storageBin
+        unit, unit_key, category, status, reserved, purchasePrice, averagePrice, reservesByOrder, storageBin, local_only
       FROM onec_stocks
     `).all().map(s => ({
       ...s,
+      type: (s.category === 'Готовая продукция' || s.warehouse === 'Готовая продукция') ? 'product' : 'material',
+      categoryId: (s.category === 'Готовая продукция' || s.warehouse === 'Готовая продукция') ? '99' : '',
       // Преобразуем unit_key в нормальное название, если оно есть
       unit: (s.unit_key && unitsMap.has(s.unit_key)) ? unitsMap.get(s.unit_key) : (s.unit || 'шт'),
       available: Math.max(0, (s.currentStock || 0) - (s.reserved || 0)),
@@ -1433,17 +1448,23 @@ function syncStocksIncremental(stocks) {
   if (!stocks || stocks.length === 0) return stats
 
   const ref_keysIn1C = new Set(stocks.map(s => s.ref_key))
-  const _existing = db.prepare('SELECT ref_key FROM onec_stocks').all()
+  const _existing = db.prepare('SELECT ref_key, COALESCE(local_only, 0) as local_only FROM onec_stocks').all()
   const existingMap = new Map(_existing.map(s => [s.ref_key, s]))
 
   for (const stock of stocks) {
     if (existingMap.has(stock.ref_key)) {
       // Don't overwrite local-only fields (sku, location, storageBin) that user has set
       const existing = existingMap.get(stock.ref_key)
+      
+      // Логика для картинок: если из 1С пришла картинка И у нас ее нет - сохранить 1С версию
+      // Если у нас уже есть картинка - оставить нашу
+      const existingRecord = db.prepare('SELECT image FROM onec_stocks WHERE ref_key = ?').get(stock.ref_key)
+      const imageToSave = existingRecord?.image || stock.image || null
+      
       db.prepare(`UPDATE onec_stocks SET
         name = ?, product = ?, warehouse = ?,
         quantity = ?, current_stock = ?, unit = ?, unit_key = ?, category = ?,
-        status = ?, reserved = ?, purchasePrice = ?, averagePrice = ?, reservesByOrder = ?
+      status = ?, reserved = ?, purchasePrice = ?, averagePrice = ?, reservesByOrder = ?, image = ?, local_only = COALESCE(local_only, 0)
         WHERE ref_key = ?`)
         .run(
           stock.name || stock.product,
@@ -1459,6 +1480,7 @@ function syncStocksIncremental(stocks) {
           stock.purchasePrice || 0,
           stock.averagePrice || stock.purchasePrice || 0,
           JSON.stringify(stock.reservesByOrder || {}),
+          imageToSave,
           stock.ref_key
         )
       stats.updated++
@@ -1478,8 +1500,8 @@ function syncStocksIncremental(stocks) {
         }
 
         db.prepare(`INSERT INTO onec_stocks
-          (ref_key, name, sku, product, warehouse, location, quantity, current_stock, unit, unit_key, category, status, reserved, purchasePrice, averagePrice, reservesByOrder)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+          (ref_key, name, sku, product, warehouse, location, quantity, current_stock, unit, unit_key, category, status, reserved, purchasePrice, averagePrice, reservesByOrder, image, local_only)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
           .run(
             stock.ref_key || null,
             stock.name || stock.product,
@@ -1496,7 +1518,9 @@ function syncStocksIncremental(stocks) {
             stock.reserved || 0,
             stock.purchasePrice || 0,
             stock.averagePrice || stock.purchasePrice || 0,
-            JSON.stringify(stock.reservesByOrder || {})
+            JSON.stringify(stock.reservesByOrder || {}),
+            stock.image || null,
+            stock.local_only || 0
           )
         stats.added++
       } catch (e) { /* ignore */ }
@@ -1504,7 +1528,7 @@ function syncStocksIncremental(stocks) {
   }
 
   for (const [ref_key] of existingMap) {
-    if (!ref_keysIn1C.has(ref_key)) {
+    if (!ref_keysIn1C.has(ref_key) && Number(existingMap.get(ref_key)?.local_only || 0) !== 1) {
       db.prepare('DELETE FROM onec_stocks WHERE ref_key = ?').run(ref_key)
       stats.deleted++
     }
@@ -2020,8 +2044,9 @@ const server = http.createServer(async (req, res) => {
           reservesByOrder,  // Вернуть спарсенный объект вместо строки
           unit: unitName,  // Всегда возвращаем валидное имя единицы
           unitId: stock.unit_key || '',  // unit_key это GUID единицы из 1C
-          categoryId: category?.ref_key || '',  // categoryId из кэша по названию
-          warehouseId: warehouseRecord?.ref_key || ''  // warehouseId из кэша по названию
+          categoryId: category?.ref_key || ((stock.category === 'Готовая продукция' || stock.warehouse === 'Готовая продукция') ? '99' : ''),  // categoryId из кэша по названию
+          warehouseId: warehouseRecord?.ref_key || '',  // warehouseId из кэша по названию
+          type: (stock.category === 'Готовая продукция' || stock.warehouse === 'Готовая продукция') ? 'product' : 'material'
         }
       })
       sendJSON(res, 200, { value: enrichedStocks })
@@ -2460,26 +2485,27 @@ const server = http.createServer(async (req, res) => {
       try {
         const nomenclatureKey = pathname.split('/').pop()
         const data = JSON.parse(body)
-        const { barcode, storageBin } = data
+        const { barcode, storageBin, image } = data
 
         console.log(`\n=== SAVING LOCAL PRODUCT FIELDS ===`)
         console.log(`📦 nomenclatureKey: ${nomenclatureKey}`)
         console.log(`   barcode: "${barcode}"`)
         console.log(`   storageBin: "${storageBin}"`)
+        console.log(`   image: ${image ? `${image.substring(0, 50)}...` : 'empty'}`)
 
         // Проверяем существует ли запись
         const existing = db.prepare('SELECT id FROM onec_stocks WHERE ref_key = ?').get(nomenclatureKey)
 
         if (existing) {
           // Обновляем существующую запись
-          db.prepare('UPDATE onec_stocks SET barcode = ?, storageBin = ? WHERE ref_key = ?')
-            .run(barcode || '', storageBin || '', nomenclatureKey)
+          db.prepare('UPDATE onec_stocks SET barcode = ?, storageBin = ?, image = ? WHERE ref_key = ?')
+            .run(barcode || '', storageBin || '', image || '', nomenclatureKey)
           console.log(`✓ Updated stock record for ${nomenclatureKey}`)
         } else {
           // Создаём новую запись с минимальными данными
-          db.prepare(`INSERT INTO onec_stocks (ref_key, name, product, barcode, storageBin, warehouse)
-            VALUES (?, ?, ?, ?, ?, ?)`)
-            .run(nomenclatureKey, '', '', barcode || '', storageBin || '', '')
+          db.prepare(`INSERT INTO onec_stocks (ref_key, name, product, barcode, storageBin, warehouse, image)
+            VALUES (?, ?, ?, ?, ?, ?, ?)`)
+            .run(nomenclatureKey, '', '', barcode || '', storageBin || '', '', image || '')
           console.log(`✓ Created new stock record for ${nomenclatureKey}`)
         }
 
@@ -2487,7 +2513,7 @@ const server = http.createServer(async (req, res) => {
           success: true,
           message: 'Local fields saved',
           nomenclatureKey,
-          saved: { barcode, storageBin }
+          saved: { barcode, storageBin, image: image ? 'saved' : 'empty' }
         })
       } catch (err) {
         console.error('Error saving local fields:', err)
@@ -3737,6 +3763,96 @@ const server = http.createServer(async (req, res) => {
     return
   }
 
+  // Get or change employee credentials
+  const employeeCredentialsMatch = pathname.match(/^\/sklad\/api\/employees\/([^/]+)\/credentials$/)
+  if (employeeCredentialsMatch) {
+    const employeeId = decodeURIComponent(employeeCredentialsMatch[1])
+
+    if (req.method === 'GET') {
+      try {
+        const employee = db.prepare(`
+          SELECT e.id, e.name, e.email, u.login
+          FROM employees e
+          LEFT JOIN users u ON u.id = e.user_id
+          WHERE e.id = ?
+        `).get(employeeId)
+
+        if (!employee) {
+          sendJSON(res, 404, { error: 'Employee not found' })
+          return
+        }
+
+        sendJSON(res, 200, {
+          success: true,
+          credentials: {
+            login: employee.login || '',
+            name: employee.name,
+            email: employee.email || ''
+          }
+        })
+      } catch (err) {
+        console.error('Error loading employee credentials:', err)
+        sendJSON(res, 500, { error: err.message })
+      }
+      return
+    }
+
+    if (req.method === 'PUT') {
+      let body = ''
+      req.on('data', chunk => { body += chunk })
+      req.on('end', () => {
+        try {
+          const data = JSON.parse(body)
+          const login = String(data.login || '').trim()
+          const password = String(data.password || '')
+
+          if (!login || !password) {
+            sendJSON(res, 400, { error: 'Login and password are required' })
+            return
+          }
+
+          const employee = db.prepare('SELECT id, name, user_id FROM employees WHERE id = ?').get(employeeId)
+          if (!employee) {
+            sendJSON(res, 404, { error: 'Employee not found' })
+            return
+          }
+
+          if (!employee.user_id) {
+            sendJSON(res, 400, { error: 'Employee has no linked user account' })
+            return
+          }
+
+          const loginExists = db.prepare('SELECT id FROM users WHERE login = ? AND id != ?').get(login, employee.user_id)
+          if (loginExists) {
+            sendJSON(res, 409, { error: 'Login already exists' })
+            return
+          }
+
+          const now = new Date().toISOString()
+          const passwordHash = hashSync(password, 10)
+
+          db.prepare(`
+            UPDATE users
+            SET login = ?, password_hash = ?, needs_password_change = 1, updated_at = ?
+            WHERE id = ?
+          `).run(login, passwordHash, now, employee.user_id)
+
+          sendJSON(res, 200, {
+            success: true,
+            credentials: {
+              login,
+              name: employee.name
+            }
+          })
+        } catch (err) {
+          console.error('Error changing employee credentials:', err)
+          sendJSON(res, 500, { error: err.message })
+        }
+      })
+      return
+    }
+  }
+
   // ===== TOOLS API =====
   // Get all tools
   if (pathname === '/sklad/api/tools' && req.method === 'GET') {
@@ -4001,32 +4117,42 @@ const server = http.createServer(async (req, res) => {
     return
   }
 
+  const mapMaterialInvoiceRows = (invoicesRows) => invoicesRows.map(inv => ({
+    id: inv.id,
+    employeeId: inv.employee_id,
+    date: inv.date,
+    orderNumber: inv.order_number,
+    destination: inv.destination,
+    totalAmount: inv.total_amount,
+    items: db.prepare(`
+      SELECT id, product_name, quantity, unit, article, price, scanned_at
+      FROM material_invoice_items
+      WHERE invoice_id = ?
+      ORDER BY scanned_at ASC, id ASC
+    `).all(inv.id).map(item => ({
+      id: item.id,
+      productName: item.product_name,
+      quantity: item.quantity,
+      unit: item.unit,
+      article: item.article,
+      price: item.price,
+      scannedAt: item.scanned_at
+    })),
+    createdAt: inv.created_at,
+    updatedAt: inv.updated_at,
+    createdBy: inv.created_by
+  }))
+
   // Get all material invoices
   if (pathname === '/sklad/api/material-invoices' && req.method === 'GET') {
     try {
       const invoices = db.prepare(`
-        SELECT mi.*, 
-          GROUP_CONCAT(json_object('id', mii.id, 'productName', mii.product_name, 'quantity', mii.quantity, 'unit', mii.unit, 'article', mii.article, 'price', mii.price, 'scannedAt', mii.scanned_at), ',') as items_json
-        FROM material_invoices mi
-        LEFT JOIN material_invoice_items mii ON mi.id = mii.invoice_id
-        GROUP BY mi.id
-        ORDER BY mi.date DESC
+        SELECT *
+        FROM material_invoices
+        ORDER BY date DESC
       `).all()
 
-      const result = invoices.map(inv => ({
-        id: inv.id,
-        employeeId: inv.employee_id,
-        date: inv.date,
-        orderNumber: inv.order_number,
-        destination: inv.destination,
-        totalAmount: inv.total_amount,
-        items: inv.items_json ? inv.items_json.split(',').map(item => JSON.parse(item)) : [],
-        createdAt: inv.created_at,
-        updatedAt: inv.updated_at,
-        createdBy: inv.created_by
-      }))
-
-      sendJSON(res, 200, { success: true, invoices: result })
+      sendJSON(res, 200, { success: true, invoices: mapMaterialInvoiceRows(invoices) })
     } catch (err) {
       console.error('Error getting material invoices:', err)
       sendJSON(res, 500, { error: err.message })
@@ -4119,29 +4245,13 @@ const server = http.createServer(async (req, res) => {
     try {
       const employeeId = pathname.split('/')[4]
       const invoices = db.prepare(`
-        SELECT mi.*, 
-          GROUP_CONCAT(json_object('id', mii.id, 'productName', mii.product_name, 'quantity', mii.quantity, 'unit', mii.unit, 'article', mii.article, 'price', mii.price, 'scannedAt', mii.scanned_at), ',') as items_json
-        FROM material_invoices mi
-        LEFT JOIN material_invoice_items mii ON mi.id = mii.invoice_id
-        WHERE mi.employee_id = ?
-        GROUP BY mi.id
-        ORDER BY mi.date DESC
+        SELECT *
+        FROM material_invoices
+        WHERE employee_id = ?
+        ORDER BY date DESC
       `).all(employeeId)
 
-      const result = invoices.map(inv => ({
-        id: inv.id,
-        employeeId: inv.employee_id,
-        date: inv.date,
-        orderNumber: inv.order_number,
-        destination: inv.destination,
-        totalAmount: inv.total_amount,
-        items: inv.items_json ? inv.items_json.split(',').map(item => JSON.parse(item)) : [],
-        createdAt: inv.created_at,
-        updatedAt: inv.updated_at,
-        createdBy: inv.created_by
-      }))
-
-      sendJSON(res, 200, { success: true, invoices: result })
+      sendJSON(res, 200, { success: true, invoices: mapMaterialInvoiceRows(invoices) })
     } catch (err) {
       console.error('Error getting employee material invoices:', err)
       sendJSON(res, 500, { error: err.message })
@@ -4152,6 +4262,9 @@ const server = http.createServer(async (req, res) => {
   // Reports: Orders summary
   if (pathname === '/sklad/api/reports/orders-summary' && req.method === 'GET') {
     try {
+      const reportMap = {}
+      
+      // 1. Получаем данные из material_invoices (ручно введённые)
       const invoices = db.prepare(`
         SELECT mi.*, e.name as employee_name,
           GROUP_CONCAT(json_object('id', mii.id, 'productName', mii.product_name, 'quantity', mii.quantity, 'unit', mii.unit, 'article', mii.article, 'price', mii.price), ',') as items_json
@@ -4163,20 +4276,39 @@ const server = http.createServer(async (req, res) => {
         ORDER BY mi.date DESC
       `).all()
 
-      const reportMap = {}
-      
       invoices.forEach(inv => {
-        const items = inv.items_json ? inv.items_json.split(',').map(item => JSON.parse(item)) : []
+        // Parse items - extract JSON objects properly (not just split by comma)
+        let items = []
+        if (inv.items_json) {
+          try {
+            // Use regex to find all JSON objects in the string
+            const objectMatches = inv.items_json.match(/{[^{}]*}/g) || []
+            items = objectMatches.map(itemStr => {
+              try {
+                const parsed = JSON.parse(itemStr)
+                // Only include items with valid id (not null)
+                return parsed.id ? parsed : null
+              } catch (e) {
+                return null
+              }
+            }).filter(item => item !== null)
+          } catch (e) {
+            items = []
+          }
+        }
         
         if (!reportMap[inv.order_number]) {
           reportMap[inv.order_number] = {
             orderNumber: inv.order_number,
             items: [],
-            employees: new Set()
+            employees: new Set(),
+            source: 'material_invoice'
           }
         }
         
-        reportMap[inv.order_number].employees.add(inv.employee_name || 'Unknown')
+        if (inv.employee_name) {
+          reportMap[inv.order_number].employees.add(inv.employee_name)
+        }
         
         items.forEach(item => {
           const existing = reportMap[inv.order_number].items.find(i => i.article === item.article)
@@ -4186,6 +4318,48 @@ const server = http.createServer(async (req, res) => {
             reportMap[inv.order_number].items.push(item)
           }
         })
+      })
+
+      // 2. Получаем данные из onec_orders (автоматические заказы из 1С)
+      const onecOrders = db.prepare(`
+        SELECT id, order_number, date, customer, status, amount, items
+        FROM onec_orders
+        ORDER BY date DESC
+      `).all()
+
+      onecOrders.forEach(order => {
+        // Пропускаем если уже есть в material_invoices
+        if (reportMap[order.order_number]) {
+          return
+        }
+
+        let orderItems = []
+        if (order.items) {
+          try {
+            const parsed = JSON.parse(order.items)
+            if (Array.isArray(parsed)) {
+              orderItems = parsed.map(item => ({
+                id: item.id,
+                productName: item.productName || item.itemName || '',
+                quantity: item.quantity || 0,
+                unit: item.unit || 'шт',
+                article: item.productId || '',
+                price: item.unitPrice || 0
+              }))
+            }
+          } catch (e) {
+            // Invalid JSON, skip
+          }
+        }
+
+        reportMap[order.order_number] = {
+          orderNumber: order.order_number,
+          items: orderItems,
+          employees: new Set(order.customer ? [order.customer] : []),
+          source: 'onec_order',
+          date: order.date,
+          status: order.status
+        }
       })
 
       const result = Object.values(reportMap).map(entry => ({
@@ -4206,17 +4380,25 @@ const server = http.createServer(async (req, res) => {
   if (pathname === '/sklad/api/reports/movement-history' && req.method === 'GET') {
     try {
       const invoices = db.prepare(`
-        SELECT mi.*, e.name as employee_name,
-          GROUP_CONCAT(json_object('productName', mii.product_name, 'quantity', mii.quantity, 'unit', mii.unit, 'article', mii.article, 'price', mii.price), ',') as items_json
+        SELECT mi.*, e.name as employee_name
         FROM material_invoices mi
         LEFT JOIN employees e ON mi.employee_id = e.id
-        LEFT JOIN material_invoice_items mii ON mi.id = mii.invoice_id
-        GROUP BY mi.id
         ORDER BY mi.date DESC
       `).all()
 
       const result = invoices.map(inv => {
-        const items = inv.items_json ? inv.items_json.split(',').map(item => JSON.parse(item)) : []
+        const items = db.prepare(`
+          SELECT product_name, quantity, unit, article, price
+          FROM material_invoice_items
+          WHERE invoice_id = ?
+          ORDER BY scanned_at ASC, id ASC
+        `).all(inv.id).map(item => ({
+          productName: item.product_name,
+          quantity: item.quantity,
+          unit: item.unit,
+          article: item.article,
+          price: item.price
+        }))
         const isIncoming = ['ПРИХОД', 'ПРИХОД (СКЛАД)', 'НОВАЯ КАРТОЧКА', 'ИЗМЕНЕНИЕ ЦЕНЫ'].includes(inv.order_number)
         
         return {
@@ -4234,6 +4416,85 @@ const server = http.createServer(async (req, res) => {
       sendJSON(res, 200, { success: true, movements: result })
     } catch (err) {
       console.error('Error getting movement history:', err)
+      sendJSON(res, 500, { error: err.message })
+    }
+    return
+  }
+
+  // Reports: Write-off (списание на изделия)
+  if (pathname === '/sklad/api/reports/write-off' && req.method === 'GET') {
+    try {
+      const reportMap = {}
+      
+      // Получаем данные из onec_orders (материалы используемые на изделия)
+      const orders = db.prepare(`
+        SELECT id, order_number, items
+        FROM onec_orders
+        WHERE items IS NOT NULL
+        ORDER BY date DESC
+      `).all()
+
+      orders.forEach(order => {
+        try {
+          const items = JSON.parse(order.items)
+          if (!Array.isArray(items)) return
+
+          items.forEach(item => {
+            // Парсим materialUsed JSON если есть
+            let materials = []
+            if (item.materialUsed) {
+              try {
+                const parsed = JSON.parse(item.materialUsed)
+                if (Array.isArray(parsed)) {
+                  materials = parsed
+                }
+              } catch (e) {
+                // Invalid JSON, skip
+              }
+            }
+
+            // Используем productName как идентификатор изделия
+            const productName = item.productName || item.itemName || 'Unknown'
+
+            if (!reportMap[productName]) {
+              reportMap[productName] = {
+                productName: productName,
+                items: [],
+                employees: new Set()
+              }
+            }
+
+            // Добавляем материалы
+            materials.forEach(mat => {
+              const existing = reportMap[productName].items.find(i => i.article === (mat.article || mat.sku || ''))
+              if (existing) {
+                existing.quantity += (mat.quantity || 0)
+              } else {
+                reportMap[productName].items.push({
+                  id: mat.id || '',
+                  productName: mat.name || mat.productName || '',
+                  quantity: mat.quantity || 0,
+                  unit: mat.unit || 'шт',
+                  article: mat.article || mat.sku || '',
+                  price: mat.price || 0
+                })
+              }
+            })
+          })
+        } catch (e) {
+          // Skip if items JSON is invalid
+        }
+      })
+
+      const result = Object.values(reportMap).map(entry => ({
+        ...entry,
+        employees: Array.from(entry.employees),
+        totalAmount: entry.items.reduce((sum, i) => sum + (i.price || 0) * i.quantity, 0)
+      }))
+
+      sendJSON(res, 200, { success: true, writeoffs: result })
+    } catch (err) {
+      console.error('Error getting write-off report:', err)
       sendJSON(res, 500, { error: err.message })
     }
     return
@@ -4323,6 +4584,227 @@ const server = http.createServer(async (req, res) => {
     return
   }
 
+  // Get or change employee credentials
+  const credentialsMatch = pathname.match(/^\/sklad\/api\/employees\/([^/]+)\/credentials$/)
+  if (credentialsMatch) {
+    const employeeId = decodeURIComponent(credentialsMatch[1])
+
+    if (req.method === 'GET') {
+      try {
+        const employee = db.prepare(`
+          SELECT e.id, e.name, e.email, e.user_id, u.login AS login
+          FROM employees e
+          LEFT JOIN users u ON u.id = e.user_id
+          WHERE e.id = ?
+        `).get(employeeId)
+
+        if (!employee) {
+          sendJSON(res, 404, { error: 'Employee not found' })
+          return
+        }
+
+        sendJSON(res, 200, {
+          success: true,
+          credentials: {
+            login: employee.login || '',
+            name: employee.name,
+            email: employee.email
+          }
+        })
+      } catch (err) {
+        console.error('Error loading employee credentials:', err)
+        sendJSON(res, 500, { error: err.message })
+      }
+      return
+    }
+
+    if (req.method === 'PUT') {
+      let body = ''
+      req.on('data', chunk => { body += chunk })
+      req.on('end', () => {
+        try {
+          const data = JSON.parse(body)
+          const login = String(data.login || '').trim()
+          const password = String(data.password || '')
+
+          if (!login || !password) {
+            sendJSON(res, 400, { error: 'Login and password are required' })
+            return
+          }
+
+          const employee = db.prepare(`
+            SELECT e.id, e.name, e.user_id, u.login AS current_login
+            FROM employees e
+            LEFT JOIN users u ON u.id = e.user_id
+            WHERE e.id = ?
+          `).get(employeeId)
+
+          if (!employee) {
+            sendJSON(res, 404, { error: 'Employee not found' })
+            return
+          }
+
+          if (!employee.user_id) {
+            sendJSON(res, 400, { error: 'Employee has no linked user account' })
+            return
+          }
+
+          const loginOwner = db.prepare('SELECT id FROM users WHERE login = ? AND id != ?').get(login, employee.user_id)
+          if (loginOwner) {
+            sendJSON(res, 409, { error: 'Login already exists' })
+            return
+          }
+
+          const passwordHash = hashSync(password, 10)
+          const now = new Date().toISOString()
+
+          db.prepare(`
+            UPDATE users
+            SET login = ?, password_hash = ?, needs_password_change = 1, updated_at = ?
+            WHERE id = ?
+          `).run(login, passwordHash, now, employee.user_id)
+
+          sendJSON(res, 200, {
+            success: true,
+            credentials: {
+              login,
+              name: employee.name
+            }
+          })
+        } catch (err) {
+          console.error('Error changing employee credentials:', err)
+          sendJSON(res, 500, { error: err.message })
+        }
+      })
+      return
+    }
+  }
+
+  // Приёмка товара на склад готовой продукции (первое сканирование QR кода)
+  if (pathname === '/sklad/api/inventory/receive-finished-product' && req.method === 'POST') {
+    console.log('📦 [ENDPOINT] Received request for receive-finished-product')
+    let body = ''
+    req.on('data', chunk => body += chunk)
+    req.on('end', () => {
+      console.log('📦 [ENDPOINT] Body received:', body.substring(0, 100))
+      try {
+        const { qrId, productName, quantity, orderNumber, employeeId: requestEmployeeId, employeeName: requestEmployeeName } = JSON.parse(body)
+        console.log('📦 [ENDPOINT] Parsed data:', { qrId, productName, quantity, orderNumber, requestEmployeeId, requestEmployeeName })
+        
+        if (!qrId || !productName) {
+          sendJSON(res, 400, { error: 'Missing required fields' })
+          return
+        }
+
+        const timestamp = new Date().toISOString()
+        const invoiceId = `RECV-FP-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+        const itemId = `ITEM-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+        const resolvedEmployee = requestEmployeeId
+          ? db.prepare(`
+              SELECT id, name
+              FROM employees
+              WHERE user_id = ? OR CAST(user_id AS TEXT) = ?
+              LIMIT 1
+            `).get(requestEmployeeId, String(requestEmployeeId))
+          : null
+
+        const employeeByName = !resolvedEmployee && requestEmployeeName
+          ? db.prepare(`
+              SELECT id, name
+              FROM employees
+              WHERE name = ?
+              LIMIT 1
+            `).get(requestEmployeeName)
+          : null
+
+        const employeeId = resolvedEmployee?.id || employeeByName?.id || null
+        const employeeName = resolvedEmployee?.name || employeeByName?.name || requestEmployeeName || 'QR Scan'
+
+        if (!employeeId) {
+          sendJSON(res, 400, { error: 'Missing employee identity for material invoice' })
+          return
+        }
+
+        // Добавляем запись в material_invoices (используем правильные колонки)
+        db.prepare(`
+          INSERT INTO material_invoices (
+            id, employee_id, date, order_number, destination, total_amount, created_at, updated_at, created_by
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          invoiceId,
+          employeeId,
+          timestamp,
+          orderNumber || 'Без номера',
+          'Готовая продукция',
+          0,
+          timestamp,
+          timestamp,
+          employeeName
+        )
+
+        // Добавляем товар в material_invoice_items
+        db.prepare(`
+          INSERT INTO material_invoice_items (
+            id, invoice_id, product_name, quantity, unit, article, price, scanned_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          itemId,
+          invoiceId,
+          productName,
+          quantity || 1,
+          'шт',
+          qrId,
+          0,
+          timestamp
+        )
+
+        // Проверяем существует ли товар в onec_stocks
+        const existingStock = db.prepare(`
+          SELECT * FROM onec_stocks WHERE name = ? AND warehouse = 'Готовая продукция'
+        `).get(productName)
+
+        if (existingStock) {
+          // Обновляем количество
+          db.prepare(`
+            UPDATE onec_stocks 
+            SET quantity = quantity + ?, current_stock = quantity + ?, local_only = 1, synced_at = ?
+            WHERE name = ? AND warehouse = 'Готовая продукция'
+          `).run(quantity || 1, quantity || 1, timestamp, productName)
+          console.log(`✓ Updated stock for ${productName}`)
+        } else {
+          // Создаём новую запись
+          db.prepare(`
+            INSERT INTO onec_stocks (ref_key, name, product, warehouse, quantity, current_stock, unit, category, status, barcode, storageBin, image, local_only, synced_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `).run(
+            qrId,
+            productName,
+            productName,
+            'Готовая продукция',
+            quantity || 1,
+            quantity || 1,
+            'шт',
+            'Готовая продукция',
+            'in_stock',
+            qrId,
+            '',
+            '',
+            1,
+            timestamp
+          )
+          console.log(`✓ Created stock for ${productName}`)
+        }
+
+        console.log(`✓ Product received to FP warehouse: ${productName} (qty: ${quantity || 1})`)
+        sendJSON(res, 200, { success: true, invoiceId })
+      } catch (err) {
+        console.error('Error receiving product:', err)
+        sendJSON(res, 500, { error: err.message })
+      }
+    })
+    return
+  }
+
   // Default 404
   res.writeHead(404)
   res.end(JSON.stringify({ error: 'Not found' }))
@@ -4354,4 +4836,24 @@ server.listen(PORT, '0.0.0.0', async () => {
     console.log('\n✅ Successfully synced with 1C')
     console.log('Results:', initialSync.results)
   }
+
+  // === AUTOMATIC SYNC EVERY HOUR ===
+  // Синхронизируем заказы на перемещение каждый час
+  setInterval(async () => {
+    try {
+      const transferOrders1C = await fetch1CTransferOrders()
+      if (transferOrders1C && transferOrders1C.length > 0) {
+        const stats = syncTransferOrdersIncremental(transferOrders1C)
+        loadCacheFromDB()
+        lastSyncTime.lastSyncByType.transfer_orders = new Date().toISOString()
+        console.log(`📡 [HOURLY SYNC] Transfer Orders: +${stats.added} ~${stats.updated} -${stats.deleted} at ${new Date().toLocaleTimeString()}`)
+        writeSyncLog(`Auto-sync: Transfer Orders +${stats.added} ~${stats.updated} -${stats.deleted}`)
+      }
+    } catch (err) {
+      console.error('[HOURLY SYNC ERROR] Transfer Orders:', err.message)
+      writeSyncLog(`Auto-sync error: ${err.message}`)
+    }
+  }, 3600000) // 1 hour in milliseconds
+
+  console.log('⏰ Automatic sync scheduled: Transfer Orders every 1 hour')
 })

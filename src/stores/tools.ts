@@ -193,6 +193,11 @@ export const useToolsStore = defineStore('tools', () => {
     }
   }
 
+  // Get tools issued to a specific employee
+  function getToolsIssuedToEmployee(employeeId: string) {
+    return tools.value.filter(t => t.issuedTo === employeeId && t.status === 'issued')
+  }
+
   return {
     tools,
     breakdowns,
@@ -206,6 +211,7 @@ export const useToolsStore = defineStore('tools', () => {
     returnTool,
     reportBreakdown,
     getToolById,
+    getToolsIssuedToEmployee,
     addTool,
     updateTool,
     deleteTool,
