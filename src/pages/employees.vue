@@ -16,11 +16,11 @@
       </div>
     </div>
     <div class="grow overflow-hidden bg-[#101014] rounded-xl border border-gray-800">
-      <EmployeeDetails 
+      <EmployeeDetails
         v-if="selectedInlineEmployee"
         ref="detailsRef"
-        :employee="selectedInlineEmployee" 
-        mode="slim" 
+        :employee="selectedInlineEmployee"
+        mode="slim"
       />
     </div>
   </div>
@@ -33,7 +33,7 @@
         <n-text depth="3">Управление персоналом предприятия</n-text>
       </div>
       <div class="flex gap-3">
-        <n-button type="primary" @click="showCreateModal = true">
+        <n-button v-if="userStore.canManageEmployees" type="primary" @click="showCreateModal = true">
           <template #icon>
             <n-icon>
               <PersonAddOutline />
@@ -48,7 +48,7 @@
     <n-grid :cols="5" :x-gap="12" :y-gap="12" class="mb-6 items-stretch py-2">
       <n-gi>
         <n-card
-          size="small" 
+          size="small"
           hoverable
           class="metric-card h-full flex flex-col justify-center"
           :class="{ 'active': !filters.status && !filters.role && !filters.department }"
@@ -67,7 +67,7 @@
       </n-gi>
       <n-gi>
         <n-card
-          size="small" 
+          size="small"
           hoverable
           class="metric-card h-full flex flex-col justify-center"
           :class="{ 'active': filters.status === 'active' }"
@@ -86,7 +86,7 @@
       </n-gi>
       <n-gi>
         <n-card
-          size="small" 
+          size="small"
           hoverable
           class="metric-card h-full flex flex-col justify-center"
           :class="{ 'active': filters.role === 'worker' }"
@@ -105,7 +105,7 @@
       </n-gi>
       <n-gi>
         <n-card
-          size="small" 
+          size="small"
           hoverable
           class="metric-card h-full flex flex-col justify-center"
           :class="{ 'active': filters.status === 'vacation' }"
@@ -138,30 +138,30 @@
     <n-card class="mb-4" size="small">
       <div class="flex items-center gap-4">
         <n-space align="center" :size="[16, 12]">
-          <n-select 
-            v-model:value="filters.department" 
-            placeholder="Все отделы" 
-            :options="departmentOptions" 
+          <n-select
+            v-model:value="filters.department"
+            placeholder="Все отделы"
+            :options="departmentOptions"
             clearable
-            class="w-56!" 
+            class="w-56!"
           />
-          <n-select 
-            v-model:value="filters.status" 
-            placeholder="Все статусы" 
-            :options="statusOptions" 
+          <n-select
+            v-model:value="filters.status"
+            placeholder="Все статусы"
+            :options="statusOptions"
             clearable
-            class="w-56!" 
+            class="w-56!"
           />
-          <n-select 
-            v-model:value="filters.role" 
-            placeholder="Все должности" 
-            :options="roleOptions" 
+          <n-select
+            v-model:value="filters.role"
+            placeholder="Все должности"
+            :options="roleOptions"
             clearable
-            class="w-56!" 
+            class="w-56!"
           />
-          <n-input 
-            v-model:value="searchQuery" 
-            placeholder="Поиск по имени, email или телефону..." 
+          <n-input
+            v-model:value="searchQuery"
+            placeholder="Поиск по имени, email или телефону..."
             clearable
             class="w-96!"
           >
@@ -175,8 +175,8 @@
         </n-space>
 
         <div class="ml-auto flex gap-1">
-          <n-button 
-            :type="viewMode === 'list' ? 'primary' : 'default'" 
+          <n-button
+            :type="viewMode === 'list' ? 'primary' : 'default'"
             circle
             quaternary
             @click="viewMode = 'list'"
@@ -185,8 +185,8 @@
               <n-icon><ListOutline /></n-icon>
             </template>
           </n-button>
-          <n-button 
-            :type="viewMode === 'grid' ? 'primary' : 'default'" 
+          <n-button
+            :type="viewMode === 'grid' ? 'primary' : 'default'"
             circle
             quaternary
             @click="viewMode = 'grid'"
@@ -204,12 +204,12 @@
       <!-- Основное отображение сотрудников -->
       <n-gi :span="3">
         <n-card v-if="viewMode === 'list'" title="Список сотрудников">
-          <n-data-table 
-            :columns="employeeColumns" 
-            :data="filteredEmployees" 
+          <n-data-table
+            :columns="employeeColumns"
+            :data="filteredEmployees"
             :pagination="pagination"
-            :row-key="(row: Employee) => row.id" 
-            striped 
+            :row-key="(row: Employee) => row.id"
+            striped
             :row-props="(row: Employee) => ({
               class: 'cursor-pointer',
               onClick: () => viewEmployee(row.id, 'slim')
@@ -223,19 +223,19 @@
               <n-card hoverable class="employee-card" @click="viewEmployee(emp.id)">
                 <n-flex align="center" :wrap="false" :size="24" class="p-1">
                   <div class="shrink-0">
-                    <n-avatar 
+                    <n-avatar
                       v-if="emp.avatar || emp.photo"
-                      round 
-                      :size="100" 
+                      round
+                      :size="100"
                       :src="emp.avatar || emp.photo"
                       :key="`grid-avatar-${emp.id}-${(emp.avatar || emp.photo)?.length || 0}`"
                       class="shadow-xl border-2 border-gray-700"
                       object-fit="cover"
                     />
-                    <n-avatar 
+                    <n-avatar
                       v-else
-                      round 
-                      :size="100" 
+                      round
+                      :size="100"
                       class="border-2 border-gray-800"
                     >
                       <span class="text-3xl text-gray-500">{{ emp.name.charAt(0) }}</span>
@@ -244,8 +244,8 @@
                   <div class="grow min-w-0 pr-2">
                     <div class="flex justify-between items-start mb-2 mt-1">
                       <div class="min-w-0">
-                        <n-text 
-                          strong 
+                        <n-text
+                          strong
                           class="text-lg truncate block leading-tight cursor-pointer hover:text-green-500 transition-colors"
                           @click.stop="viewEmployee(emp.id, 'slim')"
                         >
@@ -257,7 +257,7 @@
                         {{ employeesStore.getStatusLabel(emp.status) }}
                       </n-tag>
                     </div>
-                    
+
                     <div class="flex flex-col gap-2 mt-3 text-[14px] text-gray-400">
                       <div class="flex items-center gap-2">
                         <n-icon size="16"><MailOutline /></n-icon>
@@ -273,7 +273,13 @@
                       <n-button size="small" tertiary round @click.stop="viewEmployee(emp.id, 'full')">
                         Профиль
                       </n-button>
-                      <n-button size="small" tertiary round type="warning" @click.stop="editEmployee(emp.id)">
+                      <n-button
+                        v-if="userStore.canManageEmployees"
+                        size="small"
+                        tertiary round
+                        type="warning"
+                        @click.stop="editEmployee(emp.id)"
+                      >
                         <template #icon><n-icon><PencilOutline /></n-icon></template>
                       </n-button>
                     </div>
@@ -283,7 +289,7 @@
             </n-gi>
           </n-grid>
           <div class="mt-6 flex justify-center">
-             <n-pagination 
+             <n-pagination
               v-model:page="pagination.page"
               v-model:page-size="pagination.pageSize"
               :item-count="filteredEmployees.length"
@@ -296,11 +302,11 @@
     </n-grid>
 
     <!-- Модалка создания сотрудника -->
-    <n-modal 
-      v-model:show="showCreateModal" 
+    <n-modal
+      v-model:show="showCreateModal"
       preset="card"
       :auto-focus="false"
-      :title="selectedEmployeeId ? 'Редактировать сотрудника' : 'Добавить сотрудника'" 
+      :title="selectedEmployeeId ? 'Редактировать сотрудника' : 'Добавить сотрудника'"
       class="w-200!"
       @update:show="(val: boolean) => !val && (selectedEmployeeId = null)"
     >
@@ -308,11 +314,11 @@
     </n-modal>
 
     <!-- Модалка учетных данных для входа -->
-    <n-modal 
-      v-model:show="showCredentialsModal" 
+    <n-modal
+      v-model:show="showCredentialsModal"
       preset="card"
       :auto-focus="false"
-      :title="credentialsModalTitle" 
+      :title="credentialsModalTitle"
       class="w-150!"
     >
       <div class="space-y-6">
@@ -331,9 +337,9 @@
                 class="mt-2"
               >
                 <template #suffix>
-                  <n-button 
-                    text 
-                    type="primary" 
+                  <n-button
+                    text
+                    type="primary"
                     @click="copyToClipboard(lastCredentials!.login)"
                   >
                     Копировать
@@ -344,16 +350,16 @@
 
             <div>
               <n-text depth="3" class="text-xs uppercase font-bold">Временный пароль</n-text>
-              <n-input 
+              <n-input
                 v-model:value="lastCredentials!.password"
                 readonly
                 type="text"
                 class="mt-2"
               >
                 <template #suffix>
-                  <n-button 
-                    text 
-                    type="primary" 
+                  <n-button
+                    text
+                    type="primary"
                     @click="copyToClipboard(lastCredentials!.password)"
                   >
                     Копировать
@@ -418,8 +424,8 @@
     </n-modal>
 
     <!-- Модалка просмотра сотрудника -->
-    <n-modal 
-      v-model:show="showViewModal" 
+    <n-modal
+      v-model:show="showViewModal"
       preset="card"
       :auto-focus="false"
       class="w-225!"
@@ -439,10 +445,10 @@
            </n-text>
         </div>
       </template>
-      <EmployeeDetails 
-        v-if="selectedEmployeeForView" 
+      <EmployeeDetails
+        v-if="selectedEmployeeForView"
         :key="`view-${selectedEmployeeForView.id}-${selectedEmployeeForView.avatar?.length || 0}`"
-        :employee="selectedEmployeeForView" 
+        :employee="selectedEmployeeForView"
         mode="full"
       />
     </n-modal>
@@ -646,9 +652,9 @@ const employeeColumns: DataTableColumns<Employee> = [
     title: 'Сотрудник',
     key: 'name',
     width: 250,
-    render: (row: Employee) => h(NFlex, { 
-      align: 'center', 
-      wrap: false, 
+    render: (row: Employee) => h(NFlex, {
+      align: 'center',
+      wrap: false,
       size: 12,
       class: 'cursor-pointer hover:bg-white/5 p-1 -m-1 rounded transition-all duration-200 group',
       onClick: () => viewEmployee(row.id)
@@ -668,7 +674,7 @@ const employeeColumns: DataTableColumns<Employee> = [
           class: 'group-hover:bg-green-600 transition-colors'
         }, { default: () => row.name.charAt(0) }),
         h('div', { class: 'min-w-0 grow' }, [
-          h('div', { 
+          h('div', {
             class: 'font-bold truncate group-hover:text-green-500 transition-colors'
           }, row.name),
           h('div', { class: 'text-[11px] text-gray-500 uppercase leading-tight group-hover:text-gray-300' }, row.position)
@@ -741,6 +747,7 @@ const employeeColumns: DataTableColumns<Employee> = [
           size: 'small',
           type: 'warning',
           quaternary: true,
+          disabled: !userStore.canManageEmployees,
           onClick: (e) => {
             e.stopPropagation()
             editEmployee(row.id)
@@ -753,7 +760,7 @@ const employeeColumns: DataTableColumns<Employee> = [
           size: 'small',
           type: 'primary',
           quaternary: true,
-          disabled: !userStore.isAdminOrManager,
+          disabled: !userStore.canManageEmployees,
           onClick: (e) => {
             e.stopPropagation()
             handleChangeCredentials(row.id)
@@ -766,6 +773,7 @@ const employeeColumns: DataTableColumns<Employee> = [
           size: 'small',
           type: 'error',
           quaternary: true,
+          disabled: !userStore.canManageEmployees,
           onClick: (e) => {
             e.stopPropagation()
             deleteEmployee(row.id)
@@ -932,7 +940,7 @@ const handleEmployeeSubmit = async (employeeData: Partial<Employee>) => {
   } else {
     const result = await employeesStore.addEmployee(employeeData as Omit<Employee, 'id'>)
     message.success('Сотрудник успешно добавлен')
-    
+
     // Show credentials modal if available
     if (result.credentials) {
       credentialsMode.value = 'created'

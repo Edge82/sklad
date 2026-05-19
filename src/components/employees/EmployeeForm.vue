@@ -55,8 +55,16 @@
         </n-form-item>
 
         <n-form-item label="Роль" path="role" required>
-          <n-select v-model:value="formData.role" :options="roleOptions" placeholder="Выберите роль" />
+          <n-select
+            v-model:value="formData.role"
+            :options="roleOptions"
+            placeholder="Выберите роль"
+            :disabled="!!employeeId"
+          />
         </n-form-item>
+        <n-text v-if="!!employeeId" depth="3" class="text-xs -mt-3 block">
+          * Роль нельзя изменить после создания сотрудника
+        </n-text>
 
         <n-form-item label="Статус" path="status" required>
           <n-select v-model:value="formData.status" :options="statusOptions" placeholder="Выберите статус" />

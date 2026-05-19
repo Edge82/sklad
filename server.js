@@ -9,6 +9,7 @@ config()
 
 import http from 'http'
 import fs from 'fs'
+import path from 'path'
 import Database from 'better-sqlite3'
 import jwt from 'jsonwebtoken'
 import { compareSync, hashSync } from 'bcrypt'
@@ -22,7 +23,7 @@ const ONEC_CONFIG = {
   username: process.env.ONEC_LOGIN || process.env.VITE_1C_USERNAME || 'admin',
   password: process.env.ONEC_PASSWORD || process.env.VITE_1C_PASSWORD || 'password',
   warehouseGuid: process.env.WAREHOUSE_GUID || process.env.VITE_1C_WAREHOUSE_GUID || 'd8da6724-e264-11f0-862e-fa163e5c9fa8',
-  timeout: parseInt(process.env.API_TIMEOUT || '30000', 10)  // 30 секунд для реальной 1C
+  timeout: parseInt(process.env.API_TIMEOUT || '60000', 10)  // 60 секунд для реальной 1C
 }
 
 // Debug: выводим конфиг на старте
@@ -31,6 +32,27 @@ console.log('   baseUrl:', ONEC_CONFIG.baseUrl)
 console.log('   username:', ONEC_CONFIG.username)
 console.log('   password:', ONEC_CONFIG.password ? '***' + ONEC_CONFIG.password.substring(ONEC_CONFIG.password.length - 3) : 'NOT SET')
 console.log('   Auth string will be:', `${ONEC_CONFIG.username}:${ONEC_CONFIG.password}`)
+
+// Функция проверки роли из JWT токена
+function getUserRoleFromRequest(req) {
+  try {
+    const authHeader = req.headers.authorization || ''
+    if (!authHeader.startsWith('Bearer ')) return null
+    const token = authHeader.substring(7)
+    const payload = jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] })
+    return payload?.role || null
+  } catch {
+    return null
+  }
+}
+
+function requireRole(res, allowedRoles) {
+  const role = getUserRoleFromRequest(res.req || res)
+  if (!role || !allowedRoles.includes(role)) {
+    return false
+  }
+  return true
+}
 
 // Функция для создания Basic Auth заголовка
 function getBasicAuthHeader() {
@@ -410,19 +432,19 @@ try {
   if (countNull && countNull.cnt > 0) {
     console.log(`📦 [DB MIGRATION] Updating ${countNull.cnt} QR codes with missing label data...`)
     db.prepare(`
-      UPDATE local_qr_codes 
+      UPDATE local_qr_codes
       SET label_order = COALESCE(label_order, order_number, 'Unknown')
       WHERE label_order IS NULL
     `).run()
     // For label_info, set to NULL if it equals product_name (old auto-fill logic)
     db.prepare(`
-      UPDATE local_qr_codes 
+      UPDATE local_qr_codes
       SET label_info = NULL
       WHERE label_info = product_name
     `).run()
     console.log(`✓ [DB MIGRATION] QR codes updated`)
   }
-} catch (e) { 
+} catch (e) {
   console.error('Migration error:', e.message)
 }
 
@@ -499,7 +521,7 @@ for (const user of testUsers) {
     if (!existing) {
       // Создаем новых пользователей с bcrypt хешем
       const passwordHash = hashSync(user.password, 10)
-      db.prepare('INSERT INTO users (login, password_hash, full_name, role, is_active, needs_password_change) VALUES (?, ?, ?, ?, 1, 0)')
+      db.prepare('INSERT INTO users (login, password_hash, full_name, role, is_active, needs_password_change) VALUES (?, ?, ?, ?, 1, 1)')
         .run(user.login, passwordHash, user.fullName, user.role)
       console.log(`✓ Created user: ${user.login}`)
     } else if (existing.password_hash === user.login) {
@@ -693,8 +715,9 @@ function writeSyncLog(message) {
 
 // Функция для загрузки кэша из БД
 // Функция для запроса к 1C OData (как в TypeScript сервисе)
-async function fetch1COData(endpoint, params = {}) {
+async function fetch1COData(endpoint, params = {}, options = {}) {
   const authHeader = getBasicAuthHeader()
+  const { timeout = ONEC_CONFIG.timeout } = options
 
   // Убираем слэш в конце baseUrl если он есть
   const baseUrl = ONEC_CONFIG.baseUrl.replace(/\/$/, '')
@@ -720,7 +743,7 @@ async function fetch1COData(endpoint, params = {}) {
   try {
     // Используем AbortController для timeout
     const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), ONEC_CONFIG.timeout)
+    const timeoutId = setTimeout(() => controller.abort(), timeout)
 
     const response = await fetch(url, {
       method: 'GET',
@@ -1060,38 +1083,44 @@ async function fetch1CStocks() {
 }
 
 async function fetch1COrders() {
+  // Загружаем заказы за последние 90 дней, чтобы уменьшить количество данных
+  const ninetyDaysAgo = new Date()
+  ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90)
+  const dateFilter = `Date ge datetime'${ninetyDaysAgo.toISOString()}'`
+
   // Запрашиваем заказы покупателей с именами клиентов и статусами
   const orders = await fetch1COData('Document_ЗаказПокупателя', {
     '$select': 'Ref_Key,Number,Date,Контрагент____Presentation,СостояниеЗаказа____Presentation,СуммаДокумента',
+    '$filter': dateFilter,
     '$orderby': 'Date desc',
     '$top': '500'
   })
   if (!orders) return null
 
-  // Для каждого заказа загружаем позиции
-  const result = []
-  for (const o of orders) {
+  console.log(`📦 Загружено ${orders.length} заказов за последние 90 дней`)
+
+  // Строим карту названий товаров из кэша для быстрого доступа
+  const nomMap = new Map()
+  if (cache.stocks && cache.stocks.length > 0) {
+    cache.stocks.forEach((stock) => {
+      if (stock.ref_key) {
+        nomMap.set(stock.ref_key, stock.name || stock.product)
+      }
+    })
+  }
+
+  // Функция для загрузки позиций одного заказа
+  async function loadOrderItems(o) {
     const orderId = o.Ref_Key
     let items = []
 
     try {
-      // Пытаемся получить позиции для заказа
       const selectFields = 'LineNumber,Номенклатура_Key,Номенклатура____Presentation,Номенклатура_Presentation,Количество,Цена,Сумма,ЕдиницаИзмерения_Key'
       const orderItems = await fetch1COData(`Document_ЗаказПокупателя(guid'${orderId}')/Запасы`, {
         '$select': selectFields
       })
 
       if (orderItems && Array.isArray(orderItems)) {
-        // Строим карту названий товаров - сначала из кэша, если нужно то из 1C
-        const nomMap = new Map()
-        if (cache.stocks && cache.stocks.length > 0) {
-          cache.stocks.forEach((stock) => {
-            if (stock.ref_key) {
-              nomMap.set(stock.ref_key, stock.name || stock.product)
-            }
-          })
-        }
-
         items = orderItems.map((item) => {
           const prodId = item.Номенклатура_Key || item.Номенклатура || ''
           let prodName = item.Номенклатура____Presentation || item.Номенклатура_Presentation || ''
@@ -1125,7 +1154,7 @@ async function fetch1COrders() {
       console.warn(`⚠️ Could not load items for order ${orderId}:`, err.message)
     }
 
-    result.push({
+    return {
       id: o.Ref_Key || o.Number,
       ref_key: o.Ref_Key,
       order_number: o.Number || o.Ref_Key,
@@ -1135,9 +1164,27 @@ async function fetch1COrders() {
       amount: Number(o.СуммаДокумента || 0),
       items_count: items.length,
       items: items
-    })
+    }
   }
 
+  // Загружаем позиции параллельно батчами по 10 заказов
+  const BATCH_SIZE = 10
+  const result = []
+
+  for (let i = 0; i < orders.length; i += BATCH_SIZE) {
+    const batch = orders.slice(i, i + BATCH_SIZE)
+    console.log(`  📦 Загрузка позиций заказов ${i + 1}-${Math.min(i + BATCH_SIZE, orders.length)} из ${orders.length}...`)
+
+    const batchResults = await Promise.all(batch.map(o => loadOrderItems(o)))
+    result.push(...batchResults)
+
+    // Небольшая пауза между батчами чтобы не перегружать 1С
+    if (i + BATCH_SIZE < orders.length) {
+      await new Promise(resolve => setTimeout(resolve, 100))
+    }
+  }
+
+  console.log(`✓ Orders: ${result.length} заказов загружено`)
   return result
 }
 
@@ -1455,12 +1502,12 @@ function syncStocksIncremental(stocks) {
     if (existingMap.has(stock.ref_key)) {
       // Don't overwrite local-only fields (sku, location, storageBin) that user has set
       const existing = existingMap.get(stock.ref_key)
-      
+
       // Логика для картинок: если из 1С пришла картинка И у нас ее нет - сохранить 1С версию
       // Если у нас уже есть картинка - оставить нашу
       const existingRecord = db.prepare('SELECT image FROM onec_stocks WHERE ref_key = ?').get(stock.ref_key)
       const imageToSave = existingRecord?.image || stock.image || null
-      
+
       db.prepare(`UPDATE onec_stocks SET
         name = ?, product = ?, warehouse = ?,
         quantity = ?, current_stock = ?, unit = ?, unit_key = ?, category = ?,
@@ -1754,48 +1801,60 @@ async function syncWith1C() {
     }
 
     // === INCREMENTAL SYNC ===
-    const unitStats = syncUnitsIncremental(units1C)
-    syncLog.results.units = { status: 'success', count: units1C?.length || 0, ...unitStats }
-    console.log(`✓ Units: +${unitStats.added} ~${unitStats.updated} -${unitStats.deleted}`)
-    writeSyncLog(`Units synced: +${unitStats.added} ~${unitStats.updated} -${unitStats.deleted}`)
-    lastSyncTime.lastSyncByType.units = new Date().toISOString()
+    if (units1C && units1C.length > 0) {
+      const unitStats = syncUnitsIncremental(units1C)
+      syncLog.results.units = { status: 'success', count: units1C.length, ...unitStats }
+      console.log(`✓ Units: +${unitStats.added} ~${unitStats.updated} -${unitStats.deleted}`)
+      writeSyncLog(`Units synced: +${unitStats.added} ~${unitStats.updated} -${unitStats.deleted}`)
+      lastSyncTime.lastSyncByType.units = new Date().toISOString()
+    }
 
-    const catStats = syncCategoriesIncremental(categories1C)
-    syncLog.results.categories = { status: 'success', count: categories1C?.length || 0, ...catStats }
-    console.log(`✓ Categories: +${catStats.added} ~${catStats.updated} -${catStats.deleted}`)
-    writeSyncLog(`Categories synced: +${catStats.added} ~${catStats.updated} -${catStats.deleted}`)
-    lastSyncTime.lastSyncByType.categories = new Date().toISOString()
+    if (categories1C && categories1C.length > 0) {
+      const catStats = syncCategoriesIncremental(categories1C)
+      syncLog.results.categories = { status: 'success', count: categories1C.length, ...catStats }
+      console.log(`✓ Categories: +${catStats.added} ~${catStats.updated} -${catStats.deleted}`)
+      writeSyncLog(`Categories synced: +${catStats.added} ~${catStats.updated} -${catStats.deleted}`)
+      lastSyncTime.lastSyncByType.categories = new Date().toISOString()
+    }
 
-    const whStats = syncWarehousesIncremental(warehouses1C)
-    syncLog.results.warehouses = { status: 'success', count: warehouses1C?.length || 0, ...whStats }
-    console.log(`✓ Warehouses: +${whStats.added} ~${whStats.updated} -${whStats.deleted}`)
-    writeSyncLog(`Warehouses synced: +${whStats.added} ~${whStats.updated} -${whStats.deleted}`)
-    lastSyncTime.lastSyncByType.warehouses = new Date().toISOString()
+    if (warehouses1C && warehouses1C.length > 0) {
+      const whStats = syncWarehousesIncremental(warehouses1C)
+      syncLog.results.warehouses = { status: 'success', count: warehouses1C.length, ...whStats }
+      console.log(`✓ Warehouses: +${whStats.added} ~${whStats.updated} -${whStats.deleted}`)
+      writeSyncLog(`Warehouses synced: +${whStats.added} ~${whStats.updated} -${whStats.deleted}`)
+      lastSyncTime.lastSyncByType.warehouses = new Date().toISOString()
+    }
 
-    const reserveMap = await calculateReserves()
-    const stocksWithReserves = stocks1C.map(stock => {
-      const reserveData = reserveMap.get(stock.ref_key)
-      return {
-        ...stock,
-        reserved: reserveData ? reserveData.total : 0,
-        reservesByOrder: reserveData ? reserveData.byOrder : {}
-      }
-    })
-    const stockStats = syncStocksIncremental(stocksWithReserves)
-    syncLog.results.stocks = { status: 'success', count: stocks1C.length, ...stockStats }
-    console.log(`✓ Stocks: +${stockStats.added} ~${stockStats.updated} -${stockStats.deleted}`)
-    writeSyncLog(`Stocks synced: +${stockStats.added} ~${stockStats.updated} -${stockStats.deleted}`)
-    lastSyncTime.lastSyncByType.stocks = new Date().toISOString()
+    if (stocks1C && stocks1C.length > 0) {
+      const reserveMap = await calculateReserves()
+      const stocksWithReserves = stocks1C.map(stock => {
+        const reserveData = reserveMap.get(stock.ref_key)
+        return {
+          ...stock,
+          reserved: reserveData ? reserveData.total : 0,
+          reservesByOrder: reserveData ? reserveData.byOrder : {}
+        }
+      })
+      const stockStats = syncStocksIncremental(stocksWithReserves)
+      syncLog.results.stocks = { status: 'success', count: stocks1C.length, ...stockStats }
+      console.log(`✓ Stocks: +${stockStats.added} ~${stockStats.updated} -${stockStats.deleted}`)
+      writeSyncLog(`Stocks synced: +${stockStats.added} ~${stockStats.updated} -${stockStats.deleted}`)
+      lastSyncTime.lastSyncByType.stocks = new Date().toISOString()
+    }
 
-    const orderStats = syncOrdersIncremental(orders1C)
-    syncLog.results.orders = { status: 'success', count: orders1C.length, ...orderStats }
-    console.log(`✓ Orders: +${orderStats.added} ~${orderStats.updated} -${orderStats.deleted}`)
-    lastSyncTime.lastSyncByType.orders = new Date().toISOString()
+    if (orders1C && orders1C.length > 0) {
+      const orderStats = syncOrdersIncremental(orders1C)
+      syncLog.results.orders = { status: 'success', count: orders1C.length, ...orderStats }
+      console.log(`✓ Orders: +${orderStats.added} ~${orderStats.updated} -${orderStats.deleted}`)
+      lastSyncTime.lastSyncByType.orders = new Date().toISOString()
+    }
 
-    const transferOrderStats = syncTransferOrdersIncremental(transferOrders1C)
-    syncLog.results.transfer_orders = { status: 'success', count: transferOrders1C.length, ...transferOrderStats }
-    console.log(`✓ Transfer Orders: +${transferOrderStats.added} ~${transferOrderStats.updated} -${transferOrderStats.deleted}`)
-    lastSyncTime.lastSyncByType.transfer_orders = new Date().toISOString()
+    if (transferOrders1C && transferOrders1C.length > 0) {
+      const transferOrderStats = syncTransferOrdersIncremental(transferOrders1C)
+      syncLog.results.transfer_orders = { status: 'success', count: transferOrders1C.length, ...transferOrderStats }
+      console.log(`✓ Transfer Orders: +${transferOrderStats.added} ~${transferOrderStats.updated} -${transferOrderStats.deleted}`)
+      lastSyncTime.lastSyncByType.transfer_orders = new Date().toISOString()
+    }
 
     // Перезагружаем кэш
     loadCacheFromDB()
@@ -1922,7 +1981,7 @@ const server = http.createServer(async (req, res) => {
         orders: cache.orders.length
       }
     }
-    const statusCode = lastSyncTime.connectionStatus === 'failed' ? 503 : 200
+    const statusCode = lastSyncTime.connectionStatus === 'failed' || lastSyncTime.connectionStatus === 'unavailable' ? 503 : 200
     sendJSON(res, statusCode, status)
     return
   }
@@ -2070,11 +2129,11 @@ const server = http.createServer(async (req, res) => {
       // Возвращаем заказы на перемещение из локальной БД
       const orders = db.prepare('SELECT * FROM transfer_orders ORDER BY date DESC').all()
       const baseUrl = ONEC_CONFIG.baseUrl.replace(/\/$/, '')
-      
+
       const result = orders.map(async (order) => {
         let statusDescription = 'В работе' // default
         let statusKey = ''
-        
+
         // Пытаемся получить статус из 1C
         try {
           const url = `${baseUrl}/Document_ЗаказНаПеремещение(guid'${order.ref_key}')?$format=json&$select=СостояниеЗаказа_Key,СостояниеЗаказа____Presentation`
@@ -2084,11 +2143,11 @@ const server = http.createServer(async (req, res) => {
               'Content-Type': 'application/json'
             }
           })
-          
+
           if (response.ok) {
             const orderData = await response.json()
             statusKey = orderData.СостояниеЗаказа_Key || ''
-            
+
             if (orderData.СостояниеЗаказа____Presentation) {
               statusDescription = orderData.СостояниеЗаказа____Presentation
             } else if (statusKey) {
@@ -2109,7 +2168,7 @@ const server = http.createServer(async (req, res) => {
         } catch (err) {
           console.warn(`⚠️ Error fetching status for order ${order.ref_key}:`, err.message)
         }
-        
+
         return {
           Ref_Key: order.ref_key,
           Number: order.order_number,
@@ -2312,7 +2371,7 @@ const server = http.createServer(async (req, res) => {
         const targetStatusName = String(data.statusName || 'Завершен').trim()
         const authHeader = getBasicAuthHeader()
         const baseUrl = ONEC_CONFIG.baseUrl.replace(/\/$/, '')
-        
+
         console.log(`\n🔄 Обновляем заказ на перемещение ${orderId} - статус: "${targetStatusName}"`)
 
         // Для ЗаказНаПеремещение используем специальный справочник СостоянияЗаказовНаПеремещение
@@ -2323,7 +2382,7 @@ const server = http.createServer(async (req, res) => {
           // Получаем все доступные статусы из справочника
           const catalogUrl = `${baseUrl}/${statusCatalog}?$format=json&$select=Ref_Key,Description`
           console.log(`  Ищем статус "${targetStatusName}" в ${statusCatalog}...`)
-          
+
           const catalogResponse = await fetch(catalogUrl, {
             headers: {
               'Authorization': authHeader,
@@ -2338,12 +2397,12 @@ const server = http.createServer(async (req, res) => {
 
           const catalogData = await catalogResponse.json()
           const statusItems = catalogData.value || []
-          
+
           console.log(`  📦 Найдено статусов: ${statusItems.length}`)
           statusItems.forEach(item => {
             console.log(`     - "${item.Description}" (${item.Ref_Key})`)
           })
-          
+
           // Ищем статус по описанию - точное совпадение в начале
           let foundStatus = statusItems.find(item => {
             const desc = String(item.Description || '').trim()
@@ -2392,7 +2451,7 @@ const server = http.createServer(async (req, res) => {
         try {
           const transferUrl = `${baseUrl}/Document_ЗаказНаПеремещение(guid'${orderId}')`
           console.log(`  Попытка обновить документ с новым статусом...`)
-          
+
           const response = await fetch(transferUrl, {
             method: 'PATCH',
             headers: {
@@ -2418,7 +2477,7 @@ const server = http.createServer(async (req, res) => {
 
         // Удаляем локальные данные сканирования в любом случае
         const deletedScans = db.prepare('DELETE FROM transfer_order_scans WHERE order_ref_key = ?').run(orderId)
-        
+
         console.log(`  ✓ Удалены ${deletedScans.changes || 0} локальных записей сканирования`)
 
         sendJSON(res, 200, {
@@ -2478,7 +2537,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   // Save local product fields (barcode, storageBin) - ONLY local storage, NOT to 1C
-  if (pathname.match(/^\/sklad\/api\/onec\/stocks\/[a-f0-9\-]+$/) && (req.method === 'PUT' || req.method === 'POST')) {
+  if (pathname.match(/^\/sklad\/api\/onec\/stocks\/[^/]+$/) && (req.method === 'PUT' || req.method === 'POST')) {
     let body = ''
     req.on('data', chunk => { body += chunk.toString() })
     req.on('end', () => {
@@ -2750,8 +2809,8 @@ const server = http.createServer(async (req, res) => {
     try {
       const orderRefKey = pathname.match(/^\/sklad\/api\/transfer-orders\/(.+)\/scans$/)[1]
       const scans = db.prepare(`
-        SELECT item_barcode, scanned_qty 
-        FROM transfer_order_scans 
+        SELECT item_barcode, scanned_qty
+        FROM transfer_order_scans
         WHERE order_ref_key = ?
       `).all(orderRefKey)
 
@@ -3381,7 +3440,7 @@ const server = http.createServer(async (req, res) => {
   if (pathname.match(/^\/sklad\/api\/qr-codes\/[^\/]+$/) && req.method === 'DELETE') {
     try {
       const qrCodeId = pathname.split('/')[4]
-      
+
       if (!qrCodeId) {
         sendJSON(res, 400, { error: 'QR Code ID is required' })
         return
@@ -3504,7 +3563,7 @@ const server = http.createServer(async (req, res) => {
   if (pathname === '/sklad/api/operation-logs/stats' && req.method === 'GET') {
     try {
       const stats = db.prepare(`
-        SELECT 
+        SELECT
           operation_type,
           COUNT(*) as count,
           COUNT(DISTINCT employee_id) as unique_employees,
@@ -3530,7 +3589,7 @@ const server = http.createServer(async (req, res) => {
     try {
       // Get all shipments (operations where type is 'qr_code_shipped')
       const shipments = db.prepare(`
-        SELECT 
+        SELECT
           id,
           employee_name,
           created_at,
@@ -3605,8 +3664,13 @@ const server = http.createServer(async (req, res) => {
     return
   }
 
-  // Create employee
+  // Create employee (только директор и менеджер)
   if (pathname === '/sklad/api/employees' && req.method === 'POST') {
+    const userRole = getUserRoleFromRequest(req)
+    if (!userRole || !['director', 'manager'].includes(userRole)) {
+      sendJSON(res, 403, { error: 'Forbidden: insufficient permissions' })
+      return
+    }
     let body = ''
     req.on('data', chunk => { body += chunk })
     req.on('end', () => {
@@ -3705,8 +3769,13 @@ const server = http.createServer(async (req, res) => {
     return
   }
 
-  // Update employee
+  // Update employee (только директор и менеджер)
   if (pathname.match(/^\/sklad\/api\/employees\/[^\/]+$/) && req.method === 'PUT') {
+    const userRole = getUserRoleFromRequest(req)
+    if (!userRole || !['director', 'manager'].includes(userRole)) {
+      sendJSON(res, 403, { error: 'Forbidden: insufficient permissions' })
+      return
+    }
     let body = ''
     req.on('data', chunk => { body += chunk })
     req.on('end', () => {
@@ -3724,7 +3793,7 @@ const server = http.createServer(async (req, res) => {
             : key === 'birthDate' ? 'birth_date'
             : key === 'createdBy' ? null
             : key.replace(/([A-Z])/g, '_$1').toLowerCase()
-          
+
           if (dbKey) {
             updates.push(`${dbKey} = ?`)
             values.push(
@@ -3750,8 +3819,13 @@ const server = http.createServer(async (req, res) => {
     return
   }
 
-  // Delete employee
+  // Delete employee (только директор и менеджер)
   if (pathname.match(/^\/sklad\/api\/employees\/[^\/]+$/) && req.method === 'DELETE') {
+    const userRole = getUserRoleFromRequest(req)
+    if (!userRole || !['director', 'manager'].includes(userRole)) {
+      sendJSON(res, 403, { error: 'Forbidden: insufficient permissions' })
+      return
+    }
     try {
       const employeeId = pathname.split('/')[4]
       db.prepare('DELETE FROM employees WHERE id = ?').run(employeeId)
@@ -3798,6 +3872,11 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === 'PUT') {
+      const userRole = getUserRoleFromRequest(req)
+      if (!userRole || !['director', 'manager'].includes(userRole)) {
+        sendJSON(res, 403, { error: 'Forbidden: insufficient permissions' })
+        return
+      }
       let body = ''
       req.on('data', chunk => { body += chunk })
       req.on('end', () => {
@@ -3858,8 +3937,8 @@ const server = http.createServer(async (req, res) => {
   if (pathname === '/sklad/api/tools' && req.method === 'GET') {
     try {
       const tools = db.prepare('SELECT * FROM tools ORDER BY created_at DESC').all()
-      sendJSON(res, 200, { 
-        success: true, 
+      sendJSON(res, 200, {
+        success: true,
         tools: tools.map(t => ({
           id: t.id,
           name: t.name,
@@ -3977,7 +4056,7 @@ const server = http.createServer(async (req, res) => {
         if (data.type !== undefined) { setClause.push('type = ?'); values.push(data.type) }
         if (data.model !== undefined) { setClause.push('model = ?'); values.push(data.model) }
         if (data.manufacturer !== undefined) { setClause.push('manufacturer = ?'); values.push(data.manufacturer) }
-        if (data.status !== undefined) { 
+        if (data.status !== undefined) {
           setClause.push('status = ?')
           values.push(data.status)
           // Clear issued fields when status changes to repair/written_off
@@ -4019,7 +4098,7 @@ const server = http.createServer(async (req, res) => {
     try {
       const toolId = pathname.split('/')[4]
       db.prepare('DELETE FROM tools WHERE id = ?').run(toolId)
-      
+
       logOperation('tool_deleted', {
         tool_id: toolId
       })
@@ -4037,8 +4116,8 @@ const server = http.createServer(async (req, res) => {
     try {
       const toolId = pathname.split('/')[4]
       const breakdowns = db.prepare('SELECT * FROM tool_breakdowns WHERE tool_id = ? ORDER BY reported_at DESC').all(toolId)
-      sendJSON(res, 200, { 
-        success: true, 
+      sendJSON(res, 200, {
+        success: true,
         breakdowns: breakdowns.map(b => ({
           id: b.id,
           toolId: b.tool_id,
@@ -4263,7 +4342,7 @@ const server = http.createServer(async (req, res) => {
   if (pathname === '/sklad/api/reports/orders-summary' && req.method === 'GET') {
     try {
       const reportMap = {}
-      
+
       // 1. Получаем данные из material_invoices (ручно введённые)
       const invoices = db.prepare(`
         SELECT mi.*, e.name as employee_name,
@@ -4296,7 +4375,7 @@ const server = http.createServer(async (req, res) => {
             items = []
           }
         }
-        
+
         if (!reportMap[inv.order_number]) {
           reportMap[inv.order_number] = {
             orderNumber: inv.order_number,
@@ -4305,11 +4384,11 @@ const server = http.createServer(async (req, res) => {
             source: 'material_invoice'
           }
         }
-        
+
         if (inv.employee_name) {
           reportMap[inv.order_number].employees.add(inv.employee_name)
         }
-        
+
         items.forEach(item => {
           const existing = reportMap[inv.order_number].items.find(i => i.article === item.article)
           if (existing) {
@@ -4400,7 +4479,7 @@ const server = http.createServer(async (req, res) => {
           price: item.price
         }))
         const isIncoming = ['ПРИХОД', 'ПРИХОД (СКЛАД)', 'НОВАЯ КАРТОЧКА', 'ИЗМЕНЕНИЕ ЦЕНЫ'].includes(inv.order_number)
-        
+
         return {
           id: inv.id,
           date: inv.date,
@@ -4425,7 +4504,7 @@ const server = http.createServer(async (req, res) => {
   if (pathname === '/sklad/api/reports/write-off' && req.method === 'GET') {
     try {
       const reportMap = {}
-      
+
       // Получаем данные из onec_orders (материалы используемые на изделия)
       const orders = db.prepare(`
         SELECT id, order_number, items
@@ -4534,7 +4613,7 @@ const server = http.createServer(async (req, res) => {
       // Note: This requires inventory data which is in memory in current implementation
       // For now return empty, can be expanded when inventory is moved to database
       const criticalItems = []
-      
+
       sendJSON(res, 200, { success: true, items: criticalItems })
     } catch (err) {
       console.error('Error getting critical items:', err)
@@ -4619,6 +4698,11 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === 'PUT') {
+      const userRole = getUserRoleFromRequest(req)
+      if (!userRole || !['director', 'manager'].includes(userRole)) {
+        sendJSON(res, 403, { error: 'Forbidden: insufficient permissions' })
+        return
+      }
       let body = ''
       req.on('data', chunk => { body += chunk })
       req.on('end', () => {
@@ -4690,7 +4774,7 @@ const server = http.createServer(async (req, res) => {
       try {
         const { qrId, productName, quantity, orderNumber, employeeId: requestEmployeeId, employeeName: requestEmployeeName } = JSON.parse(body)
         console.log('📦 [ENDPOINT] Parsed data:', { qrId, productName, quantity, orderNumber, requestEmployeeId, requestEmployeeName })
-        
+
         if (!qrId || !productName) {
           sendJSON(res, 400, { error: 'Missing required fields' })
           return
@@ -4766,7 +4850,7 @@ const server = http.createServer(async (req, res) => {
         if (existingStock) {
           // Обновляем количество
           db.prepare(`
-            UPDATE onec_stocks 
+            UPDATE onec_stocks
             SET quantity = quantity + ?, current_stock = quantity + ?, local_only = 1, synced_at = ?
             WHERE name = ? AND warehouse = 'Готовая продукция'
           `).run(quantity || 1, quantity || 1, timestamp, productName)

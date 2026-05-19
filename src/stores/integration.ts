@@ -8,7 +8,7 @@ import type { OrderItem } from '@/types'
 export const useIntegrationStore = defineStore('integration', () => {
   const inventoryStore = useInventoryStore()
   const ordersStore = useOrdersStore()
-  
+
   const loading = ref(false)
   const error = ref<string | null>(null)
   const lastSyncTime = ref<string | null>(typeof window !== 'undefined' ? localStorage.getItem('1c_last_sync') : null)
@@ -26,23 +26,23 @@ export const useIntegrationStore = defineStore('integration', () => {
     loading.value = true
     error.value = null
     syncProgress.value = 0
-    
+
     try {
       // Загружаем остатки
       syncProgress.value = 25
       await inventoryStore.loadStocksFromApi()
-      
+
       // Загружаем заказы
       syncProgress.value = 50
       await ordersStore.loadOrdersFromApi()
-      
+
       // Обновляем время синхронизации
       const now = new Date().toISOString()
       lastSyncTime.value = now
       if (typeof window !== 'undefined') {
         localStorage.setItem('1c_last_sync', now)
       }
-      
+
       syncProgress.value = 100
     } catch (err: any) {
       error.value = err.message || 'Ошибка синхронизации с 1С'
@@ -56,18 +56,30 @@ export const useIntegrationStore = defineStore('integration', () => {
   async function syncOrders() {
     try {
       // Вызываем backend endpoint для синхронизации только заказов
+      // Таймаут 120 секунд, так как синхронизация заказов может занять время
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 120000)
+
       const response = await fetch(`${API_BASE_URL}/sync/orders`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
+        headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal
       })
-      
+
+      clearTimeout(timeoutId)
+
       if (!response.ok) throw new Error('Failed to sync orders')
-      
+
       // После синхронизации перезагружаем данные в store
       await ordersStore.loadOrdersFromApi()
     } catch (err: any) {
-      error.value = err.message || 'Ошибка загрузки заказов'
-      console.error('Orders sync error:', err)
+      if (err.name === 'AbortError') {
+        error.value = 'Синхронизация заказов прервана по таймауту'
+        console.error('Orders sync timeout:', err)
+      } else {
+        error.value = err.message || 'Ошибка загрузки заказов'
+        console.error('Orders sync error:', err)
+      }
       throw err
     }
   }
@@ -79,9 +91,9 @@ export const useIntegrationStore = defineStore('integration', () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' }
       })
-      
+
       if (!response.ok) throw new Error('Failed to sync stocks')
-      
+
       // После синхронизации перезагружаем данные в store
       await inventoryStore.loadStocksFromApi()
     } catch (err: any) {
@@ -96,10 +108,10 @@ export const useIntegrationStore = defineStore('integration', () => {
       // Загружаем позиции конкретного заказа из API
       const response = await fetch(`${API_BASE_URL}/onec/order-items?orderId=${orderId}`)
       if (!response.ok) throw new Error('Failed to fetch order items')
-      
+
       const data = await response.json()
       const rawItems = data.value || []
-      
+
       // Трансформируем полученные позиции в формат OrderItem
       const items = rawItems.map((item: any) => ({
         id: item.id || `${orderId}-${Math.random()}`,
@@ -118,7 +130,7 @@ export const useIntegrationStore = defineStore('integration', () => {
         remainingQuantity: item.quantity || 0,
         unit: item.unit || 'шт'
       }))
-      
+
       // Обновляем заказ в store с полученными позициями
       const order = ordersStore.orders.find(o => o.id === orderId)
       if (order) {
@@ -142,24 +154,24 @@ export const useIntegrationStore = defineStore('integration', () => {
       console.log('\n🚀 ===== SENDING TO BACKEND =====')
       console.log('📦 Request Data:')
       console.log(JSON.stringify(data, null, 2))
-      
+
       const response = await fetch(`${API_BASE_URL}/1c/material-transfer`, {
         method: 'POST',
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${typeof window !== 'undefined' ? localStorage.getItem('auth_token') : ''}`
         },
         body: JSON.stringify(data)
       })
-      
+
       console.log(`📡 Response Status: ${response.status}`)
-      
+
       if (!response.ok) {
         const errorData = await response.json()
         console.error('❌ Backend Error:', errorData)
         throw new Error('Ошибка создания документа')
       }
-      
+
       const result = await response.json()
       console.log('✅ Success Response:')
       console.log(JSON.stringify(result, null, 2))
@@ -202,7 +214,7 @@ export const useIntegrationStore = defineStore('integration', () => {
 
       const response = await fetch(`${API_BASE_URL}/1c/nomenclature`, {
         method: 'POST',
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${typeof window !== 'undefined' ? localStorage.getItem('auth_token') : ''}`
         },
@@ -221,7 +233,7 @@ export const useIntegrationStore = defineStore('integration', () => {
   async function syncAll() {
     loading.value = true
     error.value = null
-    
+
     try {
       await syncWith1C()
       await syncOrders()

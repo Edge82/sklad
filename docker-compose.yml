@@ -1,0 +1,54 @@
+# ============================================================
+# Система складского учёта мебельного производства (Docker)
+# ============================================================
+#
+# Быстрый старт:
+#   1. Скопируйте .env.example в .env
+#   2. Заполните данные 1C в .env
+#   3. docker compose up -d
+#   4. Откройте http://localhost:8080
+#
+# Подробнее: DEPLOY.md
+# ============================================================
+
+version: "3.9"
+
+services:
+  # ===== Backend (API + 1C синхронизация) =====
+  sklad-backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: backend
+    container_name: sklad-backend
+    restart: unless-stopped
+    expose:
+      - "8000"
+    env_file:
+      - .env
+    volumes:
+      - sklad-data:/app/.data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/sklad/api/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+
+  # ===== Nginx (раздаёт фронтенд + проксирует API) =====
+  sklad-nginx:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: frontend
+    container_name: sklad-nginx
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    depends_on:
+      sklad-backend:
+        condition: service_healthy
+
+volumes:
+  sklad-data:
+

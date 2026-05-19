@@ -240,6 +240,7 @@ import { useDialog, useMessage } from 'naive-ui'
 import { useUserStore } from '@/stores/user'
 import { useEmployeesStore } from '@/stores/employees'
 import { useIntegrationStore } from '@/stores/integration'
+import { API_BASE_URL } from '@/config/api'
 
 const inventoryStore = useInventoryStore()
 const ordersStore = useOrdersStore()
@@ -704,6 +705,44 @@ const columnsBase: DataTableColumns<InventoryTableRow> = [
     }
   },
   {
+    title: 'Место хранения',
+    key: 'storageBin',
+    width: 220,
+    render: (row) => {
+      if ('isGroup' in row && row.isGroup) return null
+      const item = row as any
+      const value = item.storageBin || item.location || ''
+      return h('div', { class: 'editable-storage-cell', style: 'display: flex; align-items: center;' }, [
+        h('input', {
+          class: 'storage-input',
+          style: 'width: 100%; background: transparent; border: 1px solid transparent; border-radius: 4px; padding: 2px 6px; color: #aaa; font-size: 13px; outline: none; transition: all 0.2s;',
+          value: value,
+          placeholder: 'Введите место...',
+          onFocus: (e: FocusEvent) => {
+            const el = e.target as HTMLElement
+            el.style.borderColor = '#18a058'
+            el.style.color = '#fff'
+            el.style.background = 'rgba(24,160,88,0.08)'
+          },
+          onBlur: (e: FocusEvent) => {
+            const el = e.target as HTMLElement
+            el.style.borderColor = 'transparent'
+            el.style.color = '#aaa'
+            el.style.background = 'transparent'
+          },
+          onChange: (e: Event) => {
+            const target = e.target as HTMLInputElement
+            const newValue = target.value
+            const itemId = item.id || item.ref_key
+            if (itemId) {
+              saveStorageBin(itemId, newValue, item)
+            }
+          }
+        })
+      ])
+    }
+  },
+  {
     title: 'Статус',
     key: 'status',
     width: 120,
@@ -940,6 +979,24 @@ const handleTransactionSubmit = (transactionData: Partial<InventoryTransaction> 
 const handleSorterChange = () => {
 }
 
+// Сохранение места хранения в БД
+const saveStorageBin = async (itemId: string, value: string, item: any) => {
+  try {
+    const refKey = item.ref_key || itemId
+    const response = await fetch(`${API_BASE_URL}/onec/stocks/${refKey}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ storageBin: value })
+    })
+    if (!response.ok) throw new Error('Failed to save')
+    // Обновляем локально
+    item.storageBin = value
+  } catch (err) {
+    console.error('Error saving storage location:', err)
+    message.error('Не удалось сохранить место хранения')
+  }
+}
+
 const rowProps = (row: InventoryTableRow) => {
   const isGroup = 'isGroup' in row && row.isGroup
   if (isGroup) {
@@ -1011,33 +1068,14 @@ const rowProps = (row: InventoryTableRow) => {
   font-weight: 900 !important;
 }
 
-:deep(.group-header-row) td {
-  border-bottom: 2px solid rgba(32, 128, 240, 0.2);
-  vertical-align: middle !important;
+.storage-input:focus {
+  border-color: #18a058 !important;
+  color: #fff !important;
+  background: rgba(24, 160, 88, 0.08) !important;
 }
 
-:deep(.group-header-row td:first-child),
-:deep(.group-header-row td:nth-child(2)) {
-  vertical-align: middle !important;
-}
-
-:deep(.group-header-row td:first-child > *),
-:deep(.group-header-row td:nth-child(2) > *) {
-  vertical-align: middle !important;
-  display: inline-flex;
-  align-items: center;
-}
-
-:deep(.group-header-row .n-data-table-expand-icon),
-:deep(.group-header-row .n-data-table-expand-placeholder) {
-  display: inline-flex !important;
-  align-items: center !important;
-  vertical-align: middle !important;
-  margin-top: 0 !important;
-  margin-bottom: 0 !important;
-}
-
-:deep(.n-data-table-tr--striped) {
-  background-color: rgba(255, 255, 255, 0.02);
+.storage-input::placeholder {
+  color: #555;
+  font-size: 12px;
 }
 </style>

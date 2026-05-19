@@ -57,7 +57,7 @@ const menuOptions = computed<MenuOption[]>(() => {
       icon: renderIcon(CubeOutline),
       children: [
         {
-          label: 'Основная продукция',
+          label: 'Склад ТМЦ',
           key: '/inventory',
         },
         {
@@ -90,20 +90,21 @@ const menuOptions = computed<MenuOption[]>(() => {
     icon: renderIcon(HammerOutline)
   })
 
-  // Сотрудники для Рабочего превращаются в Личный кабинет
-  if (userStore.isWorker) {
-    options.push({
-      label: 'Личный кабинет',
-      key: '/profile',
-      icon: renderIcon(PeopleOutline)
-    })
-  } else {
+  // Сотрудники доступны только директору и менеджеру
+  if (userStore.canManageEmployees) {
     options.push({
       label: 'Сотрудники',
       key: '/employees',
       icon: renderIcon(PeopleOutline)
     })
   }
+
+  // Личный кабинет доступен всем
+  options.push({
+    label: 'Личный кабинет',
+    key: '/profile',
+    icon: renderIcon(PeopleOutline)
+  })
 
   options.push({
     label: 'Движение материалов',

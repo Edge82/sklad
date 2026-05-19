@@ -17,11 +17,11 @@ export const useOrdersStore = defineStore('orders', () => {
     const orderItems = qrCodes.filter(q => q.orderId === orderId)
     const totalGenerated = orderItems.length
     if (totalGenerated === 0) return 0
-    
-    const scannedCount = orderItems.filter(q => 
+
+    const scannedCount = orderItems.filter(q =>
       q.status === 'scanned' || q.status === 'shipped'
     ).length
-    
+
     return Math.min(Math.round((scannedCount / totalGenerated) * 100), 100)
   }
 
@@ -29,11 +29,11 @@ export const useOrdersStore = defineStore('orders', () => {
     const itemCodes = qrCodes.filter(q => q.orderId === orderId && q.productId === productId)
     const totalGenerated = itemCodes.length
     if (totalGenerated === 0) return 0
-    
-    const scannedCount = itemCodes.filter(q => 
+
+    const scannedCount = itemCodes.filter(q =>
       q.status === 'scanned' || q.status === 'shipped'
     ).length
-    
+
     return Math.min(Math.round((scannedCount / totalGenerated) * 100), 100)
   }
 
@@ -78,8 +78,8 @@ export const useOrdersStore = defineStore('orders', () => {
   function updateOrder(id: string, updates: Partial<Order>) {
     const index = orders.value.findIndex(o => o.id === id)
     if (index !== -1) {
-      orders.value[index] = { 
-        ...orders.value[index], 
+      orders.value[index] = {
+        ...orders.value[index],
         ...updates,
         lastUpdated: new Date()
       } as Order
@@ -134,16 +134,23 @@ export const useOrdersStore = defineStore('orders', () => {
           }
         })
 
-        // Load QR codes for all orders using qrCodes store batch load
+        // Load QR codes only for active orders (в работе, на складе, отгружен)
         try {
           const qrStore = useQRCodesStore()
-          const orderIds = orders.value.map(o => o.id)
-          if (orderIds.length > 0) {
-            await qrStore.loadQRCodesForOrders(orderIds)
-            
+          const activeStatuses = ['in_progress', 'ready', 'shipped']
+          const activeOrderIds = orders.value
+            .filter(o => activeStatuses.includes(o.status))
+            .map(o => o.id)
+          if (activeOrderIds.length > 0) {
+            await qrStore.loadQRCodesForOrders(activeOrderIds)
+
             // Update qrCodeCount for each order based on loaded codes
             orders.value.forEach(order => {
-              order.qrCodeCount = qrStore.qrCodes.filter(code => code.orderId === order.id).length
+              if (activeStatuses.includes(order.status)) {
+                order.qrCodeCount = qrStore.qrCodes.filter(code => code.orderId === order.id).length
+              } else {
+                order.qrCodeCount = 0
+              }
             })
           }
         } catch (qrErr) {
@@ -161,7 +168,7 @@ export const useOrdersStore = defineStore('orders', () => {
       loading.value = false
     }
   }
-  
+
   // Вспомогательная функция для маппинга статусов заказов
   function mapOrderStatus(status: string): OrderStatus {
     const statusMap: Record<string, OrderStatus> = {
@@ -209,7 +216,7 @@ export const useOrdersStore = defineStore('orders', () => {
   async function updateOrderPainting(orderId: string, painting: string) {
     loading.value = true
     error.value = null
-    
+
     try {
       const response = await fetch(`${API_BASE_URL}/onec/orders/painting`, {
         method: 'POST',

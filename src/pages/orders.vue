@@ -19,10 +19,10 @@
         </div>
       </div>
       <div v-if="viewMode === 'list'" class="flex gap-2 m-2">
-        <n-button 
-          secondary 
-          type="info" 
-          :loading="isSyncingOrders" 
+        <n-button
+          secondary
+          type="info"
+          :loading="isSyncingOrders"
           @click="handleSyncOrders"
         >
           <template #icon><n-icon><SyncOutline /></n-icon></template>
@@ -36,8 +36,8 @@
       <!-- Статистика -->
       <n-grid :cols="5" :x-gap="12" :y-gap="12" class="mb-6 items-stretch py-2">
         <n-gi>
-          <n-card 
-            size="small" 
+          <n-card
+            size="small"
             hoverable
             class="metric-card h-full flex flex-col justify-center"
             :class="{ 'active': !filters.status }"
@@ -55,27 +55,8 @@
           </n-card>
         </n-gi>
         <n-gi>
-          <n-card 
-            size="small" 
-            hoverable
-            class="metric-card h-full flex flex-col justify-center"
-            :class="{ 'active': filters.status === 'new' }"
-            @click="filters.status = 'new'"
-          >
-            <div class="flex items-center gap-3 py-1">
-              <n-icon size="28" color="#f0a020">
-                <AppsOutline />
-              </n-icon>
-              <div>
-                <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">Не обработанные</n-text>
-                <n-h3 class="m-0 leading-none">{{ newOrdersCount }}</n-h3>
-              </div>
-            </div>
-          </n-card>
-        </n-gi>
-        <n-gi>
-          <n-card 
-            size="small" 
+          <n-card
+            size="small"
             hoverable
             class="metric-card h-full flex flex-col justify-center"
             :class="{ 'active': filters.status === 'in_progress' }"
@@ -93,8 +74,8 @@
           </n-card>
         </n-gi>
         <n-gi>
-          <n-card 
-            size="small" 
+          <n-card
+            size="small"
             hoverable
             class="metric-card h-full flex flex-col justify-center"
             :class="{ 'active': filters.status === 'ready' }"
@@ -105,8 +86,27 @@
                 <CheckmarkDoneOutline />
               </n-icon>
               <div>
-                <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">Выполнен</n-text>
+                <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">На складе</n-text>
                 <n-h3 class="m-0 leading-none">{{ readyOrdersCount }}</n-h3>
+              </div>
+            </div>
+          </n-card>
+        </n-gi>
+        <n-gi>
+          <n-card
+            size="small"
+            hoverable
+            class="metric-card h-full flex flex-col justify-center"
+            :class="{ 'active': filters.status === 'shipped' }"
+            @click="filters.status = 'shipped'"
+          >
+            <div class="flex items-center gap-3 py-1">
+              <n-icon size="28" color="#2080f0">
+                <CheckmarkDoneOutline />
+              </n-icon>
+              <div>
+                <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">Отгружен</n-text>
+                <n-h3 class="m-0 leading-none">{{ shippedOrdersCount }}</n-h3>
               </div>
             </div>
           </n-card>
@@ -127,9 +127,9 @@
       <!-- Фильтры -->
       <n-card class="mb-4" size="small">
         <n-space align="center" :size="[16, 12]">
-          <n-input 
-            v-model:value="searchQuery" 
-            placeholder="Поиск по номеру или клиенту" 
+          <n-input
+            v-model:value="searchQuery"
+            placeholder="Поиск по номеру или клиенту"
             clearable
             class="w-96!"
           >
@@ -137,15 +137,15 @@
               <n-icon><SearchOutline /></n-icon>
             </template>
           </n-input>
-          
-          <n-select 
-            v-model:value="filters.status" 
-            placeholder="Все статусы" 
-            :options="orderStatusOptions" 
-            clearable 
-            class="w-56!" 
+
+          <n-select
+            v-model:value="filters.status"
+            placeholder="Все статусы"
+            :options="orderStatusOptions"
+            clearable
+            class="w-56!"
           />
-          
+
           <n-button @click="resetFilters" quaternary type="warning">
             Сбросить фильтры
           </n-button>
@@ -160,10 +160,10 @@
       </div>
 
       <n-card border-variant="dark" class="orders-table-wrapper">
-        <n-data-table 
+        <n-data-table
           class="orders-table"
-          :columns="columns" 
-          :data="filteredOrders" 
+          :columns="columns"
+          :data="filteredOrders"
           :pagination="pagination"
           :row-props="(row: Order) => ({
              class: 'cursor-pointer',
@@ -205,7 +205,7 @@
     <!-- Режим детального просмотра конкретной накладной -->
     <div v-if="viewMode === 'details'">
        <n-card border-variant="dark" class="p-0">
-          <EmployeeProductionDocument 
+          <EmployeeProductionDocument
             v-if="viewMode === 'details' && selectedInvoiceDetail"
             :tools="[]"
             :scannedItems="[]"
@@ -231,9 +231,9 @@
       title="Детали заказа"
       class="w-225!"
     >
-      <OrderDetails 
-        v-if="selectedOrderForDetails" 
-        :order="selectedOrderForDetails" 
+      <OrderDetails
+        v-if="selectedOrderForDetails"
+        :order="selectedOrderForDetails"
         :loading="loadingDetails"
       />
     </n-modal>
@@ -247,19 +247,19 @@ import { useQRCodesStore } from '@/stores/qrCodes'
 import { useUserStore } from '@/stores/user'
 import type { Order } from '@/types'
 import { syncEvents } from '@/utils/syncEvents'
-import { 
-  NButton, 
-  NIcon, 
-  NTag, 
-  NSpace, 
-  NModal, 
-  useMessage, 
-  NH1, 
-  NText, 
-  NGrid, 
-  NGi, 
-  NCard, 
-  NDataTable, 
+import {
+  NButton,
+  NIcon,
+  NTag,
+  NSpace,
+  NModal,
+  useMessage,
+  NH1,
+  NText,
+  NGrid,
+  NGi,
+  NCard,
+  NDataTable,
   NProgress,
   NInput,
   NSelect,
@@ -383,19 +383,20 @@ watch([searchQuery, filters], () => {
 }, { deep: true })
 
 // Статистика
-const totalOrdersCount = computed(() => ordersStore.orders.length)
-const newOrdersCount = computed(() => ordersStore.orders.filter(o => o.status === 'new').length)
-const inProgressOrdersCount = computed(() => ordersStore.orders.filter(o => o.status === 'in_progress').length)
-const readyOrdersCount = computed(() => ordersStore.orders.filter(o => o.status === 'ready' || o.status === 'shipped' || o.status === 'completed').length)
+const totalOrdersCount = computed(() => visibleOrders.value.length)
+const inProgressOrdersCount = computed(() => visibleOrders.value.filter(o => o.status === 'in_progress').length)
+const readyOrdersCount = computed(() => visibleOrders.value.filter(o => o.status === 'ready').length)
+const shippedOrdersCount = computed(() => visibleOrders.value.filter(o => o.status === 'shipped').length)
 
-const revenueInWork = computed(() => {
-  return filteredOrders.value
-    .filter(o => o.status !== 'shipped' && o.status !== 'completed')
-    .reduce((sum, o) => sum + (Number(o.totalAmount) || 0), 0)
+// Показываем только заказы со статусами: в работе, на складе, отгружен
+const visibleOrders = computed(() => {
+  return ordersStore.orders.filter(o =>
+    o.status === 'in_progress' || o.status === 'ready' || o.status === 'shipped'
+  )
 })
 
 const filteredOrders = computed(() => {
-  let result = [...ordersStore.orders]
+  let result = [...visibleOrders.value]
 
   if (filters.status) {
     result = result.filter(o => o.status === filters.status)
@@ -403,7 +404,7 @@ const filteredOrders = computed(() => {
 
   if (searchQuery.value) {
     const query = searchQuery.value.toLowerCase()
-    result = result.filter(o => 
+    result = result.filter(o =>
       o.orderNumber.toLowerCase().includes(query) ||
       o.customerName.toLowerCase().includes(query) ||
       (o.notes && o.notes.toLowerCase().includes(query))
@@ -413,41 +414,23 @@ const filteredOrders = computed(() => {
   return result
 })
 
-const orderStatusOptions = computed(() => {
-  const statuses = new Set<string>()
-  ordersStore.orders.forEach(o => {
-    if (o.status) statuses.add(o.status)
-  })
-  
-  const options = Array.from(statuses).map(status => {
-    // Получаем label для этого статуса точно так же, как в колонке таблицы
-    let label = status as string
-    
-    // Сначала проверяем 1С-овское наименование из первого попавшегося заказа с таким статусом
-    const sampleOrder = ordersStore.orders.find(o => o.status === status)
-    if (sampleOrder?.notes?.startsWith('1С: ')) {
-      label = sampleOrder.notes.replace('1С: ', '')
-    } else {
-      // Если нет заметки из 1С, используем стандартные переводы
-      if (status === 'new') label = 'Не обработанные'
-      else if (status === 'in_progress') label = 'В работе'
-      else if (status === 'ready') label = 'Выполнен'
-      else if (status === 'shipped') label = 'Отгружен'
-      else if (status === 'completed') label = 'Завершен'
-    }
-    
-    return { label, value: status }
-  })
+const revenueInWork = computed(() => {
+  return filteredOrders.value
+    .filter(o => o.status !== 'shipped' && o.status !== 'completed')
+    .reduce((sum, o) => sum + (Number(o.totalAmount) || 0), 0)
+})
 
-  // Сортируем для удобства (например, Новый всегда в начале)
-  const order = ['new', 'in_progress', 'ready', 'shipped', 'completed']
-  return options.sort((a, b) => {
-    const idxA = order.indexOf(a.value)
-    const idxB = order.indexOf(b.value)
-    if (idxA !== -1 && idxB !== -1) return idxA - idxB
-    if (idxA !== -1) return -1
-    if (idxB !== -1) return 1
-    return a.label.localeCompare(b.label)
+const orderStatusOptions = computed(() => {
+  const statuses = ['in_progress', 'ready', 'shipped']
+
+  return statuses.map(status => {
+    let label = status as string
+
+    if (status === 'in_progress') label = 'В работе'
+    else if (status === 'ready') label = 'На складе'
+    else if (status === 'shipped') label = 'Отгружен'
+
+    return { label, value: status }
   })
 })
 
@@ -462,7 +445,7 @@ const formatCurrency = (amount: number) => {
 const handleShowDetails = async (order: Order) => {
   selectedOrderForDetails.value = order
   showDetailsModal.value = true
-  
+
   // Если у заказа нет позиций, пробуем загрузить их из 1С
   if (!order.items || order.items.length === 0) {
     loadingDetails.value = true
@@ -482,7 +465,7 @@ const handleShowDetails = async (order: Order) => {
 const handleShowQR = async (order: Order) => {
   selectedOrderForQR.value = order
   showQRModal.value = true
-  
+
   // Если у заказа нет позиций, подгружаем их из 1С (аналогично глазу)
   if (!order.items || order.items.length === 0) {
     loadingDetails.value = true
@@ -530,8 +513,8 @@ const goBack = () => {
 
 
 const columnsBase = [
-  { 
-    title: 'Номер', 
+  {
+    title: 'Номер',
     key: 'orderNumber',
     width: 140,
     render(row: Order) {
@@ -574,7 +557,7 @@ const columnsBase = [
       const orderCodes = qrCodesStore.qrCodes.filter(q => q.orderId === row.id)
       const scannedCount = orderCodes.filter(q => q.status === 'scanned' || q.status === 'shipped').length
       const generatedCount = orderCodes.length
-      
+
       let status: 'default' | 'info' | 'success' | 'warning' | 'error' = 'info'
       if (percentage >= 100) status = 'success'
       else if (percentage > 0) status = 'warning'
@@ -594,29 +577,23 @@ const columnsBase = [
       ])
     }
   },
-  { 
-    title: 'Статус', 
+  {
+    title: 'Статус',
     key: 'status',
     width: 140,
     render(row: Order) {
       let type: 'info' | 'success' | 'warning' | 'error' = 'info'
       let label = row.status as string
-      
-      if (row.status === 'new') {
-        type = 'info'
-        label = 'Не обработанные'
-      } else if (row.status === 'in_progress') {
+
+      if (row.status === 'in_progress') {
         type = 'warning'
         label = 'В работе'
       } else if (row.status === 'ready') {
         type = 'success'
-        label = 'Выполнен'
+        label = 'На складе'
       } else if (row.status === 'shipped') {
-        type = 'success'
+        type = 'info'
         label = 'Отгружен'
-      } else if (row.status === 'completed') {
-        type = 'success'
-        label = 'Завершен'
       }
 
       // Если в notes пришел текст из 1С ("1С: В работе"), показываем его вместо стандартного label
@@ -653,8 +630,8 @@ const columnsBase = [
     key: 'actions',
     width: 60,
     render(row: Order) {
-      return h(NButton, { 
-        size: 'small', 
+      return h(NButton, {
+        size: 'small',
         quaternary: true,
         onClick: (e) => {
           e.stopPropagation()

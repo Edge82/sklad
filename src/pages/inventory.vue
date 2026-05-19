@@ -22,7 +22,7 @@
       <!-- Заголовок и кнопки -->
       <div class="flex justify-between items-center mb-6">
         <div>
-          <n-h1>Основная продукция (Склад материалов)</n-h1>
+          <n-h1>Склад ТМЦ</n-h1>
           <div class="flex items-center gap-2">
             <n-text depth="3">Управление материалами и запасами склада</n-text>
           </div>
@@ -423,12 +423,9 @@ const statusOptions: SelectOption[] = [
 
 const warehouseOptions = computed<SelectOption[]>(() => {
   const warehouses = new Set<string>()
-  baseItemsForStats.value.forEach(item => {
-    if (item.location && item.location !== '—') {
-      item.location.split(',').forEach(loc => {
-        const trimmed = loc.trim()
-        if (trimmed) warehouses.add(trimmed)
-      })
+  inventoryStore.items.forEach(item => {
+    if (item.warehouse && item.warehouse !== '—' && item.warehouse !== '') {
+      warehouses.add(item.warehouse)
     }
   })
   const options = Array.from(warehouses).sort().map(w => ({
@@ -468,10 +465,7 @@ const filteredItems = computed(() => {
 
   // Фильтр по складу
   if (filters.warehouse) {
-    result = result.filter(item => {
-      if (!item.location || item.location === '—') return false
-      return item.location.includes(filters.warehouse!)
-    })
+    result = result.filter(item => item.warehouse === filters.warehouse)
   }
 
   // Фильтр по статусу
@@ -729,6 +723,15 @@ const columnsBase: DataTableColumns<InventoryItem> = [
         h(NIcon, { size: '14' }, () => h(LocationOutline)),
         h('span', item.warehouse || 'Не указано')
       ])
+    }
+  },
+  {
+    title: 'Место хранения',
+    key: 'storageBin',
+    width: 150,
+    render: (row) => {
+      const item = row as InventoryItem
+      return h('div', { class: 'text-gray-400 text-sm' }, item.storageBin || '-')
     }
   },
   {

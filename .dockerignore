@@ -1,0 +1,14 @@
+node_modules/
+.git/
+.github/
+.gitattributes
+*.md
+.env
+.env.local
+.dockerignore
+.gitignore
+*.log
+.DS_Store
+.nuxt/
+dist/
+node_modules/

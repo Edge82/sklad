@@ -15,7 +15,7 @@ export const useUserStore = defineStore('user', () => {
   const token = ref<string | null>(null)
   const loading = ref(false)
   const error = ref<string | null>(null)
-  
+
   const settings = ref<UserSettings>({
     theme: 'dark',
     notifications: true,
@@ -29,7 +29,7 @@ export const useUserStore = defineStore('user', () => {
       try {
         const savedToken = localStorage.getItem('auth_token')
         const savedUser = localStorage.getItem('user_data')
-        
+
         // Проверяем что это не строка "undefined" и не null
         if (savedToken && savedToken !== 'undefined' && savedUser && savedUser !== 'undefined') {
           token.value = savedToken
@@ -55,12 +55,14 @@ export const useUserStore = defineStore('user', () => {
     // Показываем цены для director и manager, скрываем для остальных
     return ['director', 'manager'].includes(role)
   })
+  // Доступ к управлению сотрудниками только для директора и менеджера
+  const canManageEmployees = computed(() => ['director', 'manager'].includes(user.value?.role || ''))
 
   // Логин с API
   const login = async (login: string, password: string) => {
     loading.value = true
     error.value = null
-    
+
     try {
       const response = await fetch(`${API_BASE_URL}/auth/login`, {
         method: 'POST',
@@ -76,16 +78,16 @@ export const useUserStore = defineStore('user', () => {
         error.value = data.error || 'Ошибка логина'
         return false
       }
-      
+
       token.value = data.token
       user.value = data.user
-      
+
       // Сохраняем в localStorage для восстановления сессии
       if (typeof window !== 'undefined') {
         localStorage.setItem('auth_token', data.token)
         localStorage.setItem('user_data', JSON.stringify(data.user))
       }
-      
+
       return true
     } catch (err: any) {
       token.value = null
@@ -176,6 +178,7 @@ export const useUserStore = defineStore('user', () => {
     isAdminOrManager,
     isWarehouseStaff,
     canSeePrices,
+    canManageEmployees,
     restoreSession,
     login,
     logout,
