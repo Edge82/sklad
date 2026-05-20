@@ -110,7 +110,7 @@ export const useIntegrationStore = defineStore('integration', () => {
       if (!response.ok) throw new Error('Failed to fetch order items')
 
       const data = await response.json()
-      const rawItems = data.value || []
+      const rawItems = data.items || data.value || []
 
       // Трансформируем полученные позиции в формат OrderItem
       const items = rawItems.map((item: any) => ({
@@ -121,8 +121,8 @@ export const useIntegrationStore = defineStore('integration', () => {
         itemName: item.productName || 'Неизвестный товар',
         productArticle: item.article || '',
         quantity: item.quantity || 0,
-        unitPrice: item.price || 0,
-        totalPrice: item.amount || 0,
+        unitPrice: Number(item.unitPrice || item.price || 0),
+        totalPrice: Number(item.totalPrice || item.amount || 0),
         materialUsed: '',
         paintUsed: '',
         plannedQuantity: item.quantity || 0,
@@ -130,6 +130,8 @@ export const useIntegrationStore = defineStore('integration', () => {
         remainingQuantity: item.quantity || 0,
         unit: item.unit || 'шт'
       }))
+
+      console.log('✅ syncOrderDetails: Loaded', items.length, 'items for order', orderId, 'items:', items.map(i => ({ name: i.productName, price: i.unitPrice })))
 
       // Обновляем заказ в store с полученными позициями
       const order = ordersStore.orders.find(o => o.id === orderId)

@@ -109,8 +109,8 @@
         </tbody>
         <tfoot>
           <tr>
-            <td v-if="userStore.canSeePrices" colspan="7" class="text-right font-bold">Итого:</td>
-            <td v-else colspan="6" class="text-right font-bold">Итого:</td>
+            <td v-if="userStore.canSeePrices" colspan="6" class="text-right font-bold">Итого:</td>
+            <td v-else colspan="5" class="text-right font-bold">Итого:</td>
             <td v-if="userStore.canSeePrices" class="font-bold text-lg text-right">{{ formatCurrency(order.totalAmount) }}</td>
           </tr>
         </tfoot>
@@ -135,7 +135,7 @@
           </div>
           <div v-else>
             <n-space vertical :size="12">
-              <n-input 
+              <n-input
                 v-model:value="paintingValue"
                 type="textarea"
                 placeholder="Введите информацию об окраске"
@@ -201,7 +201,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, ref, watch, onMounted } from 'vue'
 import type { Order, OrderItem } from '@/types'
 import {
   NCard,
@@ -242,6 +242,11 @@ const ordersStore = useOrdersStore()
 const userStore = useUserStore()
 const message = useMessage()
 
+// Debug: log user role and canSeePrices
+onMounted(() => {
+  console.log('[OrderDetails] User role:', userStore.user?.role, 'canSeePrices:', userStore.canSeePrices)
+})
+
 // Состояние редактирования окраски
 const isEditingPainting = ref(false)
 const paintingValue = ref(props.order.notes || '')
@@ -275,14 +280,14 @@ const savePainting = async () => {
   isSavingPainting.value = true
   try {
     await ordersStore.updateOrderPainting(props.order.id, paintingValue.value)
-    
+
     // Log the operation
     await ordersStore.logOperation('order_painting_updated', {
       orderId: props.order.id,
       orderNumber: props.order.orderNumber,
       newValue: paintingValue.value
     })
-    
+
     isEditingPainting.value = false
     message.success('Окраска сохранена')
   } catch (err: any) {
@@ -307,9 +312,9 @@ const getQRCount = (item: OrderItem) => {
 }
 
 const getScannedCount = (item: OrderItem) => {
-  return qrStore.qrCodes.filter(q => 
-    q.orderId === props.order.id && 
-    q.productId === item.productId && 
+  return qrStore.qrCodes.filter(q =>
+    q.orderId === props.order.id &&
+    q.productId === item.productId &&
     (q.status === 'scanned' || q.status === 'shipped')
   ).length
 }
@@ -402,7 +407,7 @@ const getStatusColor = (status: Order['status']) => {
   .print-hidden {
     display: none !important;
   }
-  
+
   :deep(.n-card) {
     border: none !important;
   }

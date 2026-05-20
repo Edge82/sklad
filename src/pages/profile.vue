@@ -72,7 +72,7 @@
 
         <!-- Статистика -->
         <n-card title="Статистика активности" class="mt-4">
-          <n-grid :cols="3" :y-gap="8">
+          <n-grid v-if="userStore.user && employeesStore.employees.length > 0" :cols="3" :y-gap="8">
             <n-gi>
               <n-statistic label="За сегодня" :value="stats.todayActions" />
             </n-gi>
@@ -83,36 +83,65 @@
               <n-statistic label="Всего действий" :value="stats.totalActions" />
             </n-gi>
           </n-grid>
+          <n-empty v-else-if="employeesStore.employees.length === 0"
+                   description="Данные о сотрудниках не загружены"
+                   class="py-4" />
+          <n-empty v-else
+                   description="Нет данных о деятельности"
+                   class="py-4" />
         </n-card>
 
-        <!-- История накладных -->
-        <n-card title="Мои последние накладные" class="mt-4">
-          <n-empty v-if="myInvoices.length === 0" description="Вы еще не создавали накладных" />
-          <n-collapse v-else>
-            <n-collapse-item 
-              v-for="invoice in myInvoices" 
-              :key="invoice.id" 
-              :title="`Накладная от ${new Date(invoice.date).toLocaleDateString()} — Заказ: ${invoice.orderNumber}`"
-              :name="invoice.id"
+        <!-- История операций -->
+        <n-card title="Мои последние операции" class="mt-4">
+          <div v-if="invoicesLoading" class="flex items-center justify-center py-8">
+            <n-spin size="small" />
+          </div>
+          <n-empty v-else-if="myInvoices.length === 0" description="Вы еще не создавали накладных" />
+          <n-timeline v-else :collapse="true">
+            <n-timeline-item
+              v-for="invoice in myInvoices.slice(0, 5)"
+              :key="invoice.id"
+              type="info"
+              :title="invoice.orderNumber ? `Заказ: ${invoice.orderNumber}` : 'Заказ: не указан'"
+              :time="formatDateTime(invoice.date)"
             >
-              <n-table size="small" :single-line="false">
-                <thead>
-                  <tr>
-                    <th>Наименование</th>
-                    <th>Артикул</th>
-                    <th>Кол-во</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="(item, idx) in invoice.items" :key="idx">
-                    <td>{{ item.productName }}</td>
-                    <td><n-text depth="3">{{ item.article }}</n-text></td>
-                    <td>{{ item.quantity }} {{ item.unit }}</td>
-                  </tr>
-                </tbody>
-              </n-table>
-            </n-collapse-item>
-          </n-collapse>
+              <div class="text-sm space-y-2">
+                <!-- Направление -->
+                <div v-if="invoice.destination" class="flex items-center gap-2">
+                  <n-text depth="3">Направление:</n-text>
+                  <n-text strong>{{ invoice.destination }}</n-text>
+                </div>
+
+                <!-- Элементы накладной -->
+                <n-card v-if="invoice.items && invoice.items.length > 0" size="small" class="mt-2">
+                  <n-table size="small" :single-line="false">
+                    <thead>
+                      <tr>
+                        <th>Наименование</th>
+                        <th>Артикул</th>
+                        <th>Кол-во</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="(item, idx) in invoice.items.slice(0, 5)" :key="idx">
+                        <td>{{ item.productName }}</td>
+                        <td><n-text depth="3">{{ item.article || '-' }}</n-text></td>
+                        <td>{{ item.quantity }} {{ item.unit }}</td>
+                      </tr>
+                    </tbody>
+                  </n-table>
+                  <n-text v-if="invoice.items.length > 5" depth="3" class="text-xs mt-2">
+                    + еще {{ invoice.items.length - 5 }} позиций...
+                  </n-text>
+                </n-card>
+
+                <!-- Если items нет, показываем общую информацию -->
+                <n-text v-else depth="3" class="text-xs">
+                  {{ invoice.items?.length || 0 }} позиций
+                </n-text>
+              </div>
+            </n-timeline-item>
+          </n-timeline>
         </n-card>
       </n-gi>
 
@@ -240,6 +269,8 @@ import {
   NCollapse,
   NCollapseItem,
   NTable,
+  NTimeline,
+  NTimelineItem,
   useMessage,
   NPopconfirm
 } from 'naive-ui'
@@ -262,13 +293,66 @@ const formRef = ref<FormInst | null>(null)
 const message = useMessage()
 
 // Получаем историю накладных текущего пользователя
-const myInvoices = computed(() => {
-  const employee = employeesStore.employees.find(e => {
-    // Преобразуем userId в число для правильного сравнения
-    const empUserId = parseInt(String(e.userId).split('.')[0])
-    return empUserId === userStore.user?.id
-  })
-  return employee?.materialHistory || []
+const myInvoices = ref<any[]>([])
+const invoicesLoading = ref(false)
+
+// Загружаем накладные для текущего пользователя
+async function loadMyInvoices() {
+  if (!userStore.user?.id) return
+
+  invoicesLoading.value = true
+  try {
+    // Найти employee по userId
+    const employee = employeesStore.employees.find(e => {
+      if (e.userId) {
+        const empUserId = parseFloat(String(e.userId))
+        const currentUserId = parseFloat(String(userStore.user.id))
+        return !isNaN(empUserId) && empUserId === currentUserId
+      }
+      return false
+    })
+
+    if (employee) {
+      // Загружаем накладные через API
+      const response = await fetch(`/sklad/api/employees/${employee.id}/material-invoices`)
+      const data = await response.json()
+
+      if (data.success && data.invoices) {
+        // Преобразуем данные в правильный формат
+        myInvoices.value = data.invoices.map((inv: any) => ({
+          id: inv.id,
+          employeeId: inv.employee_id,
+          date: new Date(inv.date),
+          orderNumber: inv.order_number,
+          destination: inv.destination,
+          totalAmount: inv.total_amount,
+          items: inv.items || [],
+          createdBy: inv.created_by
+        }))
+      }
+    }
+
+    console.log('profile.vue: myInvoices loaded:', myInvoices.value.length, 'items')
+  } catch (err) {
+    console.error('Error loading invoices:', err)
+    myInvoices.value = []
+  } finally {
+    invoicesLoading.value = false
+  }
+}
+
+// Computed для статистики
+const stats = computed(() => {
+  const history = myInvoices.value
+  const now = new Date()
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+  const weekAgo = todayStart - 7 * 24 * 60 * 60 * 1000
+
+  return {
+    todayActions: history.filter(h => new Date(h.date).getTime() >= todayStart).length,
+    weekActions: history.filter(h => new Date(h.date).getTime() >= weekAgo).length,
+    totalActions: history.length
+  }
 })
 
 // Получаем инструменты, выданные текущему пользователю (для worker, production и storekeeper)
@@ -297,19 +381,6 @@ const userForm = reactive<UserForm>({
   role: 'worker',
   isActive: true,
   permissions: []
-})
-
-const stats = computed(() => {
-  const history = myInvoices.value
-  const now = new Date()
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
-  const weekAgo = todayStart - 7 * 24 * 60 * 60 * 1000
-
-  return {
-    todayActions: history.filter(h => new Date(h.date).getTime() >= todayStart).length,
-    weekActions: history.filter(h => new Date(h.date).getTime() >= weekAgo).length,
-    totalActions: history.length
-  }
 })
 
 const roleOptions = [
@@ -360,6 +431,19 @@ const formatDate = (date?: Date | string) => {
   return new Intl.DateTimeFormat('ru-RU').format(d)
 }
 
+const formatDateTime = (date?: Date | string) => {
+  if (!date) return ''
+  const d = typeof date === 'string' ? new Date(date) : date
+  if (isNaN(d.getTime())) return ''
+  return new Intl.DateTimeFormat('ru-RU', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  }).format(d)
+}
+
 const handleSave = () => {
   formRef.value?.validate((errors) => {
     if (!errors) {
@@ -393,16 +477,21 @@ const resetForm = () => {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
   resetForm()
-  // Load employees if not already loaded
-  if (employeesStore.employees.length === 0) {
-    employeesStore.loadEmployeesFromApi()
-  }
+
+  // Всегда загружаем свежие данные сотрудников с API (без кэша)
+  await employeesStore.loadEmployeesFromApi()
+
+  // Загружаем накладные текущего пользователя
+  await loadMyInvoices()
+
   // Load tools if not already loaded
   if (toolsStore.tools.length === 0) {
     toolsStore.loadToolsFromApi()
   }
+
+  console.log('profile.vue mounted, user:', userStore.user)
 })
 </script>
 

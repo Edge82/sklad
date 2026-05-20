@@ -98,31 +98,37 @@ const router = createRouter({
   routes
 })
 
-// Защита роутов управления сотрудниками
+// Защита роутов по ролям
 router.beforeEach((to, _from, next) => {
-  const restrictedRoutes = ['/employees', '/employees/']
-  const isRestricted = restrictedRoutes.some(path => to.path.startsWith(path))
+  const storedUser = localStorage.getItem('user_data')
+  let userRole = null
 
-  if (isRestricted) {
-    // Получаем роль из localStorage (токен декодируется на сервере, но для простоты проверяем stored user)
-    const storedUser = localStorage.getItem('user_data')
-    if (storedUser) {
-      try {
-        const user = JSON.parse(storedUser)
-        const allowedRoles = ['director', 'manager']
-        if (!allowedRoles.includes(user.role)) {
-          next('/inventory')
-          return
-        }
-      } catch {
-        next('/login')
-        return
-      }
-    } else {
+  if (storedUser) {
+    try {
+      const user = JSON.parse(storedUser)
+      userRole = user.role
+    } catch {
       next('/login')
       return
     }
   }
+
+  // Проверка для /employees и /employees/*
+  if (to.path.startsWith('/employees')) {
+    if (!userRole || !['director', 'manager'].includes(userRole)) {
+      next('/inventory')
+      return
+    }
+  }
+
+  // Проверка для /reports и /reports/*
+  if (to.path.startsWith('/reports')) {
+    if (!userRole || !['director', 'manager'].includes(userRole)) {
+      next('/inventory')
+      return
+    }
+  }
+
   next()
 })
 

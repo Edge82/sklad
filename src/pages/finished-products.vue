@@ -263,6 +263,20 @@ onMounted(async () => {
       console.error('Ошибка загрузки заказов:', err)
     }
   }
+
+  // Загружаем детали заказов для цен (только для активных заказов)
+  try {
+    const activeOrders = ordersStore.orders.filter(o =>
+      ['in_progress', 'ready', 'shipped'].includes(o.status)
+    )
+    for (const order of activeOrders) {
+      if (order.items && order.items.length === 0) {
+        await integrationStore.syncOrderDetails(order.id)
+      }
+    }
+  } catch (err) {
+    console.error('Ошибка загрузки деталей заказов:', err)
+  }
 })
 
 // Модальные окна
@@ -352,8 +366,30 @@ const getProductShipmentMeta = (item: InventoryItem) => {
   const scannedCount = effectiveCodes.filter(q => q.status === 'scanned' || q.status === 'shipped').length
   const shippedCount = effectiveCodes.filter(q => q.status === 'shipped').length
   const progress = totalCount > 0 ? Math.min(Math.round((scannedCount / totalCount) * 100), 100) : 0
-  const price = Number(item.averagePrice || item.purchasePrice || item.lastPurchasePrice || 0)
-  const totalValue = Number((totalCount * price).toFixed(2))
+
+  // Получаем цену и сумму из позиции заказа
+  let unitPrice = 0
+  let totalValue = 0
+
+  if (orderNumbers.length > 0) {
+    // Найти заказ по orderNumber
+    const order = ordersStore.orders.find(o => orderNumbers.includes(o.orderNumber))
+    if (order && order.items && order.items.length > 0) {
+      // Найти позицию заказа по productName или productId или itemName
+      const orderItem = order.items.find(i =>
+        i.productName === item.name ||
+        i.productName === item.sku ||
+        i.itemName === item.name ||
+        i.productId === item.id ||
+        i.productId === item.sku
+      )
+      if (orderItem) {
+        unitPrice = Number(orderItem.unitPrice || 0)
+        // totalValue = сумма позиции из заказа (из 1С)
+        totalValue = Number(orderItem.totalPrice || 0)
+      }
+    }
+  }
 
   return {
     itemQrs: effectiveCodes,
@@ -362,8 +398,8 @@ const getProductShipmentMeta = (item: InventoryItem) => {
     scannedCount,
     shippedCount,
     progress,
-    price,
-    totalValue,
+    unitPrice,  // цена за 1 шт из заказа
+    totalValue, // сумма позиции из заказа (из 1С)
     packageCount: packageCodes.length,
     shipmentStatusLabel: totalCount > 0 && shippedCount >= totalCount ? 'Отгружен' : 'На складе',
     shipmentStatusType: totalCount > 0 && shippedCount >= totalCount
@@ -428,8 +464,10 @@ const filteredItems = computed(() => {
       currentStock: meta.totalCount,
       reserved: meta.shippedCount,
       available: available,
-      averagePrice: meta.price,
-      purchasePrice: meta.price,
+      unitPrice: meta.unitPrice,
+      averagePrice: meta.unitPrice,
+      purchasePrice: meta.unitPrice,
+      lastPurchasePrice: meta.unitPrice,
       totalValue: meta.totalValue,
       orderNumber: meta.orderNumbers.join(', ') || item.orderNumber,
       shipmentProgress: meta.progress,
@@ -445,7 +483,11 @@ const filteredItems = computed(() => {
 })
 
 const filteredTotalValue = computed(() => {
-  const sum = filteredItems.value.reduce((s, item) => s + (Number(item.currentStock) * Number(item.averagePrice || 0)), 0)
+  // Считаем общую стоимость всех изделий на складе
+  const sum = baseItemsForStats.value.reduce((s, item) => {
+    const meta = getProductShipmentMeta(item)
+    return s + meta.totalValue
+  }, 0)
   return Number(sum.toFixed(2))
 })
 
@@ -759,14 +801,16 @@ const columnsBase: DataTableColumns<InventoryTableRow> = [
   {
     title: 'Стоимость',
     key: 'totalValue',
-    width: 120,
+    width: 140,
     render: (row) => {
       if ('isGroup' in row && row.isGroup) {
         return h('div', { class: 'font-bold text-green-500' }, formatCurrency(row.totalValue))
       }
-      return formatCurrency(row.totalValue)
+      const item = row as any
+      const totalValue = item.totalValue || 0
+      return h('div', { class: 'font-medium text-green-600' }, formatCurrency(totalValue))
     },
-    sorter: (a, b) => a.totalValue - b.totalValue
+    sorter: (a, b) => (a.totalValue || 0) - (b.totalValue || 0)
   }
 ]
 

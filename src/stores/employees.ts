@@ -5,11 +5,11 @@ import { useUserStore } from '@/stores/user'
 
 export const useEmployeesStore = defineStore('employees', () => {
   const userStore = useUserStore()
-  
+
   // Статус загрузки с API
   const loading = ref(false)
   const error = ref<string | null>(null)
-  
+
   // Данные от API или localStorage
   const employees = ref<Employee[]>([])
 
@@ -61,7 +61,7 @@ export const useEmployeesStore = defineStore('employees', () => {
       id: String(Date.now())
     }
     employees.value.push(newEmployee)
-    
+
     // Save to API and return credentials
     const credentials = await saveEmployeeToAPI(newEmployee)
 
@@ -116,12 +116,12 @@ export const useEmployeesStore = defineStore('employees', () => {
     if (index !== -1) {
       const employee = employees.value[index]
       if (!employee) return
-      
+
       const oldDept = employee.department
       const newDept = updates.department
 
-      const updatedEmployee = { 
-        ...employee, 
+      const updatedEmployee = {
+        ...employee,
         ...updates
       } as Employee
 
@@ -180,9 +180,13 @@ export const useEmployeesStore = defineStore('employees', () => {
 
   const updateEmployeeCredentials = async (id: string, login: string, password: string): Promise<{ login: string; name: string } | null> => {
     try {
+      const token = localStorage.getItem('auth_token')
       const response = await fetch(`/sklad/api/employees/${id}/credentials`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
         body: JSON.stringify({ login, password })
       })
 
@@ -262,9 +266,22 @@ export const useEmployeesStore = defineStore('employees', () => {
   }
 
   const addMaterialHistory = (userId: string, historyItem: MaterialInvoice) => {
-    let employee = employees.value.find((emp: any) => emp.userId === userId || emp.id === userId)
-    
+    if (!userId) {
+      console.warn('addMaterialHistory: userId is empty')
+      return
+    }
+
+    // Преобразуем userId к числу для корректного сравнения
+    const searchUserId = parseFloat(String(userId))
+
+    let employee = employees.value.find((emp: any) => {
+      if (!emp.userId) return false
+      const empUserId = parseFloat(String(emp.userId))
+      return !isNaN(empUserId) && empUserId === searchUserId
+    })
+
     if (!employee && employees.value.length > 0) {
+      console.warn('addMaterialHistory: No employee found with matching userId', searchUserId, ', using first employee')
       employee = employees.value[0]
     }
 
@@ -274,6 +291,15 @@ export const useEmployeesStore = defineStore('employees', () => {
       }
       employee.materialHistory.unshift(historyItem)
       employees.value = [...employees.value]
+
+      // Save to localStorage
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('employees_data', JSON.stringify(employees.value))
+      }
+
+      console.log('addMaterialHistory: Added item for employee', employee.name, 'userId:', employee.userId, '(parsed:', parseFloat(String(employee.userId)), ')')
+    } else {
+      console.error('addMaterialHistory: No employee found to add material history')
     }
   }
 
@@ -287,8 +313,8 @@ export const useEmployeesStore = defineStore('employees', () => {
       if (data.employees && Array.isArray(data.employees)) {
         // Transform database format to frontend format
         employees.value = data.employees.map((emp: any) => ({
-          id: emp.id,
-          userId: emp.user_id,
+          id: String(emp.id),
+          userId: emp.user_id ? String(emp.user_id) : null,
           name: emp.name,
           email: emp.email,
           phone: emp.phone,
@@ -306,8 +332,14 @@ export const useEmployeesStore = defineStore('employees', () => {
           notes: emp.notes,
           currentTools: [],
           currentOrders: [],
-          productionDocuments: []
+          productionDocuments: [],
+          // materialHistory загружается отдельно через API
+          materialHistory: []
         }))
+
+        // Debug: log loaded employees
+        console.log('loadEmployeesFromApi: Loaded', employees.value.length, 'employees')
+
         if (typeof window !== 'undefined') {
           localStorage.setItem('employees_data', JSON.stringify(employees.value))
         }

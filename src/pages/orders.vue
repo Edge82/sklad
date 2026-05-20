@@ -186,7 +186,7 @@
               <th class="w-16 text-left!">№</th>
               <th class="text-left!">Наименование</th>
               <th class="w-32 text-right!">Кол-во</th>
-              <th class="w-40 text-right!">Сумма</th>
+              <th v-if="userStore.canSeePrices" class="w-40 text-right!">Сумма</th>
             </tr>
           </thead>
           <tbody>
@@ -194,7 +194,7 @@
               <td class="text-left!">{{ idx + 1 }}</td>
               <td class="font-bold text-green-500 text-left!">{{ item.productName }}</td>
               <td class="text-right! px-4">{{ item.quantity }} {{ item.unit }}</td>
-              <td class="text-right! font-mono px-4">{{ formatCurrency(item.totalPrice || 0) }}</td>
+              <td v-if="userStore.canSeePrices" class="text-right! font-mono px-4">{{ formatCurrency(item.totalPrice || 0) }}</td>
             </tr>
           </tbody>
         </n-table>

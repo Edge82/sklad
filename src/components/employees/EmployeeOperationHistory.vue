@@ -16,8 +16,8 @@
       <n-empty v-else-if="!operations || operations.length === 0" description="Нет операций" />
 
       <n-timeline v-else>
-        <n-timeline-item 
-          v-for="operation in operations" 
+        <n-timeline-item
+          v-for="operation in operations.slice(0, 5)"
           :key="operation.id"
           :type="getOperationType(operation.operation_type)"
           :title="getOperationLabel(operation.operation_type)"
@@ -64,13 +64,6 @@
           </div>
         </n-timeline-item>
       </n-timeline>
-
-      <!-- Показать больше кнопка -->
-      <div v-if="canLoadMore" class="mt-4 text-center">
-        <n-button text @click="loadMoreOperations">
-          Показать ещё ({{ operations.length }} / {{ totalOperations }})
-        </n-button>
-      </div>
     </n-card>
   </div>
 </template>
@@ -121,7 +114,7 @@ const API_BASE = '/sklad/api'
 const operations = ref<OperationLog[]>([])
 const loading = ref(false)
 const totalOperations = ref(0)
-const currentLimit = ref(props.limit || 10)
+const currentLimit = ref(props.limit || 5)
 
 const canLoadMore = computed(() => operations.value.length < totalOperations.value)
 
@@ -196,12 +189,12 @@ const loadOperations = async (limit: number) => {
 }
 
 const loadMoreOperations = () => {
-  currentLimit.value += 10
+  currentLimit.value += 5
   loadOperations(currentLimit.value)
 }
 
 const refreshOperations = () => {
-  currentLimit.value = props.limit || 10
+  currentLimit.value = props.limit || 5
   loadOperations(currentLimit.value)
 }
 

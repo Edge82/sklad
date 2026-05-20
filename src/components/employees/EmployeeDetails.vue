@@ -6,19 +6,19 @@
         <!-- Шапка профиля -->
         <div class="mb-6 p-6 bg-[#242428] rounded-xl border border-gray-800 shadow-2xl">
           <div class="flex items-center gap-6">
-            <n-avatar 
+            <n-avatar
               v-if="avatarSrc"
-              round 
-              :size="100" 
-              :src="avatarSrc" 
+              round
+              :size="100"
+              :src="avatarSrc"
               :key="avatarKey"
               class="shrink-0 border-4 border-gray-700 shadow-2xl"
               object-fit="cover"
             />
-            <n-avatar 
+            <n-avatar
               v-else
-              round 
-              :size="100" 
+              round
+              :size="100"
               class="shrink-0 border-4 border-gray-700 bg-gray-800"
             >
               <span class="text-4xl text-gray-500">{{ currentEmployee.name.charAt(0) }}</span>
@@ -92,51 +92,23 @@
       </div>
     </div>
 
-    <!-- Режим активности (Клик по строке) - Накладные и Инструменты -->
-    <n-tabs 
+    <!-- Режим активности (Клик по строке) - Инструменты и История операций -->
+    <n-tabs
       v-else
-      type="card" 
-      default-value="document"
-      class="h-full flex flex-col" 
+      type="card"
+      default-value="tools"
+      class="h-full flex flex-col"
       content-class="flex-1 overflow-y-auto p-6"
     >
-      <n-tab-pane name="document" tab="Накладные и документы">
-        <div class="py-4 h-full bg-[#101014] overflow-y-auto">
-          <div class="px-4">
-            <n-card title="Реестр производственных накладных" border-variant="dark" class="shadow-2xl">
-              <template #header-extra>
-                <div class="flex items-center gap-2">
-                   <n-text depth="3">Всего: {{ currentEmployee.materialHistory?.length || 0 }}</n-text>
-                </div>
-              </template>
-              <n-data-table 
-                :columns="invoiceColumns" 
-                :data="currentEmployee.materialHistory || []" 
-                :pagination="{ pageSize: 10 }"
-                :row-key="(row) => row.id || row.orderNumber"
-                striped
-                :row-props="(row: any) => ({
-                  style: 'cursor: pointer',
-                  onClick: () => {
-                    handleRowClick(row.id || row.orderNumber)
-                  }
-                })"
-                v-model:expanded-row-keys="expandedInvoices"
-              />
-            </n-card>
-          </div>
-        </div>
-      </n-tab-pane>
-
       <n-tab-pane name="tools" tab="Инструменты">
         <div class="py-4">
           <n-card title="Выданный инструмент и оснастка" border-variant="dark" class="shadow-2xl">
             <template #header-extra>
               <n-text depth="3">Всего позиций: {{ employeeTools.length }}</n-text>
             </template>
-            <n-data-table 
-              :columns="toolColumns" 
-              :data="employeeTools" 
+            <n-data-table
+              :columns="toolColumns"
+              :data="employeeTools"
               :pagination="{ pageSize: 15 }"
               striped
             />
@@ -156,11 +128,11 @@
   </div>
 
   <!-- Модалка возврата инструмента -->
-  <n-modal 
-    v-model:show="showReturnModal" 
-    preset="card" 
-    title="Сдача инструмента" 
-    class="w-md!" 
+  <n-modal
+    v-model:show="showReturnModal"
+    preset="card"
+    title="Сдача инструмента"
+    class="w-md!"
     :auto-focus="false"
   >
     <n-form :model="returnForm" label-placement="top">
@@ -191,9 +163,8 @@
 import { ref, computed, h, reactive, watch, onMounted } from 'vue'
 import { useEmployeesStore } from '@/stores/employees'
 import { useToolsStore } from '@/stores/tools'
-import EmployeeProductionDocument from './EmployeeProductionDocument.vue'
 import EmployeeOperationHistory from './EmployeeOperationHistory.vue'
-import type { Employee } from '@/types'
+import type { Employee, Tool } from '@/types'
 import type { DataTableColumns } from 'naive-ui'
 import {
   NCard,
@@ -235,17 +206,7 @@ const props = withDefaults(defineProps<{
   mode: 'full'
 })
 
-import type { MaterialInvoice, Tool } from '@/types'
-const selectedInvoice = ref<MaterialInvoice | null>(null)
-const expandedInvoices = ref<string[]>([])
-
-const handleRowClick = (id: string) => {
-  if (expandedInvoices.value.includes(id)) {
-    expandedInvoices.value = expandedInvoices.value.filter(key => key !== id)
-  } else {
-    expandedInvoices.value = [...expandedInvoices.value, id]
-  }
-}
+const selectedToolId = ref<string | null>(null)
 
 // Используем сторы для получения самой актуальной копии данных
 const employeesStore = useEmployeesStore()
@@ -267,7 +228,6 @@ watch(() => props.employee.id, async () => {
 
 // Состояние для сдачи инструмента
 const showReturnModal = ref(false)
-const selectedToolId = ref<string | null>(null)
 const returnForm = reactive({
   reason: 'warehouse',
   notes: ''
@@ -307,57 +267,6 @@ const confirmReturn = async () => {
     console.error('Error returning tool:', err)
   }
 }
-
-const invoiceColumns: DataTableColumns<MaterialInvoice> = [
-  {
-    type: 'expand',
-    renderExpand: (row) => {
-      return h('div', { class: 'p-0 bg-[#0c0c0e] rounded-lg overflow-hidden border border-gray-800 my-2' }, [
-        h(EmployeeProductionDocument, {
-          materials: [row],
-          tools: [],
-          scannedItems: []
-        }),
-        h('div', { class: 'p-4 bg-[#16161a] border-t border-gray-800 flex justify-end' }, [
-          h('div', { class: 'text-gray-400 text-sm flex items-center' }, [
-            h('span', 'Итоговая сумма комплектации: '),
-            h('span', { class: 'text-white font-bold text-lg ml-3 tracking-tight' }, formatCurrency(row.totalAmount || 0))
-          ])
-        ])
-      ])
-    }
-  },
-  {
-    title: 'Заказ №',
-    key: 'orderNumber',
-    width: 150,
-    render: (row) => h('div', { class: 'flex items-center gap-2' }, [
-      h(NIcon, { color: '#18a058' }, { default: () => h(BusinessOutline) }),
-      h('div', { class: 'font-bold text-white uppercase group-hover:text-green-500 transition-colors' }, row.orderNumber)
-    ])
-  },
-  {
-    title: 'Дата комплектации',
-    key: 'date',
-    width: 150,
-    render: (row) => h('div', { class: 'text-gray-300' }, formatDate(row.date))
-  },
-  {
-    title: 'Позиций ТМЦ',
-    key: 'items',
-    width: 120,
-    render: (row) => h(NTag, { type: 'success', quaternary: true, size: 'small' }, { default: () => `${row.items?.length || 0} шт.` })
-  },
-  {
-    title: 'Статус',
-    key: 'status',
-    width: 150,
-    render: () => h('div', { class: 'flex items-center gap-2 text-green-500 font-bold text-[10px] uppercase' }, [
-      h('div', { class: 'w-2 h-2 rounded-full bg-green-500 animate-pulse' }),
-      'Подтверждено'
-    ])
-  }
-]
 
 const toolColumns: DataTableColumns<Tool> = [
   {
@@ -483,11 +392,6 @@ const getStatusColor = (status: Employee['status']) => {
   }
   return colorMap[status] || 'default'
 }
-
-// Экспортируем состояние для управления из родительских компонентов
-defineExpose({
-  selectedInvoice
-})
 </script>
 
 <style scoped>
