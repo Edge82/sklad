@@ -609,8 +609,8 @@ const previewStyle = computed(() => ({
 }))
 
 const labelStyle = computed(() => ({
-  width: landscape.value ? '58mm' : '38mm',
-  height: landscape.value ? '38mm' : '58mm'
+  width: landscape.value ? '104mm' : '68mm',
+  height: landscape.value ? '68mm' : '104mm'
 }))
 
 // Генерация превью штрихкода через JsBarcode
@@ -629,18 +629,21 @@ const generateBarcodePreview = async () => {
   }
 
   nextTick(() => {
-    const svg = document.getElementById('barcode-preview') as SVGElement
+    const svg = document.getElementById('barcode-preview') as unknown as SVGElement | null
     if (svg && (window as any).JsBarcode) {
       try {
-        // Для альбомной ориентации делаем штрихкод уже, чтобы поместился
+        // Увеличено на 80%
         const isLandscape = landscape.value
         ;(window as any).JsBarcode('#barcode-preview', formData.barcode, {
           format: 'CODE128',
-          width: isLandscape ? 1.4 : 1.8,
-          height: isLandscape ? 24 : 28,
+          width: isLandscape ? 2.5 : 1.4,
+          height: isLandscape ? 50 : 65,
           displayValue: false,
           margin: 2
         })
+        // Принудительно устанавливаем высоту SVG и удаляем viewBox чтобы избежать масштабирования
+        svg.removeAttribute('viewBox')
+        svg.setAttribute('height', isLandscape ? '50' : '65')
       } catch (e) {
         console.error('Ошибка генерации штрихкода:', e)
       }
@@ -693,14 +696,23 @@ const handlePrint = () => {
   closePrintModal()
 
   const barcode = formData.barcode || ''
-  const itemName = (formData.name || 'Товар').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
-  const additionalInfo = (printInfo.value || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+  let itemName = (formData.name || 'Товар').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+  // Обрезаем название до 40 символов (2 строки по 20 символов)
+  if (itemName.length > 40) {
+    itemName = itemName.substring(0, 37) + '...'
+  }
+  let additionalInfo = (printInfo.value || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+  // Обрезаем доп. информацию до 40 символов (2 строки по 20 символов)
+  if (additionalInfo.length > 40) {
+    additionalInfo = additionalInfo.substring(0, 37) + '...'
+  }
 
-  const pageSize = landscape.value ? '58mm 38mm' : '38mm 58mm'
-  const labelW = landscape.value ? '58mm' : '38mm'
-  const labelH = landscape.value ? '38mm' : '58mm'
-  const barcodeWidth = landscape.value ? '1.4' : '1.8'
-  const barcodeHeight = landscape.value ? '24' : '28'
+  // Увеличено на 80%: 38×58mm → 68×104mm
+  const pageSize = landscape.value ? '104mm 68mm' : '68mm 104mm'
+  const labelW = landscape.value ? '104mm' : '68mm'
+  const labelH = landscape.value ? '68mm' : '104mm'
+  const barcodeWidth = landscape.value ? 2.5 : 1.4
+  const barcodeHeight = landscape.value ? 50 : 65
 
   printWindow.document.write(`
     <!DOCTYPE html>
@@ -714,12 +726,12 @@ const handlePrint = () => {
           * { margin: 0; padding: 0; box-sizing: border-box; }
           html, body { width: ${labelW}; height: ${labelH}; margin: 0; padding: 0; overflow: hidden; }
           body { font-family: Arial, sans-serif; background: white; }
-          .barcode-label { width: ${labelW}; height: ${labelH}; text-align: center; background: white; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 2mm 3mm; box-sizing: border-box; gap: 1px; }
+          .barcode-label { width: ${labelW}; height: ${labelH}; text-align: center; background: white; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 3.6mm 5.4mm; box-sizing: border-box; gap: 1px; }
           .qr-scaler { transform: scale(${scale.value}); transform-origin: center center; }
-          #barcode { max-width: 100%; height: auto; display: block; flex-shrink: 0; }
-          .title { font-size: 9px; color: #666; line-height: 1; margin-bottom: 1px; flex-shrink: 0; }
-          .item { font-size: 11px; font-weight: bold; letter-spacing: 0.3px; margin: 1px 0; font-family: monospace; color: #000; word-break: break-all; line-height: 1.2; flex-shrink: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
-          .info { font-size: 9px; font-weight: bold; letter-spacing: 0.3px; margin-top: 1px; font-family: monospace; color: #000; white-space: pre-wrap; text-align: center; line-height: 1.1; flex-shrink: 0; }
+          #barcode, #barcode svg { width: auto !important; max-width: 100%; height: ${barcodeHeight}px !important; display: block; }
+          .title { font-size: 16px; color: #666; line-height: 1; margin-bottom: 1px; flex-shrink: 0; }
+          .item { font-size: 20px; font-weight: bold; letter-spacing: 0.3px; margin: 1px 0; font-family: monospace; color: #000; word-break: break-all; line-height: 1.2; flex-shrink: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+          .info { font-size: 16px; font-weight: bold; letter-spacing: 0.3px; margin-top: 1px; font-family: monospace; color: #000; white-space: normal; text-align: center; line-height: 1.1; flex-shrink: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
           @media print { html, body { margin: 0; padding: 0; width: ${labelW}; height: ${labelH}; } }
         </style>
       </head>
@@ -742,6 +754,12 @@ const handlePrint = () => {
                 displayValue: false,
                 margin: 2
               });
+              // Принудительно устанавливаем высоту SVG и удаляем viewBox
+              var svg = document.getElementById("barcode");
+              if (svg) {
+                svg.removeAttribute("viewBox");
+                svg.setAttribute("height", "${barcodeHeight}");
+              }
               setTimeout(function() { window.print(); }, 100);
             } catch(e) {
               console.error("Ошибка:", e);
@@ -951,7 +969,7 @@ const handleSubmit = async () => {
 .barcode-print-card {
   background: #2c2c32;
   border-radius: 8px;
-  width: 380px;
+  width: 500px;
   max-width: 90%;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
   display: flex;
@@ -999,8 +1017,8 @@ const handleSubmit = async () => {
   display: flex;
   justify-content: center;
   align-items: flex-start;
-  min-height: 160px;
-  max-height: 280px;
+  min-height: 280px;
+  max-height: 420px;
   padding: 12px;
   background: rgba(255, 255, 255, 0.03);
   border-radius: 6px;
@@ -1012,7 +1030,7 @@ const handleSubmit = async () => {
 }
 
 .barcode-label {
-  padding: 2mm 3mm;
+  padding: 3.6mm 5.4mm;
   background: #fff;
   color: #000;
   display: flex;
@@ -1025,10 +1043,12 @@ const handleSubmit = async () => {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
   box-sizing: border-box;
   gap: 1px;
+  width: 68mm;
+  height: 104mm;
 }
 
 .barcode-title {
-  font-size: 9px;
+  font-size: 16px;
   color: #666;
   line-height: 1;
   margin-bottom: 1px;
@@ -1036,7 +1056,8 @@ const handleSubmit = async () => {
 }
 
 .barcode-item-name {
-  font-size: 11px;
+  padding-top: 12px;
+  font-size: 30px;
   font-weight: bold;
   letter-spacing: 0.3px;
   margin: 1px 0;
@@ -1054,22 +1075,31 @@ const handleSubmit = async () => {
 }
 
 .barcode-info {
-  font-size: 9px;
+  padding-top: 8px;
+  font-size: 20px;
   font-weight: bold;
   letter-spacing: 0.3px;
   margin-top: 1px;
   font-family: monospace;
   color: #000;
-  white-space: pre-wrap;
+  white-space: normal;
   text-align: center;
   line-height: 1.1;
   flex-shrink: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
 
 #barcode-preview {
+  width: auto !important;
   max-width: 100%;
-  height: auto;
+  height: 50px !important;
   flex-shrink: 0;
+  display: block;
 }
 
 .scale-controls {

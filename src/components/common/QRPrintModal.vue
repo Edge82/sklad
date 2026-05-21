@@ -71,8 +71,8 @@ const previewStyle = computed(() => ({
 }))
 
 const labelStyle = computed(() => ({
-  width: landscape.value ? '58mm' : '38mm',
-  height: landscape.value ? '38mm' : '58mm'
+  width: landscape.value ? '104mm' : '68mm',
+  height: landscape.value ? '68mm' : '104mm'
 }))
 
 watch(() => props.show, (val) => {
@@ -92,7 +92,7 @@ watch(() => props.code, async (newCode) => {
   if (newCode) {
     try {
       qrUrl.value = await QRCode.toDataURL(newCode, {
-        width: 300,
+        width: 500,
         margin: 1,
         color: { dark: '#000000', light: '#ffffff' }
       })
@@ -113,9 +113,9 @@ function handlePrint() {
   // появился поверх окна, а не позади модалки с z-index: 2000
   handleClose()
 
-  const pageSize = landscape.value ? '58mm 38mm' : '38mm 58mm'
-  const labelW = landscape.value ? '58mm' : '38mm'
-  const labelH = landscape.value ? '38mm' : '58mm'
+  const pageSize = landscape.value ? '104mm 68mm' : '68mm 104mm'
+  const labelW = landscape.value ? '104mm' : '68mm'
+  const labelH = landscape.value ? '68mm' : '104mm'
 
   printWindow.document.write(`
     <html>
@@ -135,19 +135,26 @@ function handlePrint() {
             transform-origin: center center;
           }
           .qr-label {
-            width: ${labelW}; height: ${labelH}; padding: 1.5mm;
+            width: ${labelW}; height: ${labelH}; padding: 3.6mm 5.4mm;
             background: #fff; color: #000;
             display: flex; flex-direction: column;
-            align-items: center; justify-content: flex-start;
+            align-items: center; justify-content: center;
             text-align: center; overflow: hidden;
             border: 0.3mm solid #ddd;
+            gap: 1mm;
           }
-          .qr-image { width: 24mm; height: 24mm; margin-bottom: 1mm; object-fit: contain; }
+          .qr-image {
+            width: 38mm;
+            height: 38mm;
+            object-fit: contain;
+            flex-shrink: 0;
+          }
           .label-title {
-            font-size: 10pt; font-weight: 800; line-height: 1.1; margin-bottom: 0.8mm;
+            font-size: 16pt; font-weight: 800; line-height: 1.1;
+            font-family: monospace; color: #000;
             width: 100%; overflow: hidden; text-overflow: ellipsis;
             display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
-            word-break: break-word;
+            word-break: break-word; flex-shrink: 0;
           }
           .qr-description {
             font-size: 8.5pt; font-weight: 700; color: #222; line-height: 1.15;
@@ -207,9 +214,10 @@ function escapeHtml(text: string): string {
 }
 
 .qr-print-card {
+
   background: #2c2c32;
   border-radius: 8px;
-  width: 420px;
+  width: 500px;
   max-width: 90%;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
   display: flex;
@@ -225,7 +233,8 @@ function escapeHtml(text: string): string {
 }
 
 .qr-print-title {
-  font-size: 16px;
+  padding-top: 6px;
+  font-size: 20px;
   font-weight: 500;
   color: rgba(255, 255, 255, 0.9);
 }
@@ -257,8 +266,8 @@ function escapeHtml(text: string): string {
   display: flex;
   justify-content: center;
   align-items: flex-start;
-  min-height: 180px;
-  max-height: 340px;
+  min-height: 280px;
+  max-height: 420px;
   padding: 12px;
   background: rgba(255, 255, 255, 0.03);
   border-radius: 6px;
@@ -269,32 +278,37 @@ function escapeHtml(text: string): string {
 }
 
 .qr-label {
-  padding: 1.5mm;
+  padding: 3.6mm 5.4mm;
   background: #fff;
   color: #000;
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: flex-start;
+  justify-content: center;
   text-align: center;
   overflow: hidden;
   border: 0.3mm solid #ddd;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
   box-sizing: border-box;
+  gap: 1mm;
+  width: 68mm;
+  height: 104mm;
 }
 
 .qr-image {
-  width: 24mm;
-  height: 24mm;
-  margin-bottom: 1mm;
+  width: 35mm;
+  height: 35mm;
   object-fit: contain;
+  flex-shrink: 0;
 }
 
 .label-title {
-  font-size: 10pt;
+  font-size: 20pt;
   font-weight: 800;
   line-height: 1.1;
-  margin-bottom: 0.8mm;
+  font-family: monospace;
+  color: #000;
+  margin-bottom: 0;
   width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -302,11 +316,11 @@ function escapeHtml(text: string): string {
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   word-break: break-word;
-  color: #000;
+  flex-shrink: 0;
 }
 
 .qr-description {
-  font-size: 8.5pt;
+  font-size: 16pt;
   font-weight: 700;
   color: #222;
   line-height: 1.15;
