@@ -27,7 +27,7 @@
             <n-text depth="3">
               Всего сгенерировано для заказа: {{ orderCodes.length }}
             </n-text>
-            <n-space>
+            <n-space align="center">
               <n-button type="primary" size="small" @click="handlePrintAll" :disabled="orderCodes.length === 0">
                 <template #icon>
                   <n-icon><PrintOutline /></n-icon>
@@ -74,10 +74,10 @@
                         <n-icon><PrintOutline /></n-icon>
                       </template>
                     </n-button>
-                    <n-button 
-                      quaternary 
-                      size="tiny" 
-                      type="error" 
+                    <n-button
+                      quaternary
+                      size="tiny"
+                      type="error"
                       @click="handleRemove(code)"
                       :disabled="code.status === 'scanned' || code.status === 'shipped'"
                     >
@@ -103,16 +103,16 @@
         <div class="py-4">
           <n-form :model="genForm" label-placement="left" label-width="120">
             <n-form-item label="Позиция">
-              <n-select 
-                v-model:value="displayProductId" 
-                :options="productOptions" 
-                placeholder="Выберите позицию из заказа" 
+              <n-select
+                v-model:value="displayProductId"
+                :options="productOptions"
+                placeholder="Выберите позицию из заказа"
                 filterable
               />
             </n-form-item>
             <n-form-item label="Упаковать">
-              <n-checkbox 
-                v-model:checked="genForm.isPackage" 
+              <n-checkbox
+                v-model:checked="genForm.isPackage"
                 :disabled="hasPackageCodesForSelected"
               >
                 Генерировать как код упаковки
@@ -125,14 +125,14 @@
               <n-input-number v-model:value="genForm.count" :min="1" :max="1000" />
             </n-form-item>
             <n-form-item label="Инфо на этикетке">
-              <n-input 
-                v-model:value="genForm.labelInfo" 
-                placeholder="Дополнительная информация" 
+              <n-input
+                v-model:value="genForm.labelInfo"
+                placeholder="Дополнительная информация"
                 clearable
                 class="label-info-input"
               />
             </n-form-item>
-            
+
             <n-divider>Предпросмотр надписи</n-divider>
             <div class="qr-preview-box mb-6">
               <div class="preview-line">Заказ: {{ orderNumber }}</div>
@@ -144,10 +144,10 @@
 
             <div class="flex justify-end mt-3">
               <n-space>
-                <n-button 
-                  type="primary" 
+                <n-button
+                  type="primary"
                   size="large"
-                  @click="handleGenerate" 
+                  @click="handleGenerate"
                   :disabled="!genForm.productId"
                   :loading="isGenerating"
                 >
@@ -156,11 +156,11 @@
                   </template>
                   Сгенерировать код
                 </n-button>
-                
-                <n-button 
-                  type="info" 
+
+                <n-button
+                  type="info"
                   size="large"
-                  @click="handlePrintLastOnly" 
+                  @click="handlePrintLastOnly"
                   :disabled="lastGeneratedCodes.length === 0"
                 >
                   <template #icon>
@@ -182,19 +182,18 @@
     </template>
   </n-modal>
 
-  <!-- Скрытый iframe для тихой печати, чтобы не открывать новые вкладки -->
-  <iframe id="print-iframe" style="position: absolute; width: 0; height: 0; border: none; visibility: hidden;"></iframe>
+
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
-import { 
-  NModal, NTabs, NTabPane, NTable, NText, NTag, NButton, 
-  NSpace, NIcon, NInputNumber, NForm, NFormItem, NSelect, 
-  NDivider, NEmpty, NInput, NCheckbox, useDialog, useMessage 
+import {
+  NModal, NTabs, NTabPane, NTable, NText, NTag, NButton,
+  NSpace, NIcon, NInputNumber, NForm, NFormItem, NSelect,
+  NDivider, NEmpty, NInput, NCheckbox, useDialog, useMessage
 } from 'naive-ui'
-import { 
-  PrintOutline, TrashOutline, QrCodeOutline 
+import {
+  PrintOutline, TrashOutline, QrCodeOutline
 } from '@vicons/ionicons5'
 import QRCode from 'qrcode'
 import QRPrintModal from '@/components/common/QRPrintModal.vue'
@@ -218,6 +217,7 @@ const message = useMessage()
 
 const isGenerating = ref(false)
 const lastGeneratedCodes = ref<QRType[]>([])
+const landscape = ref(false)
 
 const handleClosePrint = (val: boolean) => {
   showSinglePrintModal.value = val
@@ -273,7 +273,7 @@ watch(() => genForm.value.productId, (newId) => {
     if (item) {
       genForm.value.productName = item.productName || item.itemName || ''
       genForm.value.labelInfo = ''
-      
+
       // Проверяем, есть ли у этого изделия уже упаковочные коды
       const existingPackageCodes = qrStore.qrCodes.filter(q =>
         q.productId === newId && q.isPackage
@@ -288,10 +288,10 @@ const orderCodes = computed(() => {
   return qrStore.qrCodes.filter(q => q.orderId === props.orderId)
 })
 
-const productOptions = computed(() => 
-  props.items.map(item => ({ 
-    label: `${item.productName || item.itemName} (в заказе: ${item.quantity} ${item.unit || 'шт.'})`, 
-    value: item.productId || item.id 
+const productOptions = computed(() =>
+  props.items.map(item => ({
+    label: `${item.productName || item.itemName} (в заказе: ${item.quantity} ${item.unit || 'шт.'})`,
+    value: item.productId || item.id
   }))
 )
 
@@ -417,119 +417,112 @@ onUnmounted(() => {
   window.removeEventListener('focus', restoreFocus)
 })
 
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
+
 const handlePrint = async (code: QRType) => {
   const isExtraInfo = code.label?.info && code.label.info.trim() !== '' && code.label.info !== code.productName
   const infoText = isExtraInfo ? code.label.info : ''
-  
-  const qrDataUrl = await QRCode.toDataURL(code.code, { 
-    width: 300, 
-    margin: 1,
-    color: { dark: '#000000', light: '#ffffff' }
-  })
 
-  const printIframe = document.getElementById('print-iframe') as HTMLIFrameElement
-  if (!printIframe) return
-
-  const doc = printIframe.contentWindow?.document
-  if (!doc) return
-
-  doc.open()
-  doc.write(`
-    <html>
-      <head>
-        <style>
-          @page { margin: 0; size: auto; }
-          body { font-family: sans-serif; margin: 0; padding: 10px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
-          .qr-image { width: 200px; height: 200px; }
-          .label-title { font-size: 16px; font-weight: bold; margin-top: 5px; }
-          .product-name { font-size: 14px; margin-top: 2px; }
-          .info { font-size: 12px; font-family: monospace; margin-top: 2px; }
-        </style>
-      </head>
-      <body>
-        <img src="${qrDataUrl}" class="qr-image" />
-        <div class="label-title">${code.orderNumber}</div>
-        <div class="product-name">${code.productName}</div>
-        ${infoText ? `<div class="info">${infoText}</div>` : ''}
-        <script>
-          window.onload = () => {
-            window.print();
-          };
-        <\/script>
-      </body>
-    </html>
-  `)
-  doc.close()
-
-  // Принудительно возвращаем фокус сразу после отправки на печать
-  setTimeout(() => {
-    const inputEl = document.querySelector('.label-info-input input') as HTMLInputElement
-    if (inputEl) inputEl.focus()
-  }, 500)
+  singlePrintData.value = {
+    title: code.productName,
+    code: code.code,
+    description: infoText
+      ? `Заказ: ${code.orderNumber}\n${infoText}`
+      : `Заказ: ${code.orderNumber}`
+  }
+  showSinglePrintModal.value = true
 }
 
 const handlePrintAll = async () => {
   if (orderCodes.value.length === 0) return
-  
-  const printWindow = window.open('', '_blank')
+
+  // Открываем popup синхронно (пока браузер считает это ответом на клик)
+  const printWindow = window.open('', '_blank', 'popup,width=400,height=600,top=100,left=100')
   if (!printWindow) {
-    message.error('Заблокировано всплывающее окно. Разрешите его для печати.')
+    message.error('Разрешите всплывающие окна для печати')
     return
   }
 
-  // Генерируем QR-коды локально в DataURL
+  // Закрываем модалку перед печатью, чтобы системный диалог Chrome
+  // появился поверх окна, а не позади модалки с z-index: 2000
+  emit('close')
+
+  const pageSize = landscape.value ? '58mm 38mm' : '38mm 58mm'
+  const labelW = landscape.value ? '58mm' : '38mm'
+  const labelH = landscape.value ? '38mm' : '58mm'
+
   const itemsHtml = await Promise.all(orderCodes.value.map(async code => {
-    const qrDataUrl = await QRCode.toDataURL(code.code, { 
-      width: 300, 
+    const qrDataUrl = await QRCode.toDataURL(code.code, {
+      width: 300,
       margin: 1,
       color: { dark: '#000000', light: '#ffffff' }
     })
-    
+
     const info = code.label?.info ? code.label.info.trim() : ''
     const showInfo = info !== '' && info !== code.productName
-    
+
     return `
       <div class="qr-label">
         <img src="${qrDataUrl}" class="qr-image" />
-        <div class="label-title">${code.orderNumber}</div>
-        <div class="qr-product-name">${code.productName || ''}</div>
-        ${showInfo ? `<div class="qr-description">${info}</div>` : ''}
+        <div class="label-title">${escapeHtml(code.orderNumber)}</div>
+        <div class="product-name">${escapeHtml(code.productName || '')}</div>
+        ${showInfo ? `<div class="info">${escapeHtml(info)}</div>` : ''}
       </div>
+      <div class="page-break"></div>
     `
   }))
 
-  const finalHtml = itemsHtml.join('<div class="page-break"></div>')
+  const finalHtml = itemsHtml.join('')
 
   printWindow.document.write(`
     <html>
       <head>
-        <title>Печать всех QR-кодов заказа ${props.orderNumber}</title>
+        <title>Печать всех QR-кодов заказа ${escapeHtml(props.orderNumber)}</title>
         <style>
-          @page { margin: 0; size: auto; }
-          body { font-family: sans-serif; margin: 0; padding: 0; background: white; color: black; }
-          .qr-label { 
-            display: flex; flex-direction: column; align-items: center; justify-content: center;
-            text-align: center; padding: 5px; width: 100%; height: 100vh; box-sizing: border-box;
+          @page { size: ${pageSize}; margin: 0; }
+          * { box-sizing: border-box; }
+          body { font-family: 'Segoe UI', Arial, sans-serif; margin: 0; padding: 0; background: #fff; }
+          .qr-label {
+            width: ${labelW}; height: ${labelH}; padding: 1.5mm; background: #fff; color: #000;
+            display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
+            text-align: center; overflow: hidden; page-break-after: always;
           }
-          .qr-image { width: 70%; max-width: 250px; height: auto; margin-bottom: 5px; }
-          .label-title { font-size: 16px; font-weight: bold; margin-bottom: 2px; }
-          .qr-product-name { font-size: 14px; font-weight: bold; margin-bottom: 2px; }
-          .qr-description { font-size: 12px; font-weight: normal; font-family: monospace; }
+          .qr-image { width: 24mm; height: 24mm; margin-bottom: 1mm; object-fit: contain; }
+          .label-title { font-size: 10pt; font-weight: 800; line-height: 1.1; margin-bottom: 0.8mm;
+                         width: 100%; overflow: hidden; text-overflow: ellipsis;
+                         display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+                         word-break: break-word; }
+          .product-name { font-size: 8.5pt; font-weight: 700; color: #222; line-height: 1.15;
+                          width: 100%; overflow: hidden; text-overflow: ellipsis;
+                          display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+                          word-break: break-word; }
+          .info { font-size: 8pt; font-weight: 600; font-family: monospace; color: #444;
+                  line-height: 1.15; word-break: break-all; }
           .page-break { page-break-after: always; }
         </style>
       </head>
       <body>
         ${finalHtml}
         <script>
-          window.onload = () => {
-            window.print();
-            window.setTimeout(() => window.close(), 500);
+          window.onload = function() {
+            setTimeout(function() { window.print(); }, 100);
+          };
+          window.onafterprint = function() {
+            window.close();
           };
         <\/script>
       </body>
     </html>
   `)
   printWindow.document.close()
+
+  message.success(`Отправлено на печать: ${orderCodes.value.length} шт.`)
 }
 
 const handlePrintLastGenerated = async () => {
@@ -544,71 +537,93 @@ const handlePrintLastGenerated = async () => {
     return
   }
 
-  // Печать пачки кодов локально
-  const printWindow = window.open('', '_blank')
+  // Открываем popup синхронно (пока браузер считает это ответом на клик)
+  const printWindow = window.open('', '_blank', 'popup,width=400,height=600,top=100,left=100')
   if (!printWindow) {
-    message.error('Заблокировано всплывающее окно. Разрешите его для печати.')
+    message.error('Разрешите всплывающие окна для печати')
     return
   }
 
+  // Закрываем модалку перед печатью, чтобы системный диалог Chrome
+  // появился поверх окна, а не позади модалки с z-index: 2000
+  emit('close')
+
+  const pageSize = landscape.value ? '58mm 38mm' : '38mm 58mm'
+  const labelW = landscape.value ? '58mm' : '38mm'
+  const labelH = landscape.value ? '38mm' : '58mm'
+
   const itemsHtml = await Promise.all(codes.map(async code => {
-    const qrDataUrl = await QRCode.toDataURL(code.code, { 
-      width: 300, 
+    const qrDataUrl = await QRCode.toDataURL(code.code, {
+      width: 300,
       margin: 1,
       color: { dark: '#000000', light: '#ffffff' }
     })
 
     const info = code.label?.info ? code.label.info.trim() : ''
     const showInfo = info !== '' && info !== code.productName
-    
+
     return `
       <div class="qr-label">
         <img src="${qrDataUrl}" class="qr-image" />
-        <div class="label-title">${code.orderNumber}</div>
-        <div class="qr-product-name">${code.productName || ''}</div>
-        ${showInfo ? `<div class="qr-description">${info}</div>` : ''}
+        <div class="label-title">${escapeHtml(code.orderNumber)}</div>
+        <div class="product-name">${escapeHtml(code.productName || '')}</div>
+        ${showInfo ? `<div class="info">${escapeHtml(info)}</div>` : ''}
       </div>
+      <div class="page-break"></div>
     `
   }))
 
-  const finalHtml = itemsHtml.join('<div class="page-break"></div>')
+  const finalHtml = itemsHtml.join('')
 
   printWindow.document.write(`
     <html>
       <head>
         <title>Печать QR-кодов (${codes.length} шт.)</title>
         <style>
-          @page { margin: 0; size: auto; }
-          body { font-family: sans-serif; margin: 0; padding: 0; background: white; color: black; }
-          .qr-label { 
-            display: flex; flex-direction: column; align-items: center; justify-content: center;
-            text-align: center; padding: 5px; width: 100%; height: 100vh; box-sizing: border-box;
+          @page { size: ${pageSize}; margin: 0; }
+          * { box-sizing: border-box; }
+          body { font-family: 'Segoe UI', Arial, sans-serif; margin: 0; padding: 0; background: #fff; }
+          .qr-label {
+            width: ${labelW}; height: ${labelH}; padding: 1.5mm; background: #fff; color: #000;
+            display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
+            text-align: center; overflow: hidden; page-break-after: always;
           }
-          .qr-image { width: 70%; max-width: 250px; height: auto; margin-bottom: 5px; }
-          .label-title { font-size: 16px; font-weight: bold; margin-bottom: 2px; }
-          .qr-product-name { font-size: 14px; font-weight: bold; margin-bottom: 2px; }
-          .qr-description { font-size: 12px; font-weight: normal; font-family: monospace; }
+          .qr-image { width: 24mm; height: 24mm; margin-bottom: 1mm; object-fit: contain; }
+          .label-title { font-size: 10pt; font-weight: 800; line-height: 1.1; margin-bottom: 0.8mm;
+                         width: 100%; overflow: hidden; text-overflow: ellipsis;
+                         display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+                         word-break: break-word; }
+          .product-name { font-size: 8.5pt; font-weight: 700; color: #222; line-height: 1.15;
+                          width: 100%; overflow: hidden; text-overflow: ellipsis;
+                          display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+                          word-break: break-word; }
+          .info { font-size: 8pt; font-weight: 600; font-family: monospace; color: #444;
+                  line-height: 1.15; word-break: break-all; }
           .page-break { page-break-after: always; }
         </style>
       </head>
       <body>
         ${finalHtml}
         <script>
-          window.onload = () => {
-            window.print();
+          window.onload = function() {
+            setTimeout(function() { window.print(); }, 100);
+          };
+          window.onafterprint = function() {
+            window.close();
           };
         <\/script>
       </body>
     </html>
   `)
   printWindow.document.close()
+
   message.success(`Отправлено на печать: ${codes.length} шт.`)
 }
 
 async function handleGenerate() {
   if (!genForm.value.productId) return
   if (isGenerating.value) return // Prevent double submission
-  
+
   const item = props.items.find(i => (i.productId || i.id) === genForm.value.productId)
   if (!item) return
 
@@ -632,9 +647,9 @@ async function handleGenerate() {
       isPackage: genForm.value.isPackage,
       generatedBy: userStore.user?.name || 'Система'
     })
-    
+
     lastGeneratedCodes.value = newCodes
-    
+
     message.success(`Сгенерировано ${genForm.value.count} кодов`)
     emit('updated')
   } catch {
@@ -650,7 +665,7 @@ function handlePrintLastOnly() {
     message.warning('Нет сгенерированных кодов для печати')
     return
   }
-  
+
   if (lastGeneratedCodes.value.length === 1) {
     handlePrint(lastGeneratedCodes.value[0])
   } else {
@@ -661,7 +676,7 @@ function handlePrintLastOnly() {
 async function handleGenerateAndPrint() {
   if (!genForm.value.productId) return
   if (isGenerating.value) return // Prevent double submission
-  
+
   const item = props.items.find(i => (i.productId || i.id) === genForm.value.productId)
   if (!item) return
 
@@ -685,9 +700,9 @@ async function handleGenerateAndPrint() {
       isPackage: genForm.value.isPackage,
       generatedBy: userStore.user?.name || 'Система'
     })
-    
+
     lastGeneratedCodes.value = newCodes
-    
+
     if (newCodes.length > 0) {
       if (newCodes.length === 1) {
         handlePrint(newCodes[0])

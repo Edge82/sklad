@@ -1,5 +1,5 @@
 <template>
-  <n-modal v-model:show="showModal" preset="card" :title="title" class="w-200!" :bordered="false" size="huge">
+  <n-modal v-model:show="showModal" preset="card" :title="title" class="w-200!" :bordered="false" size="huge" :trap-focus="!showPrintModal" :auto-focus="false">
     <n-form ref="formRef" :model="formData" :rules="rules" label-placement="top">
       <div v-if="props.mode === 'product'" class="py-2">
         <n-grid :cols="24" :x-gap="24">
@@ -254,41 +254,67 @@
     </n-form>
 
     <!-- Модальное окно для печати штрихкода -->
-    <n-modal v-model:show="showPrintModal" title="Печать штрихкода" preset="dialog" :show-icon="false">
-      <template #header>
-        <div class="font-bold">Печать штрихкода</div>
-      </template>
-      <div class="space-y-4">
-        <div>
-          <div class="text-sm text-gray-400 mb-2">Штрихкод:</div>
-          <div class="text-lg font-mono font-bold text-center p-4 bg-white text-black rounded border border-gray-300">{{ formData.barcode }}</div>
-        </div>
-        <div>
-          <div class="text-sm text-gray-400 mb-2">Название товара:</div>
-          <div class="text-base font-semibold p-2 bg-white text-black rounded border border-gray-300">{{ formData.name || 'Не указано' }}</div>
-        </div>
-        <div>
-          <label class="text-sm text-gray-400 mb-2 block">Дополнительная информация для печати (опционально):</label>
-          <n-input
-            v-model:value="printInfo"
-            type="textarea"
-            placeholder="Например: лот, дата производства, и т.д."
-            :rows="4"
-          />
+    <teleport to="body">
+      <div v-if="showPrintModal" class="barcode-print-overlay" @click.self="closePrintModal">
+        <div class="barcode-print-card">
+          <div class="barcode-print-header">
+            <span class="barcode-print-title">Печать штрихкода</span>
+            <button class="barcode-print-close-icon" @click="closePrintModal">×</button>
+          </div>
+
+          <div class="barcode-print-body">
+            <div class="scale-controls">
+              <n-button size="small" @click="scale = Math.max(0.5, +(scale - 0.1).toFixed(1))">−</n-button>
+              <n-slider v-model:value="scale" :min="0.5" :max="2" :step="0.1" style="width: 120px" />
+              <span class="scale-value">{{ Math.round(scale * 100) }}%</span>
+              <n-button size="small" @click="scale = Math.min(2, +(scale + 0.1).toFixed(1))">+</n-button>
+              <n-switch v-model:value="landscape" size="small">
+                <template #checked>Альбом</template>
+                <template #unchecked>Портрет</template>
+              </n-switch>
+            </div>
+
+            <div class="barcode-preview-wrapper">
+              <div class="barcode-preview-scaler" :style="previewStyle">
+                <div id="barcode-print-content" class="barcode-label" :style="labelStyle">
+                  <div class="barcode-title">Штрих-код</div>
+                  <svg id="barcode-preview"></svg>
+                  <div class="barcode-item-name">{{ formData.name || 'Товар' }}</div>
+                  <div v-if="printInfo" class="barcode-info">{{ printInfo }}</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="print-info-input">
+              <label class="text-sm text-gray-400 mb-2 block">Дополнительная информация для печати (опционально):</label>
+              <n-input
+                v-model:value="printInfo"
+                type="textarea"
+                placeholder="Например: лот, дата производства, и т.д."
+                :rows="2"
+              />
+            </div>
+          </div>
+
+          <div class="barcode-print-footer">
+            <n-space justify="end">
+              <n-button @click="closePrintModal">Отмена</n-button>
+              <n-button type="primary" @click="handlePrint">
+                <template #icon>
+                  <n-icon><PrintOutline /></n-icon>
+                </template>
+                Печать
+              </n-button>
+            </n-space>
+          </div>
         </div>
       </div>
-      <template #action>
-        <div class="flex gap-2 justify-end">
-          <n-button @click="showPrintModal = false">Отмена</n-button>
-          <n-button type="primary" @click="handlePrint">Печать</n-button>
-        </div>
-      </template>
-    </n-modal>
+    </teleport>
   </n-modal>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, watch, onMounted } from 'vue'
+import { ref, reactive, computed, watch, onMounted, nextTick } from 'vue'
 import type { FormInst, FormRules } from 'naive-ui'
 import { useInventoryStore } from '@/stores/inventory'
 import { useIntegrationStore } from '@/stores/integration'
@@ -312,6 +338,9 @@ import {
   NIcon,
   NDivider,
   NDialog,
+  NSlider,
+  NSwitch,
+  NSpace,
   type UploadFileInfo
 } from 'naive-ui'
 import { CloudUploadOutline, TrashOutline, PrintOutline } from '@vicons/ionicons5'
@@ -336,6 +365,8 @@ const loading = ref(false)
 const initialDataStr = ref('')
 const showPrintModal = ref(false)
 const printInfo = ref('')
+const scale = ref(1)
+const landscape = ref(false)
 
 const unitOptions1C = ref<{ label: string, value: string }[]>([])
 const warehouseOptions1C = ref<{ label: string, value: string }[]>([])
@@ -572,6 +603,68 @@ const generateBarcode = () => {
   formData.barcode = `${prefix}-${year}-${random}`
 }
 
+const previewStyle = computed(() => ({
+  transform: `scale(${scale.value})`,
+  transformOrigin: 'center top'
+}))
+
+const labelStyle = computed(() => ({
+  width: landscape.value ? '58mm' : '38mm',
+  height: landscape.value ? '38mm' : '58mm'
+}))
+
+// Генерация превью штрихкода через JsBarcode
+const generateBarcodePreview = async () => {
+  if (!showPrintModal.value || !formData.barcode) return
+
+  // Динамически загружаем JsBarcode если нужно
+  if (!(window as any).JsBarcode) {
+    await new Promise<void>((resolve, reject) => {
+      const script = document.createElement('script')
+      script.src = 'https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js'
+      script.onload = () => resolve()
+      script.onerror = () => reject()
+      document.head.appendChild(script)
+    })
+  }
+
+  nextTick(() => {
+    const svg = document.getElementById('barcode-preview') as SVGElement
+    if (svg && (window as any).JsBarcode) {
+      try {
+        // Для альбомной ориентации делаем штрихкод уже, чтобы поместился
+        const isLandscape = landscape.value
+        ;(window as any).JsBarcode('#barcode-preview', formData.barcode, {
+          format: 'CODE128',
+          width: isLandscape ? 1.4 : 1.8,
+          height: isLandscape ? 24 : 28,
+          displayValue: false,
+          margin: 2
+        })
+      } catch (e) {
+        console.error('Ошибка генерации штрихкода:', e)
+      }
+    }
+  })
+}
+
+watch(() => showPrintModal.value, (val) => {
+  if (val) {
+    scale.value = 1
+    landscape.value = false
+    printInfo.value = ''
+    // Снимаем фокус с полей основного модального окна, чтобы trap-focus не перехватывал его обратно
+    if (document.activeElement && document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur()
+    }
+    generateBarcodePreview()
+  }
+})
+
+watch([scale, landscape], () => {
+  generateBarcodePreview()
+})
+
 const printBarcode = () => {
   if (!formData.barcode) {
     message.warning('Сначала сгенерируйте штрих-код')
@@ -581,62 +674,94 @@ const printBarcode = () => {
   showPrintModal.value = true
 }
 
+const closePrintModal = () => {
+  showPrintModal.value = false
+}
+
 const handlePrint = () => {
-  const printWindow = window.open('', '_blank')
-  if (!printWindow) {
-    message.error('Не удалось открыть окно печати')
+  if (!formData.barcode) {
+    message.warning('Сначала сгенерируйте штрих-код')
     return
   }
 
+  // Открываем popup синхронно (пока браузер считает это ответом на клик)
+  const printWindow = window.open('', '_blank', 'popup,width=400,height=600,top=100,left=100')
+  if (!printWindow) return
+
+  // Закрываем модалку перед печатью, чтобы системный диалог Chrome
+  // появился поверх окна, а не позади модалки с z-index: 99999
+  closePrintModal()
+
   const barcode = formData.barcode || ''
-  const itemName = (formData.name || 'Товар').replace(/\\/g, '\\\\').replace(/"/g, '\\"')
-  const additionalInfo = (printInfo.value || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+  const itemName = (formData.name || 'Товар').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+  const additionalInfo = (printInfo.value || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 
-  let html = '<!DOCTYPE html><html><head><meta charset="UTF-8">'
-  html += '<title>Печать штрихкода</title>'
-  html += '<script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"><\/script>'
-  html += '<style>'
-  html += '* { margin: 0; padding: 0; box-sizing: border-box; }'
-  html += 'html, body { width: 58mm; height: 38mm; margin: 0; padding: 0; overflow: hidden; }'
-  html += 'body { font-family: Arial, sans-serif; background: white; }'
-  html += '.barcode-label { width: 58mm; height: 38mm; text-align: center; background: white; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 1mm; box-sizing: border-box; }'
-  html += '#barcode { margin: 0; display: block; max-width: 100%; flex-shrink: 0; }'
-  html += '.title { font-size: 7px; color: #666; line-height: 1; margin-bottom: 1px; }'
-  html += '.item { font-size: 9px; font-weight: bold; letter-spacing: 0.3px; margin: 1px 0; font-family: monospace; color: #000; word-break: break-all; line-height: 1.1; }'
-  html += '.info { font-size: 8px; font-weight: bold; letter-spacing: 0.3px; margin-top: 1px; font-family: monospace; color: #000; white-space: pre-wrap; text-align: center; line-height: 1.1; }'
-  html += '@page { size: 58mm 38mm; margin: 0; }'
-  html += '@media print { html, body { margin: 0; padding: 0; width: 58mm; height: 38mm; } }'
-  html += '<\/style><\/head><body>'
-  html += '<div class="barcode-label">'
-  html += '<div class="title">Штрих-код</div>'
-  html += '<svg id="barcode"><\/svg>'
-  html += '<div class="item">' + itemName + '<\/div>'
-  if (additionalInfo) {
-    html += '<div class="info">' + additionalInfo + '<\/div>'
-  }
-  html += '<\/div>'
-  html += '<script>'
-  html += 'document.addEventListener("DOMContentLoaded", function() {'
-  html += '  try {'
-  html += '    JsBarcode("#barcode", "' + barcode + '", {'
-  html += '      format: "CODE128",'
-  html += '      width: 1.2,'
-  html += '      height: 22,'
-  html += '      displayValue: false,'
-  html += '      margin: 1'
-  html += '    });'
-  html += '    setTimeout(() => window.print(), 300);'
-  html += '  } catch(e) {'
-  html += '    console.error("Ошибка:", e);'
-  html += '  }'
-  html += '});'
-  html += '<\/script>'
-  html += '<\/body><\/html>'
+  const pageSize = landscape.value ? '58mm 38mm' : '38mm 58mm'
+  const labelW = landscape.value ? '58mm' : '38mm'
+  const labelH = landscape.value ? '38mm' : '58mm'
+  const barcodeWidth = landscape.value ? '1.4' : '1.8'
+  const barcodeHeight = landscape.value ? '24' : '28'
 
-  printWindow.document.write(html)
+  printWindow.document.write(`
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta charset="UTF-8">
+        <title>Печать штрихкода</title>
+        <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"><\/script>
+        <style>
+          @page { size: ${pageSize}; margin: 0; }
+          * { margin: 0; padding: 0; box-sizing: border-box; }
+          html, body { width: ${labelW}; height: ${labelH}; margin: 0; padding: 0; overflow: hidden; }
+          body { font-family: Arial, sans-serif; background: white; }
+          .barcode-label { width: ${labelW}; height: ${labelH}; text-align: center; background: white; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 2mm 3mm; box-sizing: border-box; gap: 1px; }
+          .qr-scaler { transform: scale(${scale.value}); transform-origin: center center; }
+          #barcode { max-width: 100%; height: auto; display: block; flex-shrink: 0; }
+          .title { font-size: 9px; color: #666; line-height: 1; margin-bottom: 1px; flex-shrink: 0; }
+          .item { font-size: 11px; font-weight: bold; letter-spacing: 0.3px; margin: 1px 0; font-family: monospace; color: #000; word-break: break-all; line-height: 1.2; flex-shrink: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+          .info { font-size: 9px; font-weight: bold; letter-spacing: 0.3px; margin-top: 1px; font-family: monospace; color: #000; white-space: pre-wrap; text-align: center; line-height: 1.1; flex-shrink: 0; }
+          @media print { html, body { margin: 0; padding: 0; width: ${labelW}; height: ${labelH}; } }
+        </style>
+      </head>
+      <body>
+        <div class="barcode-label">
+          <div class="qr-scaler">
+            <div class="title">Штрих-код</div>
+            <svg id="barcode"></svg>
+            <div class="item">${itemName}</div>
+            ${additionalInfo ? `<div class="info">${additionalInfo}</div>` : ''}
+          </div>
+        </div>
+        <script>
+          window.onload = function() {
+            try {
+              JsBarcode("#barcode", "${barcode}", {
+                format: "CODE128",
+                width: ${barcodeWidth},
+                height: ${barcodeHeight},
+                displayValue: false,
+                margin: 2
+              });
+              setTimeout(function() { window.print(); }, 100);
+            } catch(e) {
+              console.error("Ошибка:", e);
+            }
+          };
+          window.onafterprint = function() {
+            window.close();
+          };
+        <\/script>
+      </body>
+    </html>
+  `)
   printWindow.document.close()
-  showPrintModal.value = false
-  message.success('Отправлено на печать')
+
+  // Сброс настроек после печати
+  setTimeout(() => {
+    scale.value = 1
+    landscape.value = false
+    printInfo.value = ''
+  }, 500)
 }
 
 const handleSubmit = async () => {
@@ -808,3 +933,162 @@ const handleSubmit = async () => {
   }
 }
 </script>
+
+<style scoped>
+.barcode-print-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: 99999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.barcode-print-card {
+  background: #2c2c32;
+  border-radius: 8px;
+  width: 380px;
+  max-width: 90%;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  display: flex;
+  flex-direction: column;
+}
+
+.barcode-print-header {
+  padding: 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.barcode-print-title {
+  font-size: 16px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.barcode-print-close-icon {
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 24px;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.barcode-print-close-icon:hover {
+  color: #fff;
+}
+
+.barcode-print-body {
+  padding: 16px;
+}
+
+.barcode-print-footer {
+  padding: 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.barcode-preview-wrapper {
+  overflow: auto;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  min-height: 160px;
+  max-height: 280px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 6px;
+  margin-bottom: 12px;
+}
+
+.barcode-preview-scaler {
+  display: inline-block;
+}
+
+.barcode-label {
+  padding: 2mm 3mm;
+  background: #fff;
+  color: #000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  overflow: hidden;
+  border: 0.3mm solid #ddd;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  box-sizing: border-box;
+  gap: 1px;
+}
+
+.barcode-title {
+  font-size: 9px;
+  color: #666;
+  line-height: 1;
+  margin-bottom: 1px;
+  flex-shrink: 0;
+}
+
+.barcode-item-name {
+  font-size: 11px;
+  font-weight: bold;
+  letter-spacing: 0.3px;
+  margin: 1px 0;
+  font-family: monospace;
+  color: #000;
+  word-break: break-all;
+  line-height: 1.2;
+  flex-shrink: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.barcode-info {
+  font-size: 9px;
+  font-weight: bold;
+  letter-spacing: 0.3px;
+  margin-top: 1px;
+  font-family: monospace;
+  color: #000;
+  white-space: pre-wrap;
+  text-align: center;
+  line-height: 1.1;
+  flex-shrink: 0;
+}
+
+#barcode-preview {
+  max-width: 100%;
+  height: auto;
+  flex-shrink: 0;
+}
+
+.scale-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.scale-value {
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 14px;
+  min-width: 44px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.print-info-input {
+  margin-top: 8px;
+}
+</style>

@@ -8,11 +8,26 @@
         </div>
 
         <div class="qr-print-body">
-          <div id="qr-print-content" class="qr-container">
-            <img :src="qrUrl" class="qr-image" />
-            <div class="label-title">{{ title }}</div>
-            <div v-if="description" class="qr-description" style="white-space: pre-wrap;">{{ description }}</div>
-            <div v-else class="qr-code-text">{{ code }}</div>
+          <div class="scale-controls">
+            <n-button size="small" @click="scale = Math.max(0.5, +(scale - 0.1).toFixed(1))">−</n-button>
+            <n-slider v-model:value="scale" :min="0.5" :max="2" :step="0.1" style="width: 120px" />
+            <span class="scale-value">{{ Math.round(scale * 100) }}%</span>
+            <n-button size="small" @click="scale = Math.min(2, +(scale + 0.1).toFixed(1))">+</n-button>
+            <n-switch v-model:value="landscape" size="small">
+              <template #checked>Альбом</template>
+              <template #unchecked>Портрет</template>
+            </n-switch>
+          </div>
+
+          <div class="qr-preview-wrapper">
+            <div class="qr-preview-scaler" :style="previewStyle">
+              <div id="qr-print-content" class="qr-label" :style="labelStyle">
+                <img :src="qrUrl" class="qr-image" />
+                <div class="label-title">{{ title }}</div>
+                <div v-if="description" class="qr-description">{{ description }}</div>
+                <div v-else class="qr-code-text">{{ code }}</div>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -33,9 +48,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, watch, computed } from 'vue'
 import { PrintOutline } from '@vicons/ionicons5'
-import { NButton, NSpace, NIcon } from 'naive-ui'
+import { NButton, NSpace, NIcon, NSlider, NSwitch } from 'naive-ui'
 import QRCode from 'qrcode'
 
 const props = defineProps<{
@@ -47,19 +62,37 @@ const props = defineProps<{
 
 const emit = defineEmits(['update:show'])
 
+const scale = ref(1)
+const landscape = ref(false)
+
+const previewStyle = computed(() => ({
+  transform: `scale(${scale.value})`,
+  transformOrigin: 'center top'
+}))
+
+const labelStyle = computed(() => ({
+  width: landscape.value ? '58mm' : '38mm',
+  height: landscape.value ? '38mm' : '58mm'
+}))
+
+watch(() => props.show, (val) => {
+  if (val) {
+    scale.value = 1
+    landscape.value = false
+  }
+})
+
 const qrUrl = ref('')
 
 function handleClose() {
-  console.log('Closing QR Print Overlay')
   emit('update:show', false)
 }
 
-// Локально генерируем QR в формате DataURL
 watch(() => props.code, async (newCode) => {
   if (newCode) {
     try {
-      qrUrl.value = await QRCode.toDataURL(newCode, { 
-        width: 300, 
+      qrUrl.value = await QRCode.toDataURL(newCode, {
+        width: 300,
         margin: 1,
         color: { dark: '#000000', light: '#ffffff' }
       })
@@ -70,60 +103,77 @@ watch(() => props.code, async (newCode) => {
 }, { immediate: true })
 
 function handlePrint() {
-  const printContents = document.getElementById('qr-print-content')?.innerHTML
-  if (!printContents) return
+  if (!qrUrl.value) return
 
-  const printWindow = window.open('', '_blank')
+  // Открываем popup синхронно (пока браузер считает это ответом на клик)
+  const printWindow = window.open('', '_blank', 'popup,width=400,height=600,top=100,left=100')
   if (!printWindow) return
+
+  // Закрываем модалку перед печатью, чтобы системный диалог Chrome
+  // появился поверх окна, а не позади модалки с z-index: 2000
+  handleClose()
+
+  const pageSize = landscape.value ? '58mm 38mm' : '38mm 58mm'
+  const labelW = landscape.value ? '58mm' : '38mm'
+  const labelH = landscape.value ? '38mm' : '58mm'
 
   printWindow.document.write(`
     <html>
       <head>
         <title>Печать QR-кода</title>
         <style>
-          body { 
-            font-family: sans-serif; 
-            display: flex; 
-            flex-direction: column; 
-            align-items: center; 
-            justify-content: center; 
-            min-height: 100vh; 
-            margin: 0; 
-            background-color: white;
+          @page { size: ${pageSize}; margin: 0; }
+          * { box-sizing: border-box; }
+          body {
+            margin: 0; padding: 0; background: #fff;
+            font-family: 'Segoe UI', Arial, sans-serif;
+            display: flex; align-items: center; justify-content: center;
+            min-height: 100vh;
           }
-          .qr-container { 
-            text-align: center; 
-            padding: 10px; 
-            width: 280px;
-            box-sizing: border-box;
+          .qr-scaler {
+            transform: scale(${scale.value});
+            transform-origin: center center;
           }
-          .qr-image { 
-            width: 250px; 
-            height: 250px; 
-            margin-bottom: 10px; 
+          .qr-label {
+            width: ${labelW}; height: ${labelH}; padding: 1.5mm;
+            background: #fff; color: #000;
+            display: flex; flex-direction: column;
+            align-items: center; justify-content: flex-start;
+            text-align: center; overflow: hidden;
+            border: 0.3mm solid #ddd;
           }
-          .label-title { 
-            font-size: 16px; 
-            font-weight: bold; 
-            margin-bottom: 5px;
+          .qr-image { width: 24mm; height: 24mm; margin-bottom: 1mm; object-fit: contain; }
+          .label-title {
+            font-size: 10pt; font-weight: 800; line-height: 1.1; margin-bottom: 0.8mm;
+            width: 100%; overflow: hidden; text-overflow: ellipsis;
+            display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+            word-break: break-word;
           }
-          .qr-description { 
-            font-family: monospace;
-            font-size: 14px; 
-            font-weight: bold;
-            color: #000; 
+          .qr-description {
+            font-size: 8.5pt; font-weight: 700; color: #222; line-height: 1.15;
+            width: 100%; overflow: hidden; text-overflow: ellipsis;
+            display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical;
+            white-space: pre-wrap; word-break: break-word;
+          }
+          .qr-code-text {
+            font-size: 8pt; font-family: monospace; font-weight: 600;
+            color: #444; word-break: break-all;
           }
         </style>
       </head>
       <body>
-        <div class="qr-container">
-          <img src="${qrUrl.value}" class="qr-image" />
-          <div class="label-title">${props.title}</div>
-          ${props.description ? `<div class="qr-description">${props.description.replace(/\n/g, '<br>')}</div>` : ''}
+        <div class="qr-scaler">
+          <div class="qr-label">
+            <img src="${qrUrl.value}" class="qr-image" />
+            <div class="label-title">${escapeHtml(props.title)}</div>
+            ${props.description ? `<div class="qr-description">${escapeHtml(props.description).replace(/\n/g, '<br>')}</div>` : `<div class="qr-code-text">${escapeHtml(props.code)}</div>`}
+          </div>
         </div>
         <script>
-          window.onload = () => {
-            window.print();
+          window.onload = function() {
+            setTimeout(function() { window.print(); }, 100);
+          };
+          window.onafterprint = function() {
             window.close();
           };
         <\/script>
@@ -131,6 +181,14 @@ function handlePrint() {
     </html>
   `)
   printWindow.document.close()
+}
+
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
 }
 </script>
 
@@ -142,16 +200,16 @@ function handlePrint() {
   width: 100%;
   height: 100%;
   background: rgba(0, 0, 0, 0.6);
-  z-index: 5000; /* Выше любого модального окна */
+  z-index: 99999;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
 .qr-print-card {
-  background: #2c2c32; /* Цвет темы */
+  background: #2c2c32;
   border-radius: 8px;
-  width: 400px;
+  width: 420px;
   max-width: 90%;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
   display: flex;
@@ -167,7 +225,7 @@ function handlePrint() {
 }
 
 .qr-print-title {
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 500;
   color: rgba(255, 255, 255, 0.9);
 }
@@ -186,7 +244,7 @@ function handlePrint() {
 }
 
 .qr-print-body {
-  padding: 20px;
+  padding: 16px;
 }
 
 .qr-print-footer {
@@ -194,69 +252,95 @@ function handlePrint() {
   border-top: 1px solid rgba(255, 255, 255, 0.1);
 }
 
-.qr-container {
+.qr-preview-wrapper {
+  overflow: auto;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  min-height: 180px;
+  max-height: 340px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 6px;
+}
+
+.qr-preview-scaler {
+  display: inline-block;
+}
+
+.qr-label {
+  padding: 1.5mm;
+  background: #fff;
+  color: #000;
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 15px;
-  background: #fff;
-  color: #000;
-  border: 1px dashed #ddd;
-  border-radius: 4px;
+  justify-content: flex-start;
+  text-align: center;
+  overflow: hidden;
+  border: 0.3mm solid #ddd;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  box-sizing: border-box;
 }
 
 .qr-image {
-  width: 180px;
-  height: 180px;
-  margin-bottom: 12px;
+  width: 24mm;
+  height: 24mm;
+  margin-bottom: 1mm;
+  object-fit: contain;
 }
 
 .label-title {
+  font-size: 10pt;
+  font-weight: 800;
+  line-height: 1.1;
+  margin-bottom: 0.8mm;
   width: 100%;
-  text-align: center;
-  font-weight: bold;
-  font-size: 1.1em;
-  margin-bottom: 4px;
-}
-</style>
-
-<style scoped>
-.qr-container {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 15px;
-  background: #fff;
-  color: #000;
-  border: 1px dashed #ddd;
-}
-.qr-image {
-  width: 180px;
-  height: 180px;
-  margin-bottom: 12px;
-}
-.label-title {
-  width: 100%;
-  text-align: center;
-  font-weight: bold;
-  font-size: 1.1em;
-  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  margin-bottom: 4px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  word-break: break-word;
+  color: #000;
 }
+
 .qr-description {
-  font-family: monospace;
-  font-weight: bold;
-  font-size: 1em;
-  color: #333;
+  font-size: 8.5pt;
+  font-weight: 700;
+  color: #222;
+  line-height: 1.15;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
+
 .qr-code-text {
+  font-size: 8pt;
   font-family: monospace;
-  font-size: 0.9em;
-  color: #666;
+  font-weight: 600;
+  color: #444;
+  word-break: break-all;
 }
-.print-only {
-  display: none;
+
+.scale-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.scale-value {
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 14px;
+  min-width: 44px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
 }
 </style>

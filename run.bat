@@ -11,7 +11,7 @@ set "ROOT=%~dp0"
 set "NGINX_HOME=%ROOT%nginx-1.28.3"
 set "BACKEND_PORT=8000"
 set "FRONTEND_PORT=8080"
-set "BACKEND_BASE=http://127.0.0.1:%BACKEND_PORT%"
+set "BACKEND_BASE=http://127.0.0.1:%BACKEND_PORT%/"
 set "API_BASE=/sklad/api"
 set "APP_BASE=/"
 
@@ -78,7 +78,7 @@ call :WriteNginxConf || goto :error
 echo [*] Запуск backend и nginx...
 
 taskkill /IM nginx.exe /F >nul 2>&1
-start "Sklad Backend" cmd /k "cd /d ""%ROOT%"" && node server.js"
+start "Sklad Backend" cmd /k "cd /d ""%ROOT%"" && node server/index.js"
 start "Sklad Nginx" cmd /k "cd /d ""%NGINX_HOME%"" && nginx.exe -p ""%NGINX_HOME%"" -c conf\nginx.conf"
 
 echo.

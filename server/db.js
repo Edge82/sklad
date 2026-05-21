@@ -183,6 +183,7 @@ db.exec(`
     scanned_by TEXT,
     generated_at DATETIME NOT NULL,
     generated_by TEXT NOT NULL,
+    is_package INTEGER DEFAULT 0,
     version INTEGER DEFAULT 1,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(order_id) REFERENCES onec_orders(ref_key) ON DELETE CASCADE
@@ -260,6 +261,11 @@ try {
 try {
   db.prepare('ALTER TABLE users ADD COLUMN needs_password_change INTEGER DEFAULT 1').run()
   console.log('✓ Added needs_password_change column to users')
+} catch (e) { /* column already exists */ }
+
+try {
+  db.prepare('ALTER TABLE local_qr_codes ADD COLUMN is_package INTEGER DEFAULT 0').run()
+  console.log('✓ Added is_package column to local_qr_codes')
 } catch (e) { /* column already exists */ }
 
 // Миграция: обновляем старые plain-text пароли на bcrypt
