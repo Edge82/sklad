@@ -3,6 +3,7 @@
  * Создание таблиц, миграции, тестовые пользователи
  */
 import fs from 'fs'
+import crypto from 'crypto'
 import Database from 'better-sqlite3'
 import { hashSync } from 'bcrypt'
 
@@ -281,36 +282,6 @@ try {
 }
 
 // ============================================================
-// Тестовые пользователи
-// ============================================================
-
-export const testUsers = [
-  { login: 'admin', password: 'admin', fullName: 'Admin User', role: 'director' },
-  { login: 'manager', password: 'manager', fullName: 'Manager User', role: 'manager' },
-  { login: 'storekeeper', password: 'storekeeper', fullName: 'Storekeeper User', role: 'storekeeper' },
-  { login: 'worker', password: 'worker', fullName: 'Worker User', role: 'worker' }
-]
-
-for (const user of testUsers) {
-  try {
-    const existing = db.prepare('SELECT id, password_hash FROM users WHERE login = ?').get(user.login)
-    if (!existing) {
-      const passwordHash = hashSync(user.password, 10)
-      db.prepare('INSERT INTO users (login, password_hash, full_name, role, is_active, needs_password_change) VALUES (?, ?, ?, ?, 1, 1)')
-        .run(user.login, passwordHash, user.fullName, user.role)
-      console.log(`✓ Created user: ${user.login}`)
-    } else if (existing.password_hash === user.login) {
-      const passwordHash = hashSync(user.password, 10)
-      db.prepare('UPDATE users SET password_hash = ? WHERE login = ?')
-        .run(passwordHash, user.login)
-      console.log(`✓ Updated user password hash: ${user.login}`)
-    }
-  } catch (err) {
-    console.error(`Error creating/updating user ${user.login}:`, err.message)
-  }
-}
-
-// ============================================================
 // Дополнительные таблицы (employees, tools, tool_breakdowns, material_invoices)
 // ============================================================
 
@@ -347,6 +318,72 @@ try {
 } catch (err) {
   console.error('Error initializing employees table:', err.message)
 }
+
+// ============================================================
+// Тестовые пользователи
+// ============================================================
+
+export const testUsers = [
+  { login: 'admin', password: 'admin', fullName: 'Admin User', role: 'director' },
+  { login: 'manager', password: 'manager', fullName: 'Manager User', role: 'manager' },
+  { login: 'storekeeper', password: 'storekeeper', fullName: 'Storekeeper User', role: 'storekeeper' },
+  { login: 'worker', password: 'worker', fullName: 'Worker User', role: 'worker' }
+]
+
+for (const user of testUsers) {
+  try {
+    const existing = db.prepare('SELECT id, password_hash FROM users WHERE login = ?').get(user.login)
+    let userId = existing?.id
+
+    if (!existing) {
+      const passwordHash = hashSync(user.password, 10)
+      const result = db.prepare('INSERT INTO users (login, password_hash, full_name, role, is_active, needs_password_change) VALUES (?, ?, ?, ?, 1, 1)')
+        .run(user.login, passwordHash, user.fullName, user.role)
+      userId = result.lastInsertRowid
+      console.log(`✓ Created user: ${user.login} (ID: ${userId})`)
+    } else if (existing.password_hash === user.login) {
+      const passwordHash = hashSync(user.password, 10)
+      db.prepare('UPDATE users SET password_hash = ? WHERE login = ?')
+        .run(passwordHash, user.login)
+      console.log(`✓ Updated user password hash: ${user.login}`)
+    }
+
+    // Создаём сотрудника для admin, если его ещё нет
+    if (user.login === 'admin' && userId) {
+      const existingEmp = db.prepare('SELECT id FROM employees WHERE user_id = ?').get(String(userId))
+      if (!existingEmp) {
+        const now = new Date().toISOString()
+        const empId = `emp-admin-${Date.now()}`
+        db.prepare(`
+          INSERT INTO employees (id, user_id, name, email, phone, position, department, role, status, salary, hire_date, created_at, updated_at, created_by)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          empId,
+          String(userId),
+          user.fullName,
+          `${user.login}@warehouse.local`,
+          '+7-000-000-00-00',
+          'Администратор',
+          'Управление',
+          user.role,
+          'active',
+          0,
+          now,
+          now,
+          now,
+          'System'
+        )
+        console.log(`✓ Created employee for admin (user_id: ${userId})`)
+      }
+    }
+  } catch (err) {
+    console.error(`Error creating/updating user ${user.login}:`, err.message)
+  }
+}
+
+// ============================================================
+// Дополнительные таблицы (tools, tool_breakdowns, material_invoices)
+// ============================================================
 
 try {
   const toolsTableExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='tools'").get()

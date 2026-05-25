@@ -1,7 +1,6 @@
 @echo off
 REM ============================================
-REM Сборка и запуск приложения "Склад" для Windows
-REM Один запуск: зависимости -> build -> nginx -> backend
+REM SKLAD APP - DEV MODE (Windows)
 REM ============================================
 
 setlocal EnableExtensions EnableDelayedExpansion
@@ -11,7 +10,7 @@ set "ROOT=%~dp0"
 set "NGINX_HOME=%ROOT%nginx-1.28.3"
 set "BACKEND_PORT=8000"
 set "FRONTEND_PORT=8080"
-set "BACKEND_BASE=http://127.0.0.1:%BACKEND_PORT%/"
+set "BACKEND_BASE=http://127.0.0.1:%BACKEND_PORT%"
 set "API_BASE=/sklad/api"
 set "APP_BASE=/"
 
@@ -19,63 +18,63 @@ cls
 color 0A
 echo.
 echo ========================================
-echo      ПРИЛОЖЕНИЕ "СКЛАД" - WINDOWS
+echo      SKLAD APP - DEV MODE
 echo ========================================
 echo.
 
-REM Проверка Node.js
+REM Check Node.js
 node --version >nul 2>&1
 if errorlevel 1 (
-    echo [ОШИБКА] Node.js не установлен или не добавлен в PATH
-    echo Установите Node.js с https://nodejs.org/
+    echo ERROR: Node.js not found
+    echo Install from https://nodejs.org/
     pause
     exit /b 1
 )
 
-REM Проверка .env
+REM Check .env
 if not exist ".env" (
-    echo [*] Создание файла .env из .env.example...
+    echo [*] Creating .env from .env.example...
     if exist ".env.example" (
         copy /Y ".env.example" ".env" >nul
-        echo [OK] Создан .env
+        echo OK: Created .env
     ) else (
-        echo [ОШИБКА] Не найден .env.example
+        echo ERROR: .env.example not found
         pause
         exit /b 1
     )
 )
 
-REM Установка зависимостей
+REM Install dependencies
 if not exist "node_modules" (
-    echo [*] Установка зависимостей...
+    echo [*] Installing dependencies...
     call npm install
     if errorlevel 1 (
-        echo [ОШИБКА] Не удалось установить зависимости
+        echo ERROR: Failed to install dependencies
         pause
         exit /b 1
     )
-    echo [OK] Зависимости установлены
+    echo OK: Dependencies installed
 )
 
 echo.
-echo [*] Сборка фронтенда для nginx...
+echo [*] Building frontend...
 set "VITE_APP_BASE=%APP_BASE%"
 set "VITE_API_BASE_URL=%API_BASE%"
 call npm run build-only
 if errorlevel 1 (
-    echo [ОШИБКА] Не удалось собрать фронтенд
+    echo ERROR: Failed to build frontend
     pause
     exit /b 1
 )
 
-echo [OK] Фронтенд собран в dist
+echo OK: Frontend built in dist
 
 echo.
-echo [*] Подготовка nginx...
+echo [*] Preparing nginx...
 call :EnsureNginx || goto :error
 call :WriteNginxConf || goto :error
 
-echo [*] Запуск backend и nginx...
+echo [*] Starting backend and nginx...
 
 taskkill /IM nginx.exe /F >nul 2>&1
 start "Sklad Backend" cmd /k "cd /d ""%ROOT%"" && node server/index.js"
@@ -83,37 +82,27 @@ start "Sklad Nginx" cmd /k "cd /d ""%NGINX_HOME%"" && nginx.exe -p ""%NGINX_HOME
 
 echo.
 echo ========================================
-echo Готово.
-echo Открывайте приложение в браузере:
-echo   http://localhost:%FRONTEND_PORT%/
-echo.
-echo Для других ПК в сети используйте:
-echo   http://IP_ЭТОГО_КОМПЬЮТЕРА:%FRONTEND_PORT%/
-echo.
-echo Backend работает локально на %BACKEND_BASE%
-echo Nginx проксирует /sklad/api на backend
-
+echo Done.
+echo Open app: http://localhost:%FRONTEND_PORT%/
+echo Backend:  http://localhost:%BACKEND_PORT%/sklad/api
 echo ========================================
 pause
 exit /b 0
 
 :error
 echo.
-echo [ОШИБКА] Не удалось подготовить nginx
+echo ERROR: Failed to prepare nginx
 pause
 exit /b 1
 
 :EnsureNginx
 if not exist "%NGINX_HOME%\nginx.exe" exit /b 1
-
 exit /b 0
 
 :WriteNginxConf
 set "ROOT_FWD=%ROOT:\=/%"
 set "DIST_DIR=%ROOT_FWD%dist"
-set "BACKEND_URL=%BACKEND_BASE%"
 set "NGINX_CONF=%NGINX_HOME%\conf\nginx.conf"
-set "NGINX_ERROR_LOG=%NGINX_HOME%\logs\error.log"
 
 if not exist "%NGINX_HOME%\logs" md "%NGINX_HOME%\logs" >nul 2>&1
 if not exist "%NGINX_HOME%\temp" md "%NGINX_HOME%\temp" >nul 2>&1
@@ -142,7 +131,7 @@ if not exist "%NGINX_HOME%\temp" md "%NGINX_HOME%\temp" >nul 2>&1
     echo         index  index.html;
     echo.
     echo         location /sklad/api/ {
-    echo             proxy_pass %BACKEND_URL%;
+    echo             proxy_pass %BACKEND_BASE%;
     echo             proxy_http_version 1.1;
     echo             proxy_set_header Host $host;
     echo             proxy_set_header X-Real-IP $remote_addr;
@@ -167,5 +156,4 @@ if not exist "%NGINX_HOME%\temp" md "%NGINX_HOME%\temp" >nul 2>&1
 ) > "%NGINX_CONF%"
 
 if errorlevel 1 exit /b 1
-
 exit /b 0

@@ -75,9 +75,13 @@ export const useEmployeesStore = defineStore('employees', () => {
 
   const saveEmployeeToAPI = async (employee: Employee): Promise<{ login: string; password: string } | null> => {
     try {
+      const token = localStorage.getItem('auth_token')
       const response = await fetch('/sklad/api/employees', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': token ? `Bearer ${token}` : ''
+        },
         body: JSON.stringify({
           id: employee.id,
           name: employee.name,
@@ -143,9 +147,13 @@ export const useEmployeesStore = defineStore('employees', () => {
 
   const updateEmployeeOnAPI = async (id: string, updates: Partial<Employee>) => {
     try {
+      const token = localStorage.getItem('auth_token')
       const response = await fetch(`/sklad/api/employees/${id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': token ? `Bearer ${token}` : ''
+        },
         body: JSON.stringify({
           ...updates,
           hireDate: updates.hireDate?.toISOString(),
@@ -164,7 +172,12 @@ export const useEmployeesStore = defineStore('employees', () => {
 
   const getEmployeeCredentials = async (id: string): Promise<{ login: string; name: string; email?: string } | null> => {
     try {
-      const response = await fetch(`/sklad/api/employees/${id}/credentials`)
+      const token = localStorage.getItem('auth_token')
+      const response = await fetch(`/sklad/api/employees/${id}/credentials`, {
+        headers: {
+          'Authorization': token ? `Bearer ${token}` : ''
+        }
+      })
 
       if (!response.ok) {
         throw new Error(`Failed to load employee credentials: ${response.statusText}`)
@@ -222,8 +235,12 @@ export const useEmployeesStore = defineStore('employees', () => {
 
   const deleteEmployeeFromAPI = async (id: string) => {
     try {
+      const token = localStorage.getItem('auth_token')
       const response = await fetch(`/sklad/api/employees/${id}`, {
-        method: 'DELETE'
+        method: 'DELETE',
+        headers: {
+          'Authorization': token ? `Bearer ${token}` : ''
+        }
       })
 
       if (!response.ok) {

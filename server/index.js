@@ -9,7 +9,29 @@ import jwt from 'jsonwebtoken'
 import { compareSync, hashSync } from 'bcrypt'
 
 import { PORT, JWT_SECRET, getBasicAuthHeader, ONEC_CONFIG } from './config.js'
-import { getUserRoleFromRequest } from './auth.js'
+
+// Inline getUserRoleFromRequest to avoid ESM cache issues
+function getUserRoleFromRequest(req) {
+  try {
+    const authHeader = req.headers.authorization || ''
+    if (authHeader.startsWith('Bearer ')) {
+      const token = authHeader.substring(7)
+      const payload = jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] })
+      return payload?.role || null
+    }
+    const cookies = req.headers.cookie || ''
+    const authTokenMatch = cookies.match(/auth_token=([^;]+)/)
+    if (authTokenMatch) {
+      const token = decodeURIComponent(authTokenMatch[1])
+      const payload = jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] })
+      return payload?.role || null
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
 import { sendJSON, _readBody, writeSyncLog, logOperation, mapMaterialInvoiceRows } from './helpers.js'
 import { cache, lastSyncTime, updateLastSyncTime } from './cache.js'
 import {
@@ -537,6 +559,7 @@ const server = http.createServer(async (req, res) => {
       const controller = new AbortController()
       const timeoutId = setTimeout(() => controller.abort(), 30000)
 
+      console.log('[1C] Fetching order:', url)
       const response = await fetch(url, {
         headers: {
           'Authorization': getBasicAuthHeader(),
@@ -547,11 +570,21 @@ const server = http.createServer(async (req, res) => {
 
       clearTimeout(timeoutId)
 
+      const responseText = await response.text()
+      console.log('[1C] Response status:', response.status, 'Body length:', responseText.length)
+
       if (!response.ok) {
-        throw new Error(`1C API error: ${response.status}`)
+        console.error('[1C] Error response:', responseText.substring(0, 500))
+        throw new Error(`1C API error: ${response.status} - ${responseText.substring(0, 200)}`)
       }
 
-      const order = await response.json()
+      let order
+      try {
+        order = JSON.parse(responseText)
+      } catch (parseErr) {
+        console.error('[1C] JSON parse error. Response:', responseText.substring(0, 500))
+        throw new Error(`Invalid JSON from 1C: ${parseErr.message}`)
+      }
 
       let items = []
       try {
@@ -1482,7 +1515,7 @@ const server = http.createServer(async (req, res) => {
   // Create employee
   if (pathname === '/sklad/api/employees' && req.method === 'POST') {
     const userRole = getUserRoleFromRequest(req)
-    if (!userRole || !['director', 'manager'].includes(userRole)) {
+    if (!userRole || !['admin', 'director', 'manager'].includes(userRole)) {
       sendJSON(res, 403, { error: 'Forbidden: insufficient permissions' })
       return
     }
@@ -1550,7 +1583,7 @@ const server = http.createServer(async (req, res) => {
   // Update employee
   if (pathname.match(/^\/sklad\/api\/employees\/[^\/]+$/) && req.method === 'PUT') {
     const userRole = getUserRoleFromRequest(req)
-    if (!userRole || !['director', 'manager'].includes(userRole)) {
+    if (!userRole || !['admin', 'director', 'manager'].includes(userRole)) {
       sendJSON(res, 403, { error: 'Forbidden: insufficient permissions' })
       return
     }
@@ -1595,7 +1628,7 @@ const server = http.createServer(async (req, res) => {
   // Delete employee
   if (pathname.match(/^\/sklad\/api\/employees\/[^\/]+$/) && req.method === 'DELETE') {
     const userRole = getUserRoleFromRequest(req)
-    if (!userRole || !['director', 'manager'].includes(userRole)) {
+    if (!userRole || !['admin', 'director', 'manager'].includes(userRole)) {
       sendJSON(res, 403, { error: 'Forbidden: insufficient permissions' })
       return
     }
@@ -1640,8 +1673,8 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'PUT') {
       const userRole = getUserRoleFromRequest(req)
-      console.log(`🔑 [CREDENTIALS] User role: ${userRole}, allowed: director/manager`)
-      if (!userRole || !['director', 'manager'].includes(userRole)) {
+      console.log(`🔑 [CREDENTIALS] User role: ${userRole}, allowed: admin/director/manager`)
+      if (!userRole || !['admin', 'director', 'manager'].includes(userRole)) {
         sendJSON(res, 403, { error: 'Forbidden: insufficient permissions' })
         return
       }
@@ -2256,9 +2289,12 @@ const server = http.createServer(async (req, res) => {
     req.on('data', chunk => body += chunk)
     req.on('end', () => {
       try {
-        const { qrId, productName, quantity, orderNumber, employeeId: requestEmployeeId, employeeName: requestEmployeeName } = JSON.parse(body)
+        const data = JSON.parse(body)
+        console.log('📦 [RECEIVE-FP] Request body:', JSON.stringify(data, null, 2))
+        const { qrId, productName, quantity, orderNumber, employeeId: requestEmployeeId, employeeName: requestEmployeeName } = data
 
         if (!qrId || !productName) {
+          console.log('📦 [RECEIVE-FP] 400: Missing required fields. qrId:', qrId, 'productName:', productName)
           sendJSON(res, 400, { error: 'Missing required fields' })
           return
         }
@@ -2277,8 +2313,45 @@ const server = http.createServer(async (req, res) => {
         console.log('📦 [RECEIVE-FP] requestEmployeeId:', requestEmployeeId, 'requestEmployeeName:', requestEmployeeName)
         console.log('📦 [RECEIVE-FP] resolvedEmployee:', resolvedEmployee, 'employeeByName:', employeeByName)
 
-        const employeeId = resolvedEmployee?.id || employeeByName?.id || null
-        const employeeName = resolvedEmployee?.name || employeeByName?.name || requestEmployeeName || 'QR Scan'
+        let employeeId = resolvedEmployee?.id || employeeByName?.id || null
+        let employeeName = resolvedEmployee?.name || employeeByName?.name || requestEmployeeName || 'QR Scan'
+
+        // Авто-создание сотрудника, если не найден
+        console.log('📦 [RECEIVE-FP] Checking auto-create: employeeId=', employeeId, 'requestEmployeeId=', requestEmployeeId)
+        if (!employeeId && requestEmployeeId) {
+          console.log('📦 [RECEIVE-FP] Looking for user with id:', requestEmployeeId)
+          const user = db.prepare('SELECT id, full_name, role FROM users WHERE id = ?').get(requestEmployeeId)
+          console.log('📦 [RECEIVE-FP] Found user:', user)
+          if (user) {
+            const now = new Date().toISOString()
+            const newEmpId = `emp-${requestEmployeeId}-${Date.now()}`
+            console.log('📦 [RECEIVE-FP] Creating employee:', newEmpId, 'for user:', user)
+            db.prepare(`
+              INSERT INTO employees (id, user_id, name, email, phone, position, department, role, status, salary, hire_date, created_at, updated_at, created_by)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `).run(
+              newEmpId,
+              String(requestEmployeeId),
+              user.full_name || employeeName,
+              `user${requestEmployeeId}@warehouse.local`,
+              '+7-000-000-00-00',
+              user.role || 'Сотрудник',
+              'Основной',
+              user.role || 'worker',
+              'active',
+              0,
+              now,
+              now,
+              now,
+              'System'
+            )
+            employeeId = newEmpId
+            employeeName = user.full_name || employeeName
+            console.log(`📦 [RECEIVE-FP] Auto-created employee ${newEmpId} for user ${requestEmployeeId}`)
+          } else {
+            console.log('📦 [RECEIVE-FP] User not found, cannot auto-create employee')
+          }
+        }
 
         if (!employeeId) {
           sendJSON(res, 400, { error: 'Требуется авторизация. Войдите в систему для выполнения операции.' })

@@ -48,15 +48,15 @@ export const useUserStore = defineStore('user', () => {
   const isManager = computed(() => user.value?.role === 'manager')
   const isStorekeeper = computed(() => user.value?.role === 'storekeeper')
   const isWorker = computed(() => user.value?.role === 'worker')
-  const isAdminOrManager = computed(() => ['director', 'manager'].includes(user.value?.role || ''))
+  const isAdminOrManager = computed(() => ['admin', 'director', 'manager'].includes(user.value?.role || ''))
   const isWarehouseStaff = computed(() => ['director', 'manager', 'storekeeper'].includes(user.value?.role || ''))
   const canSeePrices = computed(() => {
     const role = user.value?.role || ''
     // Показываем цены для director и manager, скрываем для остальных
     return ['director', 'manager'].includes(role)
   })
-  // Доступ к управлению сотрудниками только для директора и менеджера
-  const canManageEmployees = computed(() => ['director', 'manager'].includes(user.value?.role || ''))
+  // Доступ к управлению сотрудниками для админа, директора и менеджера
+  const canManageEmployees = computed(() => ['admin', 'director', 'manager'].includes(user.value?.role || ''))
 
   // Логин с API
   const login = async (login: string, password: string) => {

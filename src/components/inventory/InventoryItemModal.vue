@@ -278,7 +278,7 @@
               <div class="barcode-preview-scaler" :style="previewStyle">
                 <div id="barcode-print-content" class="barcode-label" :style="labelStyle">
                   <div class="barcode-title">Штрих-код</div>
-                  <svg id="barcode-preview"></svg>
+                  <svg id="barcode-preview" :style="barcodeSvgStyle"></svg>
                   <div class="barcode-item-name">{{ formData.name || 'Товар' }}</div>
                   <div v-if="printInfo" class="barcode-info">{{ printInfo }}</div>
                 </div>
@@ -608,6 +608,10 @@ const previewStyle = computed(() => ({
   transformOrigin: 'center top'
 }))
 
+const barcodeSvgStyle = computed(() => ({
+  height: landscape.value ? '50px' : '65px'
+}))
+
 const labelStyle = computed(() => ({
   width: landscape.value ? '104mm' : '68mm',
   height: landscape.value ? '68mm' : '104mm'
@@ -636,14 +640,14 @@ const generateBarcodePreview = async () => {
         const isLandscape = landscape.value
         ;(window as any).JsBarcode('#barcode-preview', formData.barcode, {
           format: 'CODE128',
-          width: isLandscape ? 2.5 : 1.4,
-          height: isLandscape ? 50 : 65,
+          width: isLandscape ? 1.5 : 1.0,
+          height: isLandscape ? 45 : 65,
           displayValue: false,
           margin: 2
         })
         // Принудительно устанавливаем высоту SVG и удаляем viewBox чтобы избежать масштабирования
         svg.removeAttribute('viewBox')
-        svg.setAttribute('height', isLandscape ? '50' : '65')
+        svg.setAttribute('height', isLandscape ? '45' : '65')
       } catch (e) {
         console.error('Ошибка генерации штрихкода:', e)
       }
@@ -688,7 +692,7 @@ const handlePrint = () => {
   }
 
   // Открываем popup синхронно (пока браузер считает это ответом на клик)
-  const printWindow = window.open('', '_blank', 'popup,width=400,height=600,top=100,left=100')
+  const printWindow = window.open('', '_blank', 'popup,width=850,height=700,top=50,left=100')
   if (!printWindow) return
 
   // Закрываем модалку перед печатью, чтобы системный диалог Chrome
@@ -711,8 +715,8 @@ const handlePrint = () => {
   const pageSize = landscape.value ? '104mm 68mm' : '68mm 104mm'
   const labelW = landscape.value ? '104mm' : '68mm'
   const labelH = landscape.value ? '68mm' : '104mm'
-  const barcodeWidth = landscape.value ? 2.5 : 1.4
-  const barcodeHeight = landscape.value ? 50 : 65
+  const barcodeWidth = landscape.value ? 1.5 : 1.0
+  const barcodeHeight = landscape.value ? 45 : 65
 
   printWindow.document.write(`
     <!DOCTYPE html>
@@ -724,14 +728,14 @@ const handlePrint = () => {
         <style>
           @page { size: ${pageSize}; margin: 0; }
           * { margin: 0; padding: 0; box-sizing: border-box; }
-          html, body { width: ${labelW}; height: ${labelH}; margin: 0; padding: 0; overflow: hidden; }
+          html, body { width: ${labelW}; height: ${labelH}; margin: 0; padding: 0; overflow: visible; }
           body { font-family: Arial, sans-serif; background: white; }
-          .barcode-label { width: ${labelW}; height: ${labelH}; text-align: center; background: white; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 3.6mm 5.4mm; box-sizing: border-box; gap: 1px; }
+          .barcode-label { width: ${labelW}; height: ${labelH}; text-align: center; background: white; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 3.6mm 5.4mm; box-sizing: border-box; gap: 1px; overflow: visible; }
           .qr-scaler { transform: scale(${scale.value}); transform-origin: center center; }
           #barcode, #barcode svg { width: auto !important; max-width: 100%; height: ${barcodeHeight}px !important; display: block; }
           .title { font-size: 16px; color: #666; line-height: 1; margin-bottom: 1px; flex-shrink: 0; }
-          .item { font-size: 20px; font-weight: bold; letter-spacing: 0.3px; margin: 1px 0; font-family: monospace; color: #000; word-break: break-all; line-height: 1.2; flex-shrink: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
-          .info { font-size: 16px; font-weight: bold; letter-spacing: 0.3px; margin-top: 1px; font-family: monospace; color: #000; white-space: normal; text-align: center; line-height: 1.1; flex-shrink: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+          .item { font-size: 30px; font-weight: bold; letter-spacing: 0.3px; margin: 1px 0; font-family: monospace; color: #000; word-break: break-all; line-height: 1.2; flex-shrink: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+          .info { font-size: 28px; font-weight: bold; letter-spacing: 0.3px; margin-top: 1px; font-family: monospace; color: #000; white-space: normal; text-align: center; line-height: 1.1; flex-shrink: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
           @media print { html, body { margin: 0; padding: 0; width: ${labelW}; height: ${labelH}; } }
         </style>
       </head>
@@ -1076,7 +1080,7 @@ const handleSubmit = async () => {
 
 .barcode-info {
   padding-top: 8px;
-  font-size: 20px;
+  font-size: 28px;
   font-weight: bold;
   letter-spacing: 0.3px;
   margin-top: 1px;
@@ -1097,7 +1101,6 @@ const handleSubmit = async () => {
 #barcode-preview {
   width: auto !important;
   max-width: 100%;
-  height: 50px !important;
   flex-shrink: 0;
   display: block;
 }

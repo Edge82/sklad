@@ -59,10 +59,10 @@
             v-model:value="formData.role"
             :options="roleOptions"
             placeholder="Выберите роль"
-            :disabled="!!employeeId"
+            :disabled="!canEditRole"
           />
         </n-form-item>
-        <n-text v-if="!!employeeId" depth="3" class="text-xs -mt-3 block">
+        <n-text v-if="!!employeeId && !canEditRole" depth="3" class="text-xs -mt-3 block">
           * Роль нельзя изменить после создания сотрудника
         </n-text>
 
@@ -114,9 +114,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, watch } from 'vue'
+import { ref, reactive, watch, computed } from 'vue'
 import type { FormInst, FormRules, UploadFileInfo } from 'naive-ui'
 import { useEmployeesStore } from '@/stores/employees'
+import { useUserStore } from '@/stores/user'
 import { useMessage } from 'naive-ui'
 import type { Employee } from '@/types'
 import {
@@ -145,10 +146,14 @@ const emit = defineEmits<{
 }>()
 
 const employeesStore = useEmployeesStore()
+const userStore = useUserStore()
 const message = useMessage()
 const formRef = ref<FormInst | null>(null)
 const loading = ref(false)
 const isReading = ref(false)
+
+// Админ, директор и менеджер могут менять роль при редактировании
+const canEditRole = computed(() => !props.employeeId || ['admin', 'director', 'manager'].includes(userStore.user?.role || ''))
 
 const handleFileListChange = (data: { fileList: UploadFileInfo[] }) => {
   const fileList = data.fileList

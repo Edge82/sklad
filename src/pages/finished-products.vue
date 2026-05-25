@@ -365,7 +365,7 @@ const getProductShipmentMeta = (item: InventoryItem) => {
   const totalCount = effectiveCodes.length
   const scannedCount = effectiveCodes.filter(q => q.status === 'scanned' || q.status === 'shipped').length
   const shippedCount = effectiveCodes.filter(q => q.status === 'shipped').length
-  const progress = totalCount > 0 ? Math.min(Math.round((scannedCount / totalCount) * 100), 100) : 0
+  const progress = totalCount > 0 ? Math.min(Math.round((shippedCount / totalCount) * 100), 100) : 0
 
   // Получаем цену и сумму из позиции заказа
   let unitPrice = 0

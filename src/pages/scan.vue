@@ -261,9 +261,41 @@ const columns = computed<DataTableColumns>(() => [
   }
 ])
 
+// Конвертация символов русской раскладки клавиатуры в латинские
+// (сканер работает как клавиатура и вводит русские буквы при русской раскладке)
+const convertRussianKeyboardToLatin = (text: string): string => {
+  const map: Record<string, string> = {
+    'й': 'q', 'ц': 'w', 'у': 'e', 'к': 'r', 'е': 't', 'н': 'y', 'г': 'u', 'ш': 'i', 'щ': 'o', 'з': 'p',
+    'х': '[', 'ъ': ']',
+    'ф': 'a', 'ы': 's', 'в': 'd', 'а': 'f', 'п': 'g', 'р': 'h', 'о': 'j', 'л': 'k', 'д': 'l',
+    'ж': ';', 'э': "'",
+    'я': 'z', 'ч': 'x', 'с': 'c', 'м': 'v', 'и': 'b', 'т': 'n', 'ь': 'm',
+    'б': ',', 'ю': '.',
+    'Й': 'Q', 'Ц': 'W', 'У': 'E', 'К': 'R', 'Е': 'T', 'Н': 'Y', 'Г': 'U', 'Ш': 'I', 'Щ': 'O', 'З': 'P',
+    'Х': '[', 'Ъ': ']',
+    'Ф': 'A', 'Ы': 'S', 'В': 'D', 'А': 'F', 'П': 'G', 'Р': 'H', 'О': 'J', 'Л': 'K', 'Д': 'L',
+    'Ж': ';', 'Э': "'",
+    'Я': 'Z', 'Ч': 'X', 'С': 'C', 'М': 'V', 'И': 'B', 'Т': 'N', 'Ь': 'M',
+    'Б': ',', 'Ю': '.',
+    '.': '/',  // клавиша "/" на русской раскладке даёт "."
+  }
+  return text.split('').map(char => map[char] || char).join('')
+}
+
 const handleScan = async () => {
-  const code = lastScannedCode.value.trim()
+  // Очищаем код от спецсимволов сканера и конвертируем раскладку
+  const code = convertRussianKeyboardToLatin(
+    lastScannedCode.value
+      .trim()
+      .replace(/[\|\r\n\t]+/g, '')
+  )
+
   if (!code) return
+
+  // Очищаем предыдущее сообщение об ошибке при новом сканировании
+  if (statusMessage.value?.type === 'error') {
+    statusMessage.value = null
+  }
 
   // Ищем QR код в базе
   const qrCode = qrStore.qrCodesMap.get(code)
@@ -275,7 +307,7 @@ const handleScan = async () => {
       resultMessage: 'QR код не найден',
       resultType: 'error'
     })
-    message.error(`QR код "${code}" не найден`)
+    statusMessage.value = { type: 'error', text: `QR код "${code}" не найден` }
     lastScannedCode.value = ''
     nextTick(() => {
       scanInputRef.value?.focus()
@@ -319,7 +351,29 @@ const handleScan = async () => {
         resultType: 'warning'
       })
       message.warning(`Товар уже отгружен: ${qrCode.productName}`)
+      checkOrderStatus(qrCode.orderNumber)
     } else if (isAlreadyInWarehouse) {
+      // Проверка: если у изделия уже есть упаковка на складе — отгружаем только упаковку
+      if (!qrCode.isPackage) {
+        const packageOnWarehouse = qrStore.qrCodes.find(q =>
+          q.orderId === qrCode.orderId &&
+          q.productId === qrCode.productId &&
+          q.isPackage &&
+          q.status === 'scanned'
+        )
+        if (packageOnWarehouse) {
+          statusMessage.value = {
+            type: 'error',
+            text: '❌ Деталь упакована, для отгрузки отсканируйте упаковку.'
+          }
+          lastScannedCode.value = ''
+          nextTick(() => {
+            scanInputRef.value?.focus()
+          })
+          return
+        }
+      }
+
       scannedCodes.value.push({
         code: code,
         qrId: qrCode.id,
@@ -338,7 +392,58 @@ const handleScan = async () => {
       })
 
       message.success(`✓ Товар добавлен к отгрузке: ${qrCode.productName}`)
+      checkOrderStatus(qrCode.orderNumber)
     } else {
+      // Проверка: если упаковочный код — все ли детали отсканированы?
+      if (qrCode.isPackage) {
+        const siblingCodes = qrStore.qrCodes.filter(q =>
+          q.orderId === qrCode.orderId &&
+          q.productId === qrCode.productId &&
+          !q.isPackage &&
+          q.status !== 'shipped'
+        )
+        const unscannedCount = siblingCodes.filter(q => q.status === 'generated' || q.status === 'printed').length
+
+        if (unscannedCount > 0) {
+          scanHistory.value.unshift({
+            time: new Date(),
+            code: code,
+            resultMessage: `Упаковка заблокирована: не все детали отсканированы (${siblingCodes.length - unscannedCount}/${siblingCodes.length})`,
+            resultType: 'error'
+          })
+          statusMessage.value = {
+            type: 'error',
+            text: `❌ Упаковка «${qrCode.productName}» не может быть перемещена. Отсканируйте все детали (${unscannedCount} шт. осталось).`
+          }
+          lastScannedCode.value = ''
+          nextTick(() => {
+            scanInputRef.value?.focus()
+          })
+          return
+        }
+      }
+
+      // Проверка: если это деталь и у изделия уже есть упаковка на складе — отгружаем только упаковку
+      if (!qrCode.isPackage) {
+        const packageOnWarehouse = qrStore.qrCodes.find(q =>
+          q.orderId === qrCode.orderId &&
+          q.productId === qrCode.productId &&
+          q.isPackage &&
+          q.status === 'scanned'
+        )
+        if (packageOnWarehouse) {
+          statusMessage.value = {
+            type: 'error',
+            text: '❌ Деталь упакована, для отгрузки отсканируйте упаковку.'
+          }
+          lastScannedCode.value = ''
+          nextTick(() => {
+            scanInputRef.value?.focus()
+          })
+          return
+        }
+      }
+
       // ПЕРВОЕ СКАНИРОВАНИЕ - товар ждет перемещения на склад готовой продукции
       scannedCodes.value.push({
         code: code,
@@ -369,25 +474,39 @@ const handleScan = async () => {
 }
 
 const checkOrderStatus = (orderNumber: string | undefined) => {
-  if (!orderNumber) return
+  if (!orderNumber || orderNumber === 'Без номера') return
 
-  const scannedForOrder = scannedCodes.value.filter(item => item.orderNumber === orderNumber)
-  // Только коды со статусом 'generated' нужно отгружать
-  const pendingOrderQRs = qrStore.qrCodes.filter(q =>
-    q.orderNumber === orderNumber && q.status === 'generated'
-  )
+  // Все QR-коды для этого заказа
+  const allOrderQRs = qrStore.qrCodes.filter(q => q.orderNumber === orderNumber)
 
-  if (pendingOrderQRs.length === 0) return
+  // Проверяем, есть ли упаковочные коды у этого заказа
+  const packageCodes = allOrderQRs.filter(q => q.isPackage)
+  const hasPackages = packageCodes.length > 0
 
-  if (scannedForOrder.length === pendingOrderQRs.length) {
+  // Если есть упаковки — считаем только по упаковкам, иначе по деталям
+  const codesToCount = hasPackages ? packageCodes : allOrderQRs.filter(q => !q.isPackage)
+
+  const shippedCount = codesToCount.filter(q => q.status === 'shipped').length
+  const totalCount = codesToCount.length
+
+  if (totalCount === 0) return
+
+  const itemType = hasPackages ? 'упаковок' : 'позиций'
+
+  if (shippedCount === totalCount) {
     statusMessage.value = {
       type: 'success',
-      text: `✓ Заказ ${orderNumber} готов к отгрузке полностью (отсканировано ${scannedForOrder.length}/${pendingOrderQRs.length})`
+      text: `✓ Заказ ${orderNumber} полностью отгружен (${shippedCount}/${totalCount} ${itemType})`
     }
-  } else if (scannedForOrder.length < pendingOrderQRs.length) {
+  } else if (shippedCount > 0) {
     statusMessage.value = {
       type: 'warning',
-      text: `⚠ Заказ ${orderNumber} отгружен не полностью (отсканировано ${scannedForOrder.length}/${pendingOrderQRs.length}). Проверьте заказ.`
+      text: `⚠ Заказ ${orderNumber} отгружен частично (${shippedCount}/${totalCount} ${itemType}). Осталось: ${totalCount - shippedCount} шт.`
+    }
+  } else {
+    statusMessage.value = {
+      type: 'info',
+      text: `📦 Заказ ${orderNumber}: не отгружено ни одной позиции из ${totalCount}`
     }
   }
 }
@@ -414,21 +533,26 @@ const transferToWarehouse = async () => {
 
   try {
     for (const item of itemsToTransfer) {
+      const payload = {
+        qrId: item.qrId,
+        productName: item.productName,
+        quantity: 1,
+        orderNumber: item.orderNumber,
+        employeeId: userStore.user?.id,
+        employeeName: userStore.user?.name
+      }
+      console.log('📦 [SCAN] Sending payload:', JSON.stringify(payload))
+
       const response = await fetch('/sklad/api/inventory/receive-finished-product', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          qrId: item.qrId,
-          productName: item.productName,
-          quantity: 1,
-          orderNumber: item.orderNumber,
-          employeeId: userStore.user?.id,
-          employeeName: userStore.user?.name
-        })
+        body: JSON.stringify(payload)
       })
 
       if (!response.ok) {
-        throw new Error(`Не удалось переместить товар ${item.productName}`)
+        const errorData = await response.json().catch(() => ({ error: 'Unknown server error' }))
+        console.error('📦 [SCAN] Server error:', response.status, errorData)
+        throw new Error(errorData.error || `HTTP ${response.status}`)
       }
 
       item.warehouseState = 'received'
@@ -471,6 +595,11 @@ const completeShipment = async () => {
 
   const count = itemsToShip.length
   message.success(`Отгрузка завершена! Отправлено ${count} QR кодов`)
+
+  // Обновляем прогресс отгрузки по заказам
+  const shippedOrderNumbers = new Set(itemsToShip.map(item => item.orderNumber))
+  shippedOrderNumbers.forEach(orderNum => checkOrderStatus(orderNum))
+
   clearSession()
 
   // Перезагружаем историю с бэка

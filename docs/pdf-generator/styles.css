@@ -1,0 +1,170 @@
+/* Стили для PDF-версии руководства пользователя */
+
+@page {
+  size: A4;
+  margin: 20mm 15mm 20mm 15mm;
+}
+
+body {
+  font-family: 'Segoe UI', Arial, sans-serif;
+  font-size: 11pt;
+  line-height: 1.6;
+  color: #333;
+}
+
+/* Заголовки */
+h1 {
+  font-size: 24pt;
+  color: #1a1a1a;
+  border-bottom: 3px solid #0066cc;
+  padding-bottom: 10px;
+  margin-top: 0;
+  page-break-before: always;
+}
+
+h1:first-of-type {
+  page-break-before: avoid;
+}
+
+h2 {
+  font-size: 16pt;
+  color: #0066cc;
+  border-bottom: 1px solid #ddd;
+  padding-bottom: 5px;
+  margin-top: 25px;
+}
+
+h3 {
+  font-size: 13pt;
+  color: #444;
+  margin-top: 20px;
+}
+
+/* Таблицы */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 15px 0;
+  font-size: 10pt;
+}
+
+th {
+  background-color: #0066cc;
+  color: white;
+  padding: 8px 10px;
+  text-align: left;
+  font-weight: 600;
+}
+
+td {
+  padding: 6px 10px;
+  border-bottom: 1px solid #ddd;
+}
+
+tr:nth-child(even) {
+  background-color: #f8f9fa;
+}
+
+/* Изображения */
+img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+  margin: 15px auto;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+/* Подписи к рисункам */
+img + em,
+p > em {
+  display: block;
+  text-align: center;
+  font-size: 10pt;
+  color: #666;
+  margin-top: 5px;
+  margin-bottom: 15px;
+}
+
+/* Код и блоки */
+code {
+  background-color: #f4f4f4;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-family: 'Consolas', monospace;
+  font-size: 10pt;
+}
+
+pre {
+  background-color: #f8f9fa;
+  padding: 15px;
+  border-radius: 5px;
+  border-left: 4px solid #0066cc;
+  overflow-x: auto;
+  font-size: 9pt;
+}
+
+/* Списки */
+ul, ol {
+  margin: 10px 0;
+  padding-left: 25px;
+}
+
+li {
+  margin: 5px 0;
+}
+
+/* Разделители */
+hr {
+  border: none;
+  border-top: 2px solid #eee;
+  margin: 30px 0;
+}
+
+/* Ссылки */
+a {
+  color: #0066cc;
+  text-decoration: none;
+}
+
+/* Жирный текст в таблицах */
+strong {
+  color: #1a1a1a;
+}
+
+/* Эмодзи */
+.emoji,
+img[src*="emoji"] {
+  width: 16px;
+  height: 16px;
+  display: inline;
+  border: none;
+  box-shadow: none;
+  margin: 0;
+}
+
+/* Разрывы страниц */
+h2, h3 {
+  page-break-after: avoid;
+}
+
+table, img, pre {
+  page-break-inside: avoid;
+}
+
+/* Верхний колонтитул */
+@page :first {
+  @top-center {
+    content: none;
+  }
+}
+
+/* Нижний колонтитул с номером страницы */
+@page {
+  @bottom-center {
+    content: counter(page);
+    font-size: 9pt;
+    color: #999;
+  }
+}

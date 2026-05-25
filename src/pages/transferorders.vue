@@ -16,10 +16,16 @@
           </n-text>
         </div>
       </div>
-      <n-button v-if="!selectedOrderId" type="primary" @click="handleSync" :loading="syncing">
-        <template #icon><n-icon><ReloadOutline /></n-icon></template>
-        Синхронизировать с 1С
-      </n-button>
+      <n-space>
+        <n-button v-if="selectedOrderId" type="default" @click="printTransferOrder">
+          <template #icon><n-icon><PrintOutline /></n-icon></template>
+          Распечатать заказ
+        </n-button>
+        <n-button v-if="!selectedOrderId" type="primary" @click="handleSync" :loading="syncing">
+          <template #icon><n-icon><ReloadOutline /></n-icon></template>
+          Синхронизировать с 1С
+        </n-button>
+      </n-space>
     </div>
 
     <!-- Список заказов -->
@@ -27,8 +33,8 @@
       <!-- Статистика -->
       <n-grid :cols="4" :x-gap="12" :y-gap="12" class="mb-6 items-stretch py-2">
         <n-gi>
-          <n-card 
-            size="small" 
+          <n-card
+            size="small"
             hoverable
             class="metric-card h-full flex flex-col justify-center"
             :class="{ 'active': !filterStatus }"
@@ -47,8 +53,8 @@
         </n-gi>
 
         <n-gi>
-          <n-card 
-            size="small" 
+          <n-card
+            size="small"
             hoverable
             class="metric-card h-full flex flex-col justify-center"
             :class="{ 'active': filterStatus === 'draft' }"
@@ -67,8 +73,8 @@
         </n-gi>
 
         <n-gi>
-          <n-card 
-            size="small" 
+          <n-card
+            size="small"
             hoverable
             class="metric-card h-full flex flex-col justify-center"
             :class="{ 'active': filterStatus === 'completed' }"
@@ -87,8 +93,8 @@
         </n-gi>
 
         <n-gi>
-          <n-card 
-            size="small" 
+          <n-card
+            size="small"
             hoverable
             class="metric-card h-full flex flex-col justify-center"
             :class="{ 'active': filterStatus === 'active' }"
@@ -110,7 +116,7 @@
       <div style="margin-top: 24px;">
         <n-spin :show="loading">
           <n-empty v-if="orders.length === 0" description="Нет заказов на перемещение" />
-          
+
           <n-data-table
           v-else
           :columns="columns"
@@ -194,7 +200,7 @@
           <!-- Товары для сканирования -->
           <n-card v-if="!scanningMode" size="small" title="Товары для сканирования">
             <n-empty v-if="!selectedOrder.items || selectedOrder.items.length === 0" description="Нет товаров в заказе" />
-            
+
             <div v-else class="space-y-3">
               <n-data-table
                 :columns="itemsColumns"
@@ -217,19 +223,26 @@
                   <n-text>{{ selectedOrder.items?.filter(i => (i.scannedQty || 0) === i.Количество).length }} / {{ selectedOrder.items?.length || 0 }}</n-text>
                 </div>
                 <div class="bg-gray-200 rounded-full h-2">
-                  <div 
+                  <div
                     class="bg-green-500 h-2 rounded-full transition-all"
                     :style="{ width: `${selectedOrder.items?.length ? (selectedOrder.items.filter(i => (i.scannedQty || 0) === i.Количество).length / selectedOrder.items.length * 100) : 0}%` }"
                   />
                 </div>
               </div>
 
-              <!-- Буфер ввода штрихкода -->
+              <!-- Поле ввода штрихкода (скрытое, но в фокусе) -->
               <div>
-                <n-text depth="2">Текущий штрихкод:</n-text>
-                <div class="mt-2 p-4 bg-slate-900 rounded border-2 border-blue-500 font-mono text-xl font-bold text-white">
-                  {{ barcodeBuffer || lastBarcode || '(сканируйте товар)' }}
-                </div>
+                <n-input
+                  ref="barcodeInputRef"
+                  v-model:value="barcodeBuffer"
+                  placeholder="Сканируйте штрихкоды..."
+                  size="large"
+                  @keyup.enter="handleScan"
+                  class="barcode-input"
+                />
+                <n-text depth="3" class="mt-2 block">
+                  Последний отсканированный: <code>{{ lastBarcode || '—' }}</code>
+                </n-text>
               </div>
 
               <!-- Список товаров для сканирования -->
@@ -267,8 +280,8 @@
                 size="small"
                 striped
               />
-              
-              <n-alert 
+
+              <n-alert
                 :type="(selectedOrder.items?.reduce((s, i) => s + (i.scannedQty || 0), 0) || 0) === (selectedOrder.items?.reduce((s, i) => s + i.Количество, 0) || 0) ? 'success' : 'warning'"
               >
                 <template v-if="(selectedOrder.items?.reduce((s, i) => s + (i.scannedQty || 0), 0) || 0) === (selectedOrder.items?.reduce((s, i) => s + i.Количество, 0) || 0)">
@@ -280,8 +293,8 @@
               </n-alert>
 
               <div class="flex gap-2 flex-wrap">
-                <n-button 
-                  type="primary" 
+                <n-button
+                  type="primary"
                   size="large"
                   @click="saveScanningLocally"
                   v-if="(selectedOrder.items?.reduce((s, i) => s + (i.scannedQty || 0), 0) || 0) < (selectedOrder.items?.reduce((s, i) => s + i.Количество, 0) || 0)"
@@ -289,9 +302,9 @@
                 >
                   💾 {{ selectedOrder.saved ? '✓ Сохранено локально' : 'Сохранить локально' }}
                 </n-button>
-                
-                <n-button 
-                  type="success" 
+
+                <n-button
+                  type="success"
                   size="large"
                   @click="submitToOnec"
                   :loading="syncing"
@@ -299,8 +312,8 @@
                 >
                   🚀 Отправить в 1C
                 </n-button>
-                
-                <n-button 
+
+                <n-button
                   @click="continueScanningAfterCompletion"
                   size="large"
                 >
@@ -312,16 +325,16 @@
 
           <!-- Кнопки действий для нормального режима -->
           <div v-if="!scanningComplete" class="flex gap-2">
-            <n-button 
+            <n-button
               v-if="!scanningMode && selectedOrder?.statusDescription !== 'Завершен'"
-              type="primary" 
+              type="primary"
               size="large"
               @click="startScanning"
             >
               <template #icon><n-icon><CameraOutline /></n-icon></template>
               Начать сканирование
             </n-button>
-            <n-button 
+            <n-button
               v-if="selectedOrder?.statusDescription === 'Завершен' && !scanningMode"
               disabled
               type="default"
@@ -330,9 +343,9 @@
               <template #icon><n-icon><CloseCircleOutline /></n-icon></template>
               Заказ завершён
             </n-button>
-            <n-button 
+            <n-button
               v-else-if="scanningMode"
-              type="error" 
+              type="error"
               size="large"
               @click="stopScanning"
               style="color: white; font-weight: bold; font-size: 16px;"
@@ -348,7 +361,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, h, onBeforeUnmount, watch } from 'vue'
+import { ref, computed, onMounted, h, onBeforeUnmount, watch, nextTick } from 'vue'
 import { useStockBalances } from '@/composables/useStockBalances'
 import { useMessage } from 'naive-ui'
 import {
@@ -365,9 +378,10 @@ import {
   NH1,
   NH3,
   NAlert,
-  NInput
+  NInput,
+  type InputInst
 } from 'naive-ui'
-import { ArrowBackOutline, CameraOutline, ReloadOutline, CloseCircleOutline, CubeOutline, PencilOutline, CheckmarkCircleOutline, TimeOutline } from '@vicons/ionicons5'
+import { ArrowBackOutline, CameraOutline, ReloadOutline, CloseCircleOutline, CubeOutline, PencilOutline, CheckmarkCircleOutline, TimeOutline, PrintOutline } from '@vicons/ionicons5'
 import type { DataTableColumns } from 'naive-ui'
 
 interface TransferOrder {
@@ -405,6 +419,7 @@ const scanningMode = ref(false)
 const scanningComplete = ref(false)
 const barcodeBuffer = ref('')
 const lastBarcode = ref('')
+const barcodeInputRef = ref<InputInst | null>(null)
 const filterStatus = ref('')
 const orders = ref<TransferOrder[]>([])
 const selectedOrderId = ref<string | null>(null)
@@ -435,8 +450,10 @@ const startScanning = () => {
   lastBarcode.value = ''
   scannedBarcodes.value.clear()
   message.info('🔴 Режим сканирования активирован. Сканируйте товары...')
-  // Фокусируем документ для перехвата клавиш
-  window.focus()
+  // Фокусируем поле ввода штрихкода
+  nextTick(() => {
+    barcodeInputRef.value?.focus()
+  })
 }
 
 const stopScanning = () => {
@@ -444,16 +461,16 @@ const stopScanning = () => {
   barcodeBuffer.value = ''
   lastBarcode.value = ''
   scanningComplete.value = true
-  
+
   const totalItems = selectedOrder.value?.items?.reduce((sum, item) => sum + item.Количество, 0) || 0
   const scannedCount = selectedOrder.value?.items?.reduce((sum, item) => sum + (item.scannedQty || 0), 0) || 0
-  
+
   if (scannedCount === 0) {
     message.warning('Ничего не отсканировано')
     scanningComplete.value = false
     return
   }
-  
+
   if (scannedCount === totalItems) {
     message.success(`✓ Все товары отсканированы! ${scannedCount}/${totalItems}`)
   } else if (scannedCount < totalItems) {
@@ -461,14 +478,52 @@ const stopScanning = () => {
   }
 }
 
+let scanTimeout: ReturnType<typeof setTimeout> | null = null
+
+// Конвертация символов русской раскладки клавиатуры в латинские
+// (сканер работает как клавиатура и вводит русские буквы при русской раскладке)
+const convertRussianKeyboardToLatin = (text: string): string => {
+  const map: Record<string, string> = {
+    'й': 'q', 'ц': 'w', 'у': 'e', 'к': 'r', 'е': 't', 'н': 'y', 'г': 'u', 'ш': 'i', 'щ': 'o', 'з': 'p',
+    'х': '[', 'ъ': ']',
+    'ф': 'a', 'ы': 's', 'в': 'd', 'а': 'f', 'п': 'g', 'р': 'h', 'о': 'j', 'л': 'k', 'д': 'l',
+    'ж': ';', 'э': "'",
+    'я': 'z', 'ч': 'x', 'с': 'c', 'м': 'v', 'и': 'b', 'т': 'n', 'ь': 'm',
+    'б': ',', 'ю': '.',
+    'Й': 'Q', 'Ц': 'W', 'У': 'E', 'К': 'R', 'Е': 'T', 'Н': 'Y', 'Г': 'U', 'Ш': 'I', 'Щ': 'O', 'З': 'P',
+    'Х': '[', 'Ъ': ']',
+    'Ф': 'A', 'Ы': 'S', 'В': 'D', 'А': 'F', 'П': 'G', 'Р': 'H', 'О': 'J', 'Л': 'K', 'Д': 'L',
+    'Ж': ';', 'Э': "'",
+    'Я': 'Z', 'Ч': 'X', 'С': 'C', 'М': 'V', 'И': 'B', 'Т': 'N', 'Ь': 'M',
+    'Б': ',', 'Ю': '.',
+    '.': '/',
+  }
+  return text.split('').map(char => map[char] || char).join('')
+}
+
+// Функция нормализации штрихкода (удаляем пробелы, управляющие символы)
+const normalizeBarcode = (code: string): string => {
+  return convertRussianKeyboardToLatin(
+    code
+      .trim()
+      .replace(/[\r\n\t]+/g, '')
+  )
+}
+
 const procesBarcode = (barcode: string) => {
   if (!selectedOrder.value?.items || !barcode.trim()) return
 
-  const foundItem = selectedOrder.value.items.find(item => item.barcode === barcode)
-  
+  // Нормализуем введённый штрихкод
+  const normalizedBarcode = normalizeBarcode(barcode)
+
+  // Ищем товар по штрихкоду (также нормализуем штрихкод из базы)
+  const foundItem = selectedOrder.value.items.find(item => {
+    const itemBarcode = normalizeBarcode(item.barcode || '')
+    return itemBarcode === normalizedBarcode
+  })
+
   if (!foundItem) {
     message.error(`✗ Штрихкод не найден: ${barcode}`)
-    barcodeBuffer.value = ''
     return
   }
 
@@ -478,31 +533,43 @@ const procesBarcode = (barcode: string) => {
   // Проверяем не превышено ли количество
   if (currentQty >= requiredQty) {
     message.error(`🚫 Товар "${foundItem.nomenclatureName}" уже полностью отсканирован! (${currentQty}/${requiredQty})`)
-    barcodeBuffer.value = ''
     return
   }
 
   // Увеличиваем счетчик
   foundItem.scannedQty = currentQty + 1
-  scannedBarcodes.value.add(barcode)
-  
+  scannedBarcodes.value.add(normalizedBarcode)
+
   // Сбрасываем флаг saved при сканировании
   if (selectedOrder.value) {
     selectedOrder.value.saved = false
   }
-  
+
   const newQty = foundItem.scannedQty
   const totalScanned = selectedOrder.value.items.reduce((sum, item) => sum + (item.scannedQty || 0), 0)
   const totalRequired = selectedOrder.value.items.reduce((sum, item) => sum + item.Количество, 0)
   const percent = Math.round((totalScanned / totalRequired) * 100)
-  
+
   if (newQty === requiredQty) {
     message.success(`✓ ${foundItem.nomenclatureName} завершено! (${newQty}/${requiredQty})`)
   } else {
     message.info(`✓ ${foundItem.nomenclatureName}: ${newQty}/${requiredQty} (Всего: ${totalScanned}/${totalRequired} - ${percent}%)`)
   }
-  
+}
+
+const handleScan = () => {
+  const barcode = barcodeBuffer.value.trim()
+  if (!barcode) return
+
+  const normalized = normalizeBarcode(barcode)
+  lastBarcode.value = normalized
+  procesBarcode(barcode)
   barcodeBuffer.value = ''
+
+  // Возвращаем фокус на поле ввода
+  nextTick(() => {
+    barcodeInputRef.value?.focus()
+  })
 }
 
 const handleKeyDown = (event: KeyboardEvent) => {
@@ -521,23 +588,16 @@ const handleKeyDown = (event: KeyboardEvent) => {
     stopScanning()
     return
   }
-
-  // Enter - завершить ввод штрихкода
-  if (event.key === 'Enter') {
-    event.preventDefault()
-    if (barcodeBuffer.value.trim()) {
-      lastBarcode.value = barcodeBuffer.value.trim()
-      procesBarcode(barcodeBuffer.value.trim())
-      barcodeBuffer.value = ''
-    }
-    return
-  }
-
-  // Собираем символы штрихкода
-  if (event.key.length === 1) {
-    barcodeBuffer.value += event.key
-  }
 }
+
+// Автообработка штрихкода при вводе (watch с debounce как в scan.vue)
+watch(barcodeBuffer, (val) => {
+  if (scanTimeout) clearTimeout(scanTimeout)
+  if (!val.trim()) return
+  scanTimeout = setTimeout(() => {
+    handleScan()
+  }, 300)
+})
 
 const formatDate = (dateStr: string) => {
   if (!dateStr) return '-'
@@ -550,22 +610,22 @@ const formatDate = (dateStr: string) => {
 }
 
 // Вычисляемые свойства для статистики
-const draftOrdersCount = computed(() => 
+const draftOrdersCount = computed(() =>
   orders.value.filter(o => !o.Posted).length
 )
 
-const completedOrdersCount = computed(() => 
+const completedOrdersCount = computed(() =>
   orders.value.filter(o => o.statusDescription === 'Завершен').length
 )
 
-const activeOrdersCount = computed(() => 
+const activeOrdersCount = computed(() =>
   orders.value.filter(o => o.Posted && o.statusDescription !== 'Завершен').length
 )
 
 // Отфильтрованные заказы для таблицы
 const filteredOrders = computed(() => {
   if (!filterStatus.value) return orders.value
-  
+
   switch (filterStatus.value) {
     case 'draft':
       return orders.value.filter(o => !o.Posted)
@@ -664,7 +724,7 @@ const itemsColumns: DataTableColumns<any> = [
     render: (row) => {
       const scanned = row.scannedQty || 0
       const required = row.Количество || 0
-      
+
       return h('div', { class: 'flex items-center gap-2 justify-center' }, [
         h(NButton, {
           text: true,
@@ -711,7 +771,7 @@ const itemsScanColumns: DataTableColumns<any> = [
     render: (row) => {
       const scanned = row.scannedQty || 0
       const required = row.Количество || 0
-      
+
       if (scanned === required) {
         return h(NTag, { type: 'success', round: true }, {
           default: () => '✓ OK'
@@ -759,7 +819,7 @@ const itemsScanColumns: DataTableColumns<any> = [
       const scanned = row.scannedQty || 0
       const required = row.Количество || 0
       const typeTag = scanned === required ? 'success' : scanned > required ? 'error' : 'warning'
-      
+
       return h('div', { class: 'flex items-center gap-2 justify-center' }, [
         h(NButton, {
           text: true,
@@ -799,19 +859,19 @@ const itemsScanColumns: DataTableColumns<any> = [
 
 const saveScannedDataToStorage = () => {
   if (!selectedOrder.value?.items) return
-  
+
   const scannedData = selectedOrder.value.items.map(item => ({
     barcode: item.barcode,
     scannedQty: item.scannedQty || 0
   }))
-  
+
   localStorage.setItem(`scan_${selectedOrder.value.Ref_Key}`, JSON.stringify(scannedData))
 }
 
 const loadScannedDataFromStorage = (orderId: string) => {
   const stored = localStorage.getItem(`scan_${orderId}`)
   if (!stored) return
-  
+
   try {
     const scannedData = JSON.parse(stored)
     if (selectedOrder.value?.items) {
@@ -835,7 +895,7 @@ const openOrder = async (orderId: string) => {
   barcodeBuffer.value = ''
   lastBarcode.value = ''
   scannedBarcodes.value.clear()
-  
+
   try {
     const details = await fetchTransferOrderDetails(orderId)
     // Инициализируем scannedQty для всех товаров
@@ -846,7 +906,7 @@ const openOrder = async (orderId: string) => {
     }
     details.saved = false
     selectedOrder.value = details
-    
+
     // Загружаем сохранённые данные сканирования из БД
     try {
       const scans = await loadTransferOrderScans(orderId)
@@ -869,7 +929,7 @@ const openOrder = async (orderId: string) => {
 
 const saveScanningLocally = () => {
   if (!selectedOrder.value) return
-  
+
   const result = {
     orderId: selectedOrder.value.Ref_Key,
     orderNumber: selectedOrder.value.Number,
@@ -881,35 +941,35 @@ const saveScanningLocally = () => {
       scanned: item.scannedQty || 0
     }))
   }
-  
+
   // Сохраняем в localStorage
   const existing = JSON.parse(localStorage.getItem('transfer_order_scans') || '[]')
   existing.push(result)
   localStorage.setItem('transfer_order_scans', JSON.stringify(existing))
-  
+
   // Добавляем флаг что сохранено
   if (selectedOrder.value) {
     selectedOrder.value.saved = true
   }
-  
+
   message.success(`✓ Результат сохранён локально. Отсканировано товаров: ${result.items?.reduce((s, i) => s + i.scanned, 0)}`)
   // Экран результатов остаётся видимым!
 }
 
 const submitToOnec = async () => {
   if (!selectedOrder.value) return
-  
+
   syncing.value = true
   try {
     // Проверяем что всё совпало
     const totalScanned = selectedOrder.value.items?.reduce((sum, item) => sum + (item.scannedQty || 0), 0) || 0
     const totalRequired = selectedOrder.value.items?.reduce((sum, item) => sum + item.Количество, 0) || 0
-    
+
     if (totalScanned !== totalRequired) {
       message.error(`Количество не совпадает: ${totalScanned}/${totalRequired}`)
       return
     }
-    
+
     const orderId = selectedOrder.value.Ref_Key
     await completeTransferOrderInOneC(orderId)
 
@@ -937,6 +997,129 @@ const continueScanningAfterCompletion = () => {
   barcodeBuffer.value = ''
   lastBarcode.value = ''
   message.info('Режим сканирования продолжен...')
+  nextTick(() => {
+    barcodeInputRef.value?.focus()
+  })
+}
+
+const printTransferOrder = () => {
+  if (!selectedOrder.value) return
+
+  const order = selectedOrder.value
+
+  // Создаём скрытый iframe для печати
+  const iframe = document.createElement('iframe')
+  iframe.style.position = 'fixed'
+  iframe.style.right = '0'
+  iframe.style.bottom = '0'
+  iframe.style.width = '0'
+  iframe.style.height = '0'
+  iframe.style.border = '0'
+  document.body.appendChild(iframe)
+
+  const itemsHtml = (order.items || []).map((item) => `
+    <tr>
+      <td style="border:1px solid #333;padding:8px;">${item.nomenclatureName || '-'}</td>
+      <td style="border:1px solid #333;padding:8px;text-align:center;">${item.Количество || 0}</td>
+      <td style="border:1px solid #333;padding:8px;text-align:center;">${item.storageBin || '-'}</td>
+    </tr>
+  `).join('')
+
+  const doc = iframe.contentDocument || iframe.contentWindow?.document
+  if (!doc) {
+    message.error('Ошибка при создании документа для печати')
+    document.body.removeChild(iframe)
+    return
+  }
+
+  doc.write(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="UTF-8">
+      <title>Заказ на перемещение ${order.Number}</title>
+      <style>
+        @page { margin: 10mm; size: auto; }
+        body { font-family: Arial, sans-serif; font-size: 11pt; color: #000; margin: 0; padding: 0; }
+        h1 { font-size: 16pt; margin-bottom: 6px; margin-top: 0; }
+        .meta { margin-bottom: 12px; font-size: 10pt; }
+        .meta-row { display: flex; justify-content: space-between; margin-bottom: 4px; }
+        .meta-label { color: #555; }
+        .meta-value { font-weight: bold; }
+        table { width: 100%; border-collapse: collapse; margin-top: 8px; table-layout: fixed; }
+        th { background: #f0f0f0; font-weight: bold; text-align: left; font-size: 10pt; }
+        th, td { border: 1px solid #333; padding: 6px; word-wrap: break-word; }
+        td:nth-child(1) { width: 50%; }
+        td:nth-child(2) { width: 15%; text-align: center; }
+        td:nth-child(3) { width: 35%; }
+        .footer { margin-top: 20px; display: flex; justify-content: space-between; }
+        .sign { width: 45%; }
+        .sign-line { border-bottom: 1px solid #000; margin-top: 25px; margin-bottom: 3px; }
+        @media print {
+          body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        }
+      </style>
+    </head>
+    <body>
+      <h1>Заказ на перемещение № ${order.Number}</h1>
+      <div class="meta">
+        <div class="meta-row">
+          <span><span class="meta-label">Дата:</span> <span class="meta-value">${formatDate(order.Date)}</span></span>
+          <span><span class="meta-label">Состояние:</span> <span class="meta-value">${order.statusDescription || '—'}</span></span>
+        </div>
+        <div class="meta-row">
+          <span><span class="meta-label">От склада:</span> <span class="meta-value">${order.sourceWarehouseName || '—'}</span></span>
+          <span><span class="meta-label">На склад:</span> <span class="meta-value">${order.destinationWarehouseName || '—'}</span></span>
+        </div>
+        ${order.customerOrderNumber ? `
+        <div class="meta-row">
+          <span><span class="meta-label">Заказ покупателя:</span> <span class="meta-value">${order.customerOrderNumber}</span></span>
+        </div>` : ''}
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Товар</th>
+            <th style="text-align:center;">Кол-во</th>
+            <th style="text-align:center;">Место хранения</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${itemsHtml || '<tr><td colspan="3" style="text-align:center;">Нет товаров</td></tr>'}
+        </tbody>
+      </table>
+
+      <div class="footer">
+        <div class="sign">
+          <div>Отправил:</div>
+          <div class="sign-line"></div>
+          <div style="font-size:9pt;color:#555;">подпись / ФИО</div>
+        </div>
+        <div class="sign">
+          <div>Принял:</div>
+          <div class="sign-line"></div>
+          <div style="font-size:9pt;color:#555;">подпись / ФИО</div>
+        </div>
+      </div>
+
+      <script>
+        window.onload = function() {
+          setTimeout(function() {
+            window.print();
+            setTimeout(function() {
+              const iframe = document.querySelector('iframe');
+              if (iframe && iframe.parentElement) {
+                iframe.parentElement.removeChild(iframe);
+              }
+            }, 100);
+          }, 200);
+        };
+      <\/script>
+    </body>
+    </html>
+  `)
+  doc.close()
 }
 
 // Автосохранение результатов сканирования при изменении
@@ -945,13 +1128,13 @@ watch(
   () => selectedOrder.value?.items,
   async (items) => {
     if (!selectedOrder.value || !items || scanningMode.value === false) return
-    
+
     // Сбрасываем флаг saved при любых изменениях в сканировании
     selectedOrder.value.saved = false
-    
+
     // Отменяем предыдущий таймер если есть
     if (saveTimeout) clearTimeout(saveTimeout)
-    
+
     // Ставим новый с задержкой в 500ms чтобы не спамить запросы
     saveTimeout = setTimeout(async () => {
       try {
@@ -959,8 +1142,8 @@ watch(
           barcode: item.barcode || '',
           scannedQty: item.scannedQty || 0
         })))
-      } catch (err) {
-        console.error('Ошибка при сохранении результатов сканирования:', err)
+      } catch {
+        // Тихо игнорируем ошибки автосохранения — данные всё равно хранятся в памяти
       }
     }, 500)
   },
@@ -986,6 +1169,7 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleKeyDown)
   if (saveTimeout) clearTimeout(saveTimeout)
+  if (scanTimeout) clearTimeout(scanTimeout)
 })
 </script>
 
@@ -1022,6 +1206,18 @@ kbd {
   border-radius: 3px;
   font-family: monospace;
   font-size: 0.85em;
+}
+
+.barcode-input {
+  font-family: monospace;
+  font-size: 1.25rem;
+}
+
+.barcode-input :deep(input) {
+  font-family: monospace;
+  font-size: 1.25rem;
+  text-align: center;
+  letter-spacing: 2px;
 }
 
 /* Прогресс-бар */

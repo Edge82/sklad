@@ -22,10 +22,11 @@
           <div class="qr-preview-wrapper">
             <div class="qr-preview-scaler" :style="previewStyle">
               <div id="qr-print-content" class="qr-label" :style="labelStyle">
+                <div v-if="orderLine" class="qr-order-line">{{ orderLine }}</div>
+                <div v-else class="qr-code-text">{{ code }}</div>
                 <img :src="qrUrl" class="qr-image" />
                 <div class="label-title">{{ title }}</div>
-                <div v-if="description" class="qr-description">{{ description }}</div>
-                <div v-else class="qr-code-text">{{ code }}</div>
+                <div v-if="extraInfo" class="qr-extra-info">{{ extraInfo }}</div>
               </div>
             </div>
           </div>
@@ -64,6 +65,19 @@ const emit = defineEmits(['update:show'])
 
 const scale = ref(1)
 const landscape = ref(false)
+
+// Разделяем description: первая строка = Заказ, остальное = доп.инфо
+const orderLine = computed(() => {
+  if (!props.description) return ''
+  const idx = props.description.indexOf('\n')
+  return idx >= 0 ? props.description.substring(0, idx).trim() : props.description.trim()
+})
+
+const extraInfo = computed(() => {
+  if (!props.description) return ''
+  const idx = props.description.indexOf('\n')
+  return idx >= 0 ? props.description.substring(idx + 1).trim() : ''
+})
 
 const previewStyle = computed(() => ({
   transform: `scale(${scale.value})`,
@@ -106,7 +120,7 @@ function handlePrint() {
   if (!qrUrl.value) return
 
   // Открываем popup синхронно (пока браузер считает это ответом на клик)
-  const printWindow = window.open('', '_blank', 'popup,width=400,height=600,top=100,left=100')
+  const printWindow = window.open('', '_blank', 'popup,width=850,height=700,top=50,left=100')
   if (!printWindow) return
 
   // Закрываем модалку перед печатью, чтобы системный диалог Chrome
@@ -141,25 +155,31 @@ function handlePrint() {
             align-items: center; justify-content: center;
             text-align: center; overflow: hidden;
             border: 0.3mm solid #ddd;
-            gap: 1mm;
+            gap: 1.5mm;
           }
           .qr-image {
-            width: 38mm;
-            height: 38mm;
+            width: 35mm;
+            height: 35mm;
             object-fit: contain;
             flex-shrink: 0;
           }
+          .qr-order-line {
+            font-size: 22pt; font-weight: 900; color: #000; line-height: 1.15;
+            width: 100%; overflow: hidden; text-overflow: ellipsis;
+            display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+            word-break: break-word; flex-shrink: 0;
+          }
           .label-title {
-            font-size: 16pt; font-weight: 800; line-height: 1.1;
+            font-size: 18pt; font-weight: 800; line-height: 1.1;
             font-family: monospace; color: #000;
             width: 100%; overflow: hidden; text-overflow: ellipsis;
             display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
             word-break: break-word; flex-shrink: 0;
           }
-          .qr-description {
-            font-size: 8.5pt; font-weight: 700; color: #222; line-height: 1.15;
+          .qr-extra-info {
+            font-size: 14pt; font-weight: 600; color: #444; line-height: 1.15;
             width: 100%; overflow: hidden; text-overflow: ellipsis;
-            display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical;
+            display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
             white-space: pre-wrap; word-break: break-word;
           }
           .qr-code-text {
@@ -171,9 +191,10 @@ function handlePrint() {
       <body>
         <div class="qr-scaler">
           <div class="qr-label">
+            ${orderLine.value ? `<div class="qr-order-line">${escapeHtml(orderLine.value)}</div>` : `<div class="qr-code-text">${escapeHtml(props.code)}</div>`}
             <img src="${qrUrl.value}" class="qr-image" />
             <div class="label-title">${escapeHtml(props.title)}</div>
-            ${props.description ? `<div class="qr-description">${escapeHtml(props.description).replace(/\n/g, '<br>')}</div>` : `<div class="qr-code-text">${escapeHtml(props.code)}</div>`}
+            ${extraInfo.value ? `<div class="qr-extra-info">${escapeHtml(extraInfo.value).replace(/\n/g, '<br>')}</div>` : ''}
           </div>
         </div>
         <script>
@@ -290,7 +311,7 @@ function escapeHtml(text: string): string {
   border: 0.3mm solid #ddd;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
   box-sizing: border-box;
-  gap: 1mm;
+  gap: 1.5mm;
   width: 68mm;
   height: 104mm;
 }
@@ -302,8 +323,23 @@ function escapeHtml(text: string): string {
   flex-shrink: 0;
 }
 
+.qr-order-line {
+  font-size: 22pt;
+  font-weight: 900;
+  color: #000;
+  line-height: 1.15;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  word-break: break-word;
+  flex-shrink: 0;
+}
+
 .label-title {
-  font-size: 20pt;
+  font-size: 18pt;
   font-weight: 800;
   line-height: 1.1;
   font-family: monospace;
@@ -319,16 +355,16 @@ function escapeHtml(text: string): string {
   flex-shrink: 0;
 }
 
-.qr-description {
-  font-size: 16pt;
-  font-weight: 700;
-  color: #222;
+.qr-extra-info {
+  font-size: 14pt;
+  font-weight: 600;
+  color: #444;
   line-height: 1.15;
   width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   display: -webkit-box;
-  -webkit-line-clamp: 4;
+  -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   white-space: pre-wrap;
   word-break: break-word;

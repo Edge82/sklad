@@ -1095,7 +1095,7 @@ export function useStockBalances() {
 
       if (!response.ok) throw new Error('Failed to fetch transfer orders');
       const data = await response.json();
-      
+
       return data.value || data || [];
     } catch (err) {
       console.error('Error fetching transfer orders:', err);
@@ -1191,9 +1191,9 @@ export function useStockBalances() {
 
       if (!response.ok) throw new Error('Failed to save scans');
       return await response.json();
-    } catch (err) {
-      console.error('Error saving transfer order scans:', err);
-      throw err;
+    } catch {
+      // Тихо прокидываем ошибку — обработка на уровне вызова
+      throw new Error('Failed to save scans');
     }
   }
 

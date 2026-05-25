@@ -55,23 +55,49 @@
 5. С других ПК открыть `http://IP_СЕРВЕРА:8080/`.
 6. Если страница не открывается с другого ПК, проверить Windows Firewall и доступность порта `8080`.
 
-### 1.3. Переменные окружения для передачи
-Минимальный набор для рабочего стенда:
+### 1.3. Переменные окружения для production
+
+**Для Windows сервера (run.bat):**
 
 ```env
 BACKEND_PORT=8000
-JWT_SECRET=change-this-to-a-strong-secret
-ONEC_BASE_URL=https://your-1c-host/odata/standard.odata
-ONEC_LOGIN=your-login
-ONEC_PASSWORD=your-password
-WAREHOUSE_GUID=your-warehouse-guid
-VITE_API_BASE_URL=/sklad/api
-VITE_1C_BASE_URL=/api-1c
-VITE_1C_PROXY_TARGET=https://your-1c-host
-VITE_BACKEND_PROXY_TARGET=http://127.0.0.1:8000
+JWT_SECRET=сгенерируйте-сильный-секрет-32+символов
+ONEC_BASE_URL=https://msk1.1cfresh.com/a/sbm/3784912/odata/standard.odata
+ONEC_LOGIN=odata.user
+ONEC_PASSWORD=ваш-пароль
+WAREHOUSE_GUID=344cfb30-e233-11f0-862e-fa163e5c9fa8
+
+# PRODUCTION: полный URL к бэкенду (IP сервера)
+VITE_API_BASE_URL=http://192.168.10.100:8000/sklad/api
+
+VITE_1C_BASE_URL=https://msk1.1cfresh.com/a/sbm/3784912/odata/standard.odata
+VITE_1C_USERNAME=odata.user
+VITE_1C_PASSWORD=ваш-пароль
+VITE_1C_WAREHOUSE_GUID=344cfb30-e233-11f0-862e-fa163e5c9fa8
+
+NODE_ENV=production
 ```
 
-Если backend и frontend работают на одном сервере под одним доменом, достаточно оставить `VITE_API_BASE_URL=/sklad/api`.
+**Для Linux сервера (nginx + systemd):**
+
+```env
+BACKEND_PORT=8000
+JWT_SECRET=сгенерируйте-сильный-секрет-32+символов
+ONEC_BASE_URL=https://msk1.1cfresh.com/a/sbm/3784912/odata/standard.odata
+ONEC_LOGIN=odata.user
+ONEC_PASSWORD=ваш-пароль
+WAREHOUSE_GUID=344cfb30-e233-11f0-862e-fa163e5c9fa8
+
+# Relative path для nginx proxy
+VITE_API_BASE_URL=/sklad/api
+
+NODE_ENV=production
+```
+
+**Важно:**
+- `VITE_API_BASE_URL` для Windows = полный URL (`http://IP:8000/sklad/api`)
+- `VITE_API_BASE_URL` для Linux с nginx = относительный путь (`/sklad/api`)
+- `JWT_SECRET` обязательно смените на сильный уникальный ключ
 
 ### 1.4. Пример запуска backend как systemd-сервиса
 

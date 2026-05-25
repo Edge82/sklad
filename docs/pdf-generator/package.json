@@ -1,0 +1,13 @@
+{
+  "name": "sklad-manual-pdf",
+  "version": "1.0.0",
+  "description": "Генерация PDF из руководства пользователя",
+  "scripts": {
+    "generate": "node generate-pdf.js",
+    "install-deps": "npm install"
+  },
+  "dependencies": {
+    "marked": "^14.0.0",
+    "puppeteer": "^23.0.0"
+  }
+}

@@ -443,7 +443,7 @@ const handlePrintAll = async () => {
   if (orderCodes.value.length === 0) return
 
   // Открываем popup синхронно (пока браузер считает это ответом на клик)
-  const printWindow = window.open('', '_blank', 'popup,width=400,height=600,top=100,left=100')
+  const printWindow = window.open('', '_blank', 'popup,width=850,height=700,top=50,left=100')
   if (!printWindow) {
     message.error('Разрешите всплывающие окна для печати')
     return
@@ -502,7 +502,7 @@ const handlePrintAll = async () => {
                           width: 100%; overflow: hidden; text-overflow: ellipsis;
                           display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
                           word-break: break-word; }
-          .info { font-size: 8pt; font-weight: 600; font-family: monospace; color: #444;
+          .info { font-size: 12pt; font-weight: 600; font-family: monospace; color: #444;
                   line-height: 1.15; word-break: break-all; }
           .page-break { page-break-after: always; }
         </style>
@@ -538,7 +538,7 @@ const handlePrintLastGenerated = async () => {
   }
 
   // Открываем popup синхронно (пока браузер считает это ответом на клик)
-  const printWindow = window.open('', '_blank', 'popup,width=400,height=600,top=100,left=100')
+  const printWindow = window.open('', '_blank', 'popup,width=850,height=700,top=50,left=100')
   if (!printWindow) {
     message.error('Разрешите всплывающие окна для печати')
     return
@@ -597,7 +597,7 @@ const handlePrintLastGenerated = async () => {
                           width: 100%; overflow: hidden; text-overflow: ellipsis;
                           display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
                           word-break: break-word; }
-          .info { font-size: 8pt; font-weight: 600; font-family: monospace; color: #444;
+          .info { font-size: 12pt; font-weight: 600; font-family: monospace; color: #444;
                   line-height: 1.15; word-break: break-all; }
           .page-break { page-break-after: always; }
         </style>
