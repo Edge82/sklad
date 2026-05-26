@@ -42,34 +42,6 @@
           </n-form>
         </n-card>
 
-        <!-- Выданные инструменты (для worker, production и storekeeper) -->
-        <n-card v-if="['worker', 'production', 'storekeeper'].includes(userStore.user?.role || '')" title="Мои инструменты" class="mt-4">
-          <n-empty v-if="issuedTools.length === 0" description="Вам не выданы инструменты" />
-          <n-space v-else vertical>
-            <div v-for="tool in issuedTools" :key="tool.id" class="flex items-center justify-between p-3 border rounded">
-              <div class="flex-1">
-                <div class="font-semibold">{{ tool.name }}</div>
-                <n-text depth="3" class="text-sm">
-                  Инвентарный номер: {{ tool.inventoryNumber }}
-                </n-text>
-                <div v-if="tool.issuedAt" class="text-xs text-gray-500 mt-1">
-                  Выдан: {{ new Date(tool.issuedAt).toLocaleDateString() }}
-                </div>
-              </div>
-              <n-popconfirm
-                positive-text="Сдать"
-                negative-text="Отмена"
-                @positive-click="handleReturnTool(tool.id)"
-              >
-                <template #trigger>
-                  <n-button type="warning" size="small">Сдать инструмент</n-button>
-                </template>
-                Вы уверены, что хотите сдать этот инструмент?
-              </n-popconfirm>
-            </div>
-          </n-space>
-        </n-card>
-
         <!-- Статистика -->
         <n-card title="Статистика активности" class="mt-4">
           <n-grid v-if="userStore.user && employeesStore.employees.length > 0" :cols="3" :y-gap="8">
@@ -91,29 +63,28 @@
                    class="py-4" />
         </n-card>
 
-        <!-- История операций -->
+        <! -- История операций -->
         <n-card title="Мои последние операции" class="mt-4">
-          <div v-if="invoicesLoading" class="flex items-center justify-center py-8">
+          <div v-if="invoicesLoading || toolOperationsLoading" class="flex items-center justify-center py-8">
             <n-spin size="small" />
           </div>
-          <n-empty v-else-if="myInvoices.length === 0" description="Вы еще не создавали накладных" />
+          <n-empty v-else-if="allOperations.length === 0" description="Вы еще не создавали накладных" />
           <n-timeline v-else :collapse="true">
             <n-timeline-item
-              v-for="invoice in myInvoices.slice(0, 5)"
-              :key="invoice.id"
-              type="info"
-              :title="invoice.orderNumber ? `Заказ: ${invoice.orderNumber}` : 'Заказ: не указан'"
-              :time="formatDateTime(invoice.date)"
+              v-for="op in allOperations.slice(0, 10)"
+              :key="op.id"
+              :type="getOperationType(op)"
+              :title="op.title"
+              :time="formatDateTime(op.date)"
             >
               <div class="text-sm space-y-2">
-                <!-- Направление -->
-                <div v-if="invoice.destination" class="flex items-center gap-2">
+                <!-- Показываем направление только если оно отличается от заголовка -->
+                <div v-if="op.destination && !op.title.includes(op.destination)" class="flex items-center gap-2">
                   <n-text depth="3">Направление:</n-text>
-                  <n-text strong>{{ invoice.destination }}</n-text>
+                  <n-text strong>{{ op.destination }}</n-text>
                 </div>
 
-                <!-- Элементы накладной -->
-                <n-card v-if="invoice.items && invoice.items.length > 0" size="small" class="mt-2">
+                <n-card v-if="op.items && op.items.length > 0" size="small" class="mt-2">
                   <n-table size="small" :single-line="false">
                     <thead>
                       <tr>
@@ -123,21 +94,20 @@
                       </tr>
                     </thead>
                     <tbody>
-                      <tr v-for="(item, idx) in invoice.items.slice(0, 5)" :key="idx">
+                      <tr v-for="(item, idx) in op.items.slice(0, 5)" :key="idx">
                         <td>{{ item.productName }}</td>
                         <td><n-text depth="3">{{ item.article || '-' }}</n-text></td>
                         <td>{{ item.quantity }} {{ item.unit }}</td>
                       </tr>
                     </tbody>
                   </n-table>
-                  <n-text v-if="invoice.items.length > 5" depth="3" class="text-xs mt-2">
-                    + еще {{ invoice.items.length - 5 }} позиций...
+                  <n-text v-if="op.items.length > 5" depth="3" class="text-xs mt-2">
+                    + еще {{ op.items.length - 5 }} позиций...
                   </n-text>
                 </n-card>
 
-                <!-- Если items нет, показываем общую информацию -->
-                <n-text v-else depth="3" class="text-xs">
-                  {{ invoice.items?.length || 0 }} позиций
+                <n-text v-if="op.subtitle && op.items?.length === 0" depth="3" class="text-xs">
+                  {{ op.subtitle }}
                 </n-text>
               </div>
             </n-timeline-item>
@@ -206,34 +176,26 @@
           </n-list>
         </n-card>
 
-        <!-- Быстрые действия -->
-        <n-card title="Быстрые действия" class="mt-4">
-          <n-space vertical>
-            <n-button block @click="$router.push('/inventory')">
-              <template #icon>
-                <n-icon>
-                  <CubeOutline />
-                </n-icon>
-              </template>
-              Управление складом
-            </n-button>
-            <n-button block @click="$router.push('/orders')">
-              <template #icon>
-                <n-icon>
-                  <DocumentTextOutline />
-                </n-icon>
-              </template>
-              Просмотр заказов
-            </n-button>
-            <n-button v-if="userStore.isAdminOrManager" block @click="$router.push('/reports')">
-              <template #icon>
-                <n-icon>
-                  <AnalyticsOutline />
-                </n-icon>
-              </template>
-              Создать отчет
-            </n-button>
-          </n-space>
+        <!-- Инструменты в работе -->
+        <n-card
+          v-if="userStore.user"
+          title="Инструменты в работе"
+          class="mt-4 cursor-pointer hover:border-[#18a058] transition-colors"
+          @click="$router.push('/profile/tools')"
+        >
+          <div class="flex items-center gap-3">
+            <n-icon size="32" color="#2080f0">
+              <ConstructOutline />
+            </n-icon>
+            <div>
+              <n-h3 class="m-0 leading-none">{{ issuedTools.length }}</n-h3>
+              <n-text depth="3" class="text-xs">{{ issuedTools.length === 1 ? 'инструмент' : issuedTools.length >= 2 && issuedTools.length <= 4 ? 'инструмента' : 'инструментов' }}</n-text>
+            </div>
+          </div>
+          <n-divider class="my-3" />
+          <n-text depth="3" class="text-xs">
+            Нажмите, чтобы посмотреть подробности
+          </n-text>
         </n-card>
       </n-gi>
     </n-grid>
@@ -241,7 +203,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, computed } from 'vue'
+import { ref, reactive, onMounted, computed, onUnmounted } from 'vue'
 import { useUserStore } from '@/stores/user'
 import { useEmployeesStore } from '@/stores/employees'
 import { useToolsStore } from '@/stores/tools'
@@ -271,8 +233,7 @@ import {
   NTable,
   NTimeline,
   NTimelineItem,
-  useMessage,
-  NPopconfirm
+  useMessage
 } from 'naive-ui'
 import type { FormInst, FormRules } from 'naive-ui'
 import {
@@ -281,9 +242,7 @@ import {
   BusinessOutline,
   CalendarOutline,
   TimeOutline,
-  CubeOutline,
-  DocumentTextOutline,
-  AnalyticsOutline
+  ConstructOutline
 } from '@vicons/ionicons5'
 
 const userStore = useUserStore()
@@ -296,38 +255,122 @@ const message = useMessage()
 const myInvoices = ref<any[]>([])
 const invoicesLoading = ref(false)
 
+// История операций с инструментами
+const toolOperations = ref<any[]>([])
+const toolOperationsLoading = ref(false)
+
+// Загружаем историю операций с инструментами
+async function loadToolOperations() {
+  if (!userStore.user?.id) {
+    toolOperationsLoading.value = false
+    return
+  }
+
+  toolOperationsLoading.value = true
+
+  const currentUserId = parseFloat(String(userStore.user.id))
+  const employee = employeesStore.employees.find(e => {
+    if (!e.userId) return false
+    const empUserId = parseFloat(String(e.userId))
+    return !isNaN(empUserId) && empUserId === currentUserId
+  })
+
+  if (!employee) {
+    toolOperationsLoading.value = false
+    return
+  }
+
+  // Загружаем операции с инструментами
+  try {
+    const response = await fetch(`/sklad/api/employees/${employee.id}/tool-operations`)
+
+    if (response.ok) {
+      const data = await response.json()
+      if (data.success && data.operations) {
+        toolOperations.value = data.operations.map((op: any) => ({
+          id: op.id,
+          toolId: op.tool_id,
+          toolName: op.tool_name,
+          inventoryNumber: op.inventory_number,
+          action: op.action,
+          date: new Date(op.date),
+          performedBy: op.performed_by
+        }))
+      } else {
+        toolOperations.value = []
+      }
+    } else {
+      toolOperations.value = []
+    }
+  } catch {
+    toolOperations.value = []
+  } finally {
+    toolOperationsLoading.value = false
+  }
+}
+
+// История операций (объединяем накладные и операции с инструментами)
+const allOperations = computed(() => {
+  const operations: any[] = []
+
+  // Накладные
+  myInvoices.value.forEach(inv => {
+    operations.push({
+      type: 'invoice',
+      action: 'invoice',
+      id: inv.id,
+      title: inv.orderNumber || inv.destination ? `${inv.orderNumber || 'Без номера'}${inv.destination ? ` | ${inv.destination}` : ''}` : 'Готовая продукция',
+      date: new Date(inv.date),
+      subtitle: inv.items?.length ? `${inv.items.length} позиций` : '',
+      items: inv.items || [],
+      destination: inv.destination
+    })
+  })
+
+  // Операции с инструментами
+  toolOperations.value.forEach(op => {
+    operations.push({
+      type: 'tool',
+      id: op.id,
+      title: op.action === 'issued' ? `Получен инструмент: ${op.toolName}` : `Сдан инструмент: ${op.toolName}`,
+      date: new Date(op.date),
+      subtitle: op.inventoryNumber,
+      items: [],
+      action: op.action
+    })
+  })
+
+  // Сортируем по дате (сначала самые свежие)
+  return operations.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+})
+
 // Загружаем накладные для текущего пользователя
 async function loadMyInvoices() {
   if (!userStore.user?.id) return
 
   invoicesLoading.value = true
   try {
-    // Найти employee по userId
+    const currentUserId = parseFloat(String(userStore.user.id))
     const employee = employeesStore.employees.find(e => {
-      if (e.userId) {
-        const empUserId = parseFloat(String(e.userId))
-        const currentUserId = parseFloat(String(userStore.user.id))
-        return !isNaN(empUserId) && empUserId === currentUserId
-      }
-      return false
+      if (!e.userId) return false
+      const empUserId = parseFloat(String(e.userId))
+      return !isNaN(empUserId) && empUserId === currentUserId
     })
 
     if (employee) {
-      // Загружаем накладные через API
       const response = await fetch(`/sklad/api/employees/${employee.id}/material-invoices`)
       const data = await response.json()
 
       if (data.success && data.invoices) {
-        // Преобразуем данные в правильный формат
         myInvoices.value = data.invoices.map((inv: any) => ({
           id: inv.id,
-          employeeId: inv.employee_id,
+          employeeId: inv.employeeId,
           date: new Date(inv.date),
-          orderNumber: inv.order_number,
+          orderNumber: inv.orderNumber,
           destination: inv.destination,
-          totalAmount: inv.total_amount,
+          totalAmount: inv.totalAmount,
           items: inv.items || [],
-          createdBy: inv.created_by
+          createdBy: inv.createdBy
         }))
       }
     }
@@ -355,20 +398,26 @@ const stats = computed(() => {
   }
 })
 
-// Получаем инструменты, выданные текущему пользователю (для worker, production и storekeeper)
+// Инструменты в работе
 const issuedTools = computed(() => {
-  if (!userStore.user?.id || !['worker', 'production', 'storekeeper'].includes(userStore.user?.role)) {
-    return []
-  }
-  // Найти employee по userId с преобразованием типа
+  if (!userStore.user?.id) return []
+  const currentUserId = parseFloat(String(userStore.user?.id))
   const employee = employeesStore.employees.find(e => {
-    const empUserId = parseInt(String(e.userId).split('.')[0])
-    return empUserId === userStore.user?.id
+    if (!e.userId) return false
+    const empUserId = parseFloat(String(e.userId))
+    return !isNaN(empUserId) && empUserId === currentUserId
   })
   if (!employee) return []
-  // Получить инструменты, выданные этому employee по его id
   return toolsStore.getToolsIssuedToEmployee(employee.id)
 })
+
+// Helper для определения типа операции timeline
+const getOperationType = (op: any) => {
+  if (op.type === 'tool' && op.action === 'returned') {
+    return 'success'
+  }
+  return 'info'
+}
 
 // Тип для формы (без служебных полей)
 type UserForm = Omit<User, 'id' | 'lastLogin' | 'createdAt' | 'avatar'>
@@ -455,16 +504,6 @@ const handleSave = () => {
   })
 }
 
-const handleReturnTool = async (toolId: string) => {
-  try {
-    await toolsStore.returnTool(toolId)
-    message.success('Инструмент успешно сдан')
-  } catch (err) {
-    message.error('Ошибка при сдаче инструмента')
-    console.error(err)
-  }
-}
-
 const resetForm = () => {
   if (userStore.user) {
     Object.assign(userForm, {
@@ -480,13 +519,22 @@ const resetForm = () => {
 onMounted(async () => {
   resetForm()
 
-  // Всегда загружаем свежие данные сотрудников с API (без кэша)
+  // Слушаем событие обновления операций с инструментами
+  const refreshHandler = () => {
+    loadToolOperations()
+  }
+  window.addEventListener('refreshToolOperations', refreshHandler)
+
+  // onUnmounted должен быть до await
+  onUnmounted(() => {
+    window.removeEventListener('refreshToolOperations', refreshHandler)
+  })
+
   await employeesStore.loadEmployeesFromApi()
 
-  // Загружаем накладные текущего пользователя
   await loadMyInvoices()
+  await loadToolOperations()
 
-  // Load tools if not already loaded
   if (toolsStore.tools.length === 0) {
     toolsStore.loadToolsFromApi()
   }

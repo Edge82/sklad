@@ -1226,7 +1226,7 @@ const server = http.createServer(async (req, res) => {
         SELECT * FROM local_qr_codes WHERE order_id = ? ORDER BY generated_at DESC
       `).all(orderId)
 
-      sendJSON(res, 200, { qrCodes, codes: qrCodes })  // Support both formats for compatibility
+      sendJSON(res, 200, { qrCodes, codes: qrCodes })
     } catch (err) {
       console.error('Error fetching QR codes:', err)
       sendJSON(res, 500, { error: err.message })
@@ -1305,6 +1305,10 @@ const server = http.createServer(async (req, res) => {
           success: true,
           qrCodeId: qrCode.id,
           code: qrCode.code,
+          orderNumber: qrCode.order_number,
+          orderId: qrCode.order_id,
+          productName: qrCode.product_name,
+          productId: qrCode.product_id,
           status: newStatus,
           scannedAt: now,
           scannedBy: employeeName
@@ -1383,6 +1387,10 @@ const server = http.createServer(async (req, res) => {
           success: true,
           qrCodeId: qrCode.id,
           code: qrCode.code,
+          orderNumber: qrCode.order_number,
+          orderId: qrCode.order_id,
+          productName: qrCode.product_name,
+          productId: qrCode.product_id,
           status: statusToSet,
           scannedAt: now,
           scannedBy: employeeName
@@ -1774,6 +1782,91 @@ const server = http.createServer(async (req, res) => {
       console.error('Error getting employee material invoices:', err)
       sendJSON(res, 500, { error: err.message })
     }
+    return
+  }
+
+  // Employee tool operations - GET
+  if (pathname.match(/^\/sklad\/api\/employees\/[^\/]+\/tool-operations$/) && req.method === 'GET') {
+    try {
+      const employeeId = pathname.split('/')[4]
+      const operations = db.prepare(`
+        SELECT * FROM tool_operations
+        WHERE employee_id = ?
+        ORDER BY date DESC
+      `).all(employeeId)
+
+      sendJSON(res, 200, {
+        success: true,
+        operations: operations.map(op => ({
+          id: op.id,
+          tool_id: op.tool_id,
+          tool_name: op.tool_name,
+          inventory_number: op.inventory_number,
+          employee_id: op.employee_id,
+          action: op.action,
+          date: op.date,
+          performed_by: op.performed_by,
+          created_at: op.created_at
+        }))
+      })
+    } catch (err) {
+      console.error('Error getting employee tool operations:', err)
+      sendJSON(res, 500, { error: err.message })
+    }
+    return
+  }
+
+  // Employee tool operations - POST (log operation)
+  if (pathname.match(/^\/sklad\/api\/employees\/[^\/]+\/tool-operations$/) && req.method === 'POST') {
+    let body = ''
+    req.on('data', chunk => { body += chunk })
+    req.on('end', () => {
+      try {
+        const employeeId = pathname.split('/')[4]
+        const data = JSON.parse(body)
+        const { tool_id, tool_name, inventory_number, action, performed_by } = data
+
+        if (!tool_id || !tool_name || !inventory_number || !action) {
+          sendJSON(res, 400, { error: 'Missing required fields: tool_id, tool_name, inventory_number, action' })
+          return
+        }
+
+        const operationId = Math.random().toString(36).substr(2, 9)
+        const now = new Date().toISOString()
+        const date = data.date || now
+
+        db.prepare(`
+          INSERT INTO tool_operations (id, tool_id, tool_name, inventory_number, employee_id, action, date, performed_by, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(operationId, tool_id, tool_name, inventory_number, employeeId, action, date, performed_by || 'System', now)
+
+        logOperation('tool_operation', {
+          tool_id,
+          tool_name,
+          action,
+          employee_id: employeeId,
+          performed_by: performed_by || 'System'
+        })
+
+        sendJSON(res, 201, {
+          success: true,
+          operation: {
+            id: operationId,
+            tool_id,
+            tool_name,
+            inventory_number,
+            employee_id: employeeId,
+            action,
+            date,
+            performed_by: performed_by || 'System',
+            created_at: now
+          }
+        })
+      } catch (err) {
+        console.error('Error logging tool operation:', err)
+        sendJSON(res, 500, { error: err.message })
+      }
+    })
     return
   }
 
@@ -2293,10 +2386,16 @@ const server = http.createServer(async (req, res) => {
         console.log('📦 [RECEIVE-FP] Request body:', JSON.stringify(data, null, 2))
         const { qrId, productName, quantity, orderNumber, employeeId: requestEmployeeId, employeeName: requestEmployeeName } = data
 
+        console.log('📦 [RECEIVE-FP] Extracted values:', { qrId, productName, quantity, orderNumber, requestEmployeeId, requestEmployeeName })
+
         if (!qrId || !productName) {
           console.log('📦 [RECEIVE-FP] 400: Missing required fields. qrId:', qrId, 'productName:', productName)
           sendJSON(res, 400, { error: 'Missing required fields' })
           return
+        }
+
+        if (!orderNumber) {
+          console.log('⚠️ [RECEIVE-FP] WARNING: orderNumber is missing!')
         }
 
         const timestamp = new Date().toISOString()
@@ -2358,6 +2457,8 @@ const server = http.createServer(async (req, res) => {
           return
         }
 
+        console.log('📦 [RECEIVE-FP] Saving invoice with orderNumber:', orderNumber || 'БЕЗ НОМЕРА')
+
         db.prepare(`
           INSERT INTO material_invoices (id, employee_id, date, order_number, destination, total_amount, created_at, updated_at, created_by)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -2382,9 +2483,11 @@ const server = http.createServer(async (req, res) => {
           `).run(qrId, productName, productName, 'Готовая продукция', quantity || 1, quantity || 1, 'шт', 'Готовая продукция', 'in_stock', qrId, '', '', 1, timestamp)
         }
 
-        sendJSON(res, 200, { success: true, invoiceId })
+        console.log('✅ [RECEIVE-FP] Invoice created successfully:', invoiceId, 'orderNumber:', orderNumber || 'БЕЗ НОМЕРА')
+
+        sendJSON(res, 200, { success: true, invoiceId, orderNumber: orderNumber || 'Без номера' })
       } catch (err) {
-        console.error('Error receiving product:', err)
+        console.error('❌ Error receiving product:', err)
         sendJSON(res, 500, { error: err.message })
       }
     })

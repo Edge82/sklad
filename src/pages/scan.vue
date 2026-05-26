@@ -170,20 +170,18 @@ const groupedByOrder = computed(() => {
   return groups
 })
 
-// Данные для таблицы
+// Данные для таблицы — каждый QR-код отдельной строкой
 const tableData = computed(() => {
-  return Array.from(groupedByOrder.value.entries()).map(([orderNum, codes]) => ({
-    orderNumber: orderNum,
-    qrCode: codes.map(c => c.code).join(', '),
-    quantity: codes.length,
-    items: codes
+  return scannedCodes.value.map((item, index) => ({
+    key: index,
+    ...item
   }))
 })
 
-const columns = computed<DataTableColumns>(() => [
+const columns = computed<DataTableColumns<ScannedQRCode>>(() => [
   {
     title: 'QR код',
-    key: 'qrCode',
+    key: 'code',
     ellipsis: true,
     tooltip: true
   },
@@ -192,12 +190,7 @@ const columns = computed<DataTableColumns>(() => [
     key: 'productName',
     minWidth: 250,
     ellipsis: true,
-    tooltip: true,
-    render: (row: any) => {
-      const codes = row.items as ScannedQRCode[]
-      const productName = codes[0]?.productName || 'Неизвестно'
-      return productName
-    }
+    tooltip: true
   },
   {
     title: 'Заказ покупателя',
@@ -208,38 +201,30 @@ const columns = computed<DataTableColumns>(() => [
     title: 'Количество',
     key: 'quantity',
     width: 120,
-    align: 'center'
+    align: 'center',
+    render: (row: any) => '1 шт'
   },
   {
     title: 'Статус',
     key: 'status',
     width: 200,
     align: 'center',
-    render: (row: any) => {
-      const codes = row.items as ScannedQRCode[]
-      const statuses = codes.map(c => ({
-        code: c.code,
-        scanCount: c.scanCount
-      }))
-
-      return h('div', { class: 'flex flex-col gap-2' },
-        statuses.map(s =>
-          h(NTag, {
-            type: s.scanCount === 1
-              ? (s.code ? 'warning' : 'default')
-              : 'success',
-            quaternary: false,
-            size: 'small'
-          }, {
-            default: () => {
-              const currentItem = codes.find(c => c.code === s.code)
-              if (currentItem?.warehouseState === 'pending') return '↻ Ожидает перемещения'
-              if (s.scanCount === 1) return '✓ На складе'
-              return '✓✓ К отгрузке'
-            }
-          })
-        )
-      )
+    render: (row: ScannedQRCode) => {
+      return h(NTag, {
+        type: row.warehouseState === 'pending'
+          ? 'warning'
+          : row.scanCount === 1
+            ? 'info'
+            : 'success',
+        quaternary: false,
+        size: 'small'
+      }, {
+        default: () => {
+          if (row.warehouseState === 'pending') return '↻ Ожидает перемещения'
+          if (row.scanCount === 1) return '✓ На складе'
+          return '✓✓ К отгрузке'
+        }
+      })
     }
   },
   {
@@ -247,13 +232,13 @@ const columns = computed<DataTableColumns>(() => [
     key: 'actions',
     width: 80,
     align: 'center',
-    render: (row: any) => {
+    render: (row: ScannedQRCode) => {
       return h(NButton, {
         quaternary: true,
         circle: true,
         size: 'small',
         type: 'error',
-        onClick: () => removeOrder(row.orderNumber)
+        onClick: () => removeCode(row.code)
       }, {
         icon: () => h(NIcon, null, { default: () => h(TrashOutline) })
       })
@@ -509,6 +494,11 @@ const checkOrderStatus = (orderNumber: string | undefined) => {
       text: `📦 Заказ ${orderNumber}: не отгружено ни одной позиции из ${totalCount}`
     }
   }
+}
+
+const removeCode = (code: string) => {
+  scannedCodes.value = scannedCodes.value.filter(item => item.code !== code)
+  statusMessage.value = null
 }
 
 const removeOrder = (orderNumber: string) => {

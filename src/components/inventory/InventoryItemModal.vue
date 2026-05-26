@@ -585,7 +585,7 @@ const getCategoryLabel = (categoryId: string) => {
 
 const getWarehouseLabel = (warehouseId: string) => {
   // Сначала ищем по GUID
-  let found = warehouseOptions1C.value.find(w => w.value === warehouseId)
+  const found = warehouseOptions1C.value.find(w => w.value === warehouseId)
   if (found) return found.label
 
   // Последний вариант - показываем GUID если ничего не нашли
@@ -814,7 +814,7 @@ const handleSubmit = async () => {
         }
 
         // Если categoryId выбрана в dropdown, она уже GUID - просто используем его как есть
-        let categoryId = formData.categoryId || undefined;
+        const categoryId = formData.categoryId || undefined;
 
         // ⚠️ НЕ отправляем локальные поля (sku, barcode, location, storageBin) в 1С!
         // Они сохраняются только в локальную БД через API endpoint /sklad/api/onec/stocks/{id}

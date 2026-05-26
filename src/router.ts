@@ -15,6 +15,7 @@ import Reports from '@/pages/reports.vue'
 import EmployeeDetails from '@/pages/employeedetails.vue'
 import TransferOrders from '@/pages/transferorders.vue'
 import FinishedProducts from '@/pages/finished-products.vue'
+import MyTools from '@/pages/my-tools.vue'
 
 const routes: RouteRecordRaw[] = [
   {
@@ -60,6 +61,11 @@ const routes: RouteRecordRaw[] = [
     path: '/profile',
     component: Profile,
     meta: { title: 'Профиль' }
+  },
+  {
+    path: '/profile/tools',
+    component: MyTools,
+    meta: { title: 'Инструменты в работе' }
   },
   {
     path: '/employees',

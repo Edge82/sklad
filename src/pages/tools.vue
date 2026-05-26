@@ -179,6 +179,7 @@ import {
 } from 'naive-ui'
 import { useToolsStore } from '@/stores/tools'
 import { useUserStore } from '@/stores/user'
+import { convertRussianKeyboardToLatin } from '@/utils/translit'
 import {
   TrashOutline,
   QrCodeOutline,
@@ -204,10 +205,25 @@ const filters = reactive({
   status: 'all' as 'all' | 'in_stock' | 'issued' | 'repair'
 })
 
+// Транслитерация русского текста в поле поиска (для сканера)
+watch(() => filters.search, (val) => {
+  if (val) {
+    const translit = convertRussianKeyboardToLatin(val)
+    if (translit !== val) {
+      filters.search = translit
+    }
+  }
+})
+
 const filteredTools = computed(() => {
   return toolsStore.tools.filter(tool => {
-    const matchesSearch = tool.name.toLowerCase().includes(filters.search.toLowerCase()) ||
-                        tool.inventoryNumber.toLowerCase().includes(filters.search.toLowerCase())
+    const q = filters.search.toLowerCase()
+    const qTranslit = convertRussianKeyboardToLatin(q)
+    const matchesSearch = tool.name.toLowerCase().includes(q) ||
+                        tool.name.toLowerCase().includes(qTranslit) ||
+                        tool.inventoryNumber.toLowerCase().includes(q) ||
+                        tool.inventoryNumber.toLowerCase().includes(qTranslit) ||
+                        (tool.qrCode && (tool.qrCode.toLowerCase().includes(q) || tool.qrCode.toLowerCase().includes(qTranslit)))
     
     if (filters.status === 'all') return matchesSearch
     return matchesSearch && tool.status === filters.status

@@ -485,4 +485,28 @@ try {
   console.error('Error initializing material_invoice_items table:', err.message)
 }
 
+try {
+  const toolOperationsTableExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='tool_operations'").get()
+  if (!toolOperationsTableExists) {
+    db.exec(`
+      CREATE TABLE tool_operations (
+        id TEXT PRIMARY KEY,
+        tool_id TEXT NOT NULL,
+        tool_name TEXT NOT NULL,
+        inventory_number TEXT NOT NULL,
+        employee_id TEXT NOT NULL,
+        action TEXT NOT NULL,
+        date TEXT NOT NULL,
+        performed_by TEXT,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY(tool_id) REFERENCES tools(id) ON DELETE CASCADE,
+        FOREIGN KEY(employee_id) REFERENCES employees(id) ON DELETE CASCADE
+      )
+    `)
+    console.log('✓ Created tool_operations table')
+  }
+} catch (err) {
+  console.error('Error initializing tool_operations table:', err.message)
+}
+
 console.log('✅ Database initialized')
