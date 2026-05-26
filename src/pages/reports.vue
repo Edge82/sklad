@@ -152,7 +152,6 @@
 <script setup lang="ts">
 import { ref, computed, h, onMounted } from 'vue'
 import { useInventoryStore } from '@/stores/inventory'
-import { useEmployeesStore } from '@/stores/employees'
 import { useToolsStore } from '@/stores/tools'
 import { useReportsStore } from '@/stores/reports'
 import { 
@@ -164,17 +163,16 @@ import {
 } from '@/types'
 import {
   WarningOutline, 
-  TimeOutline, StatsChartOutline, CubeOutline
+  StatsChartOutline, CubeOutline
 } from '@vicons/ionicons5'
 import {
   NIcon, NH1, NText, NGrid, NGi, NCard, NH3, 
-  NDatePicker, NDataTable, NProgress, NList, NListItem,
+  NDatePicker, NDataTable, NList, NListItem,
   NThing, NAvatar, NTag, NH2, NStatistic, NTable, NEmpty, NModal,
   NSpace, NInput, type DataTableColumns
 } from 'naive-ui'
 
 const inventoryStore = useInventoryStore()
-const employeesStore = useEmployeesStore()
 const toolsStore = useToolsStore()
 const reportsStore = useReportsStore()
 

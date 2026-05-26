@@ -818,8 +818,6 @@ const itemsScanColumns: DataTableColumns<any> = [
     render: (row) => {
       const scanned = row.scannedQty || 0
       const required = row.Количество || 0
-      const typeTag = scanned === required ? 'success' : scanned > required ? 'error' : 'warning'
-
       return h('div', { class: 'flex items-center gap-2 justify-center' }, [
         h(NButton, {
           text: true,

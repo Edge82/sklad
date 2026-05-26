@@ -76,7 +76,6 @@
 
 <script setup lang="ts">
 import { computed, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { useEmployeesStore } from '@/stores/employees'
 import { useToolsStore } from '@/stores/tools'
@@ -97,7 +96,6 @@ import {
 } from 'naive-ui'
 import { ArrowBackOutline } from '@vicons/ionicons5'
 
-const router = useRouter()
 const userStore = useUserStore()
 const employeesStore = useEmployeesStore()
 const toolsStore = useToolsStore()

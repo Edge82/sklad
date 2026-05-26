@@ -158,18 +158,6 @@ const workflowHint = computed(() => {
   return 'Отсканируйте товар для приёмки на склад готовой продукции, повторное сканирование добавит его в для отгрузки.'
 })
 
-// Группируем отсканированные коды по заказам
-const groupedByOrder = computed(() => {
-  const groups = new Map<string, ScannedQRCode[]>()
-  scannedCodes.value.forEach(item => {
-    if (!groups.has(item.orderNumber)) {
-      groups.set(item.orderNumber, [])
-    }
-    groups.get(item.orderNumber)!.push(item)
-  })
-  return groups
-})
-
 // Данные для таблицы — каждый QR-код отдельной строкой
 const tableData = computed(() => {
   return scannedCodes.value.map((item, index) => ({
@@ -498,11 +486,6 @@ const checkOrderStatus = (orderNumber: string | undefined) => {
 
 const removeCode = (code: string) => {
   scannedCodes.value = scannedCodes.value.filter(item => item.code !== code)
-  statusMessage.value = null
-}
-
-const removeOrder = (orderNumber: string) => {
-  scannedCodes.value = scannedCodes.value.filter(item => item.orderNumber !== orderNumber)
   statusMessage.value = null
 }
 

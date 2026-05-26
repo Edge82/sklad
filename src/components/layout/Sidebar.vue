@@ -77,7 +77,7 @@ const menuOptions = computed<MenuOption[]>(() => {
       icon: renderIcon(SyncOutline)
     },
     {
-      label: 'Приём и отгрузка готовой продукции',
+      label: 'Приём и отгрузка ',
       key: '/scan',
       icon: renderIcon(QrCodeOutline)
     }

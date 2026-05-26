@@ -9,7 +9,7 @@
           </template>
         </n-button>
         <div>
-          <n-h1 class="m-0">{{ selectedInvoice ? 'Детали накладной' : 'Приём и отгрузка готовой продукции' }}</n-h1>
+          <n-h1 class="m-0">{{ selectedInvoice ? 'Детали накладной' : 'Движение материалов' }}</n-h1>
           <n-text depth="3">
             {{ selectedInvoice ? `Накладная #${selectedInvoice.id.slice(-6).toUpperCase()}` : 'История приёма на склад и последующей отгрузки готовой продукции' }}
           </n-text>
@@ -20,10 +20,10 @@
     <!-- Резюме (Статистика в стиле Inventory.vue) -->
     <n-grid v-if="!selectedInvoice" :cols="4" :x-gap="12" :y-gap="12" class="mb-6 items-stretch py-2">
       <n-gi>
-        <n-card 
-          size="small" 
+        <n-card
+          size="small"
           hoverable
-          class="metric-card h-full flex flex-col justify-center" 
+          class="metric-card h-full flex flex-col justify-center"
           :class="{ 'active': filterDestination === 'all' }"
           @click="filterDestination = 'all'"
         >
@@ -40,10 +40,10 @@
       </n-gi>
 
       <n-gi>
-        <n-card 
-          size="small" 
+        <n-card
+          size="small"
           hoverable
-          class="metric-card h-full flex flex-col justify-center" 
+          class="metric-card h-full flex flex-col justify-center"
           :class="{ 'active': filterDestination === 'Клиент' }"
           @click="filterDestination = 'Клиент'"
         >
@@ -60,10 +60,10 @@
       </n-gi>
 
       <n-gi>
-        <n-card 
-          size="small" 
+        <n-card
+          size="small"
           hoverable
-          class="metric-card h-full flex flex-col justify-center" 
+          class="metric-card h-full flex flex-col justify-center"
           :class="{ 'active': filterDestination === 'Готовая продукция' }"
           @click="filterDestination = 'Готовая продукция'"
         >
@@ -94,17 +94,17 @@
 
     <n-card v-if="!selectedInvoice" class="mb-4" size="small">
       <n-space align="center" :size="[16, 12]">
-        <n-select 
-          v-model:value="filterDestination" 
-          :options="destinationOptions" 
+        <n-select
+          v-model:value="filterDestination"
+          :options="destinationOptions"
           class="w-56!"
           placeholder="Все направления"
           clearable
         />
 
-        <n-input 
-          v-model:value="searchQuery" 
-          placeholder="Поиск по заказу, товару или сотруднику..." 
+        <n-input
+          v-model:value="searchQuery"
+          placeholder="Поиск по заказу, товару или сотруднику..."
           class="w-96!"
           clearable
         >
@@ -112,7 +112,7 @@
             <n-icon><SearchOutline /></n-icon>
           </template>
         </n-input>
-        
+
         <n-button @click="() => { filterDestination = 'all'; searchQuery = ''; }" quaternary type="warning">
           Сбросить
         </n-button>
@@ -189,14 +189,14 @@
 
 <script setup lang="ts">
 import { ref, computed, h, onMounted } from 'vue'
-import { 
+import {
   NText, NCard, NDataTable, NButton, NIcon, NSpace, NInput,
   NDescriptions, NDescriptionsItem, NTag,
   NTable, NH3, NSelect, NGrid, NGi, NH1
 } from 'naive-ui'
-import { 
-  SearchOutline, 
-  DocumentTextOutline, 
+import {
+  SearchOutline,
+  DocumentTextOutline,
   ArrowBackOutline,
   CarOutline,
   BusinessOutline,
@@ -205,7 +205,7 @@ import {
 import { useEmployeesStore } from '@/stores/employees'
 import { useShipmentsStore } from '@/stores/shipments'
 import { useUserStore } from '@/stores/user'
-import type { Employee, MaterialInvoice, MaterialInvoiceItem } from '@/types'
+import type { MaterialInvoice, MaterialInvoiceItem } from '@/types'
 import type { DataTableColumns } from 'naive-ui'
 
 const employeesStore = useEmployeesStore()
@@ -247,7 +247,7 @@ const pagination = {
 // Собираем все накладные
 const allInvoices = computed(() => {
   const invoices: InvoiceWithWorker[] = []
-  
+
   shipmentsStore.materialInvoices.forEach((history: MaterialInvoice) => {
     const employee = employeesStore.employees.find(emp => emp.id === history.employeeId)
     const operationLabel = history.destination === 'Готовая продукция'
@@ -283,7 +283,7 @@ const allInvoices = computed(() => {
       shipmentOrders: shipment.orders
     })
   })
-  
+
   // Сортируем по дате (сначала новые)
   return invoices.sort((a, b) => {
     const dateA = a.date ? new Date(a.date).getTime() : 0
@@ -336,7 +336,7 @@ const filteredInvoices = computed(() => {
 
   if (searchQuery.value) {
     const q = searchQuery.value.toLowerCase()
-    list = list.filter(inv => 
+    list = list.filter(inv =>
       inv.orderNumber.toLowerCase().includes(q) ||
       inv.workerName.toLowerCase().includes(q) ||
       inv.items.some((i: MaterialInvoiceItem) => i.productName.toLowerCase().includes(q) || (i.article && i.article.toLowerCase().includes(q)))
@@ -418,11 +418,11 @@ const columns: DataTableColumns<InvoiceWithWorker> = [
     key: 'destination',
     render: (row) => {
       const isClient = row.destination === 'Клиент'
-      return h(NTag, { 
-        type: isClient ? 'success' : 'info', 
+      return h(NTag, {
+        type: isClient ? 'success' : 'info',
         bordered: false,
         round: true
-      }, { 
+      }, {
         default: () => row.destination || 'Производство',
         icon: () => h(NIcon, null, { default: () => isClient ? h(CarOutline) : h(BusinessOutline) })
       })

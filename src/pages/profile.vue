@@ -71,7 +71,7 @@
           <n-empty v-else-if="allOperations.length === 0" description="Вы еще не создавали накладных" />
           <n-timeline v-else :collapse="true">
             <n-timeline-item
-              v-for="op in allOperations.slice(0, 10)"
+              v-for="op in allOperations.slice(0, 5)"
               :key="op.id"
               :type="getOperationType(op)"
               :title="op.title"
@@ -226,10 +226,7 @@ import {
   NIcon,
   NText,
   NStatistic,
-  NSpace,
   NEmpty,
-  NCollapse,
-  NCollapseItem,
   NTable,
   NTimeline,
   NTimelineItem,

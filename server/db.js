@@ -348,12 +348,24 @@ for (const user of testUsers) {
       console.log(`✓ Updated user password hash: ${user.login}`)
     }
 
-    // Создаём сотрудника для admin, если его ещё нет
-    if (user.login === 'admin' && userId) {
+    // Создаём сотрудника для каждого пользователя, если его ещё нет
+    if (userId) {
       const existingEmp = db.prepare('SELECT id FROM employees WHERE user_id = ?').get(String(userId))
       if (!existingEmp) {
         const now = new Date().toISOString()
-        const empId = `emp-admin-${Date.now()}`
+        const empId = `emp-${user.login}-${Date.now()}`
+        const deptMap = {
+          admin: 'Управление',
+          manager: 'Продажи',
+          storekeeper: 'Склад',
+          worker: 'Производство'
+        }
+        const positionMap = {
+          admin: 'Главный администратор',
+          manager: 'Менеджер',
+          storekeeper: 'Кладовщик',
+          worker: 'Рабочий'
+        }
         db.prepare(`
           INSERT INTO employees (id, user_id, name, email, phone, position, department, role, status, salary, hire_date, created_at, updated_at, created_by)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -363,8 +375,8 @@ for (const user of testUsers) {
           user.fullName,
           `${user.login}@warehouse.local`,
           '+7-000-000-00-00',
-          'Администратор',
-          'Управление',
+          positionMap[user.login] || user.role,
+          deptMap[user.login] || 'Общее',
           user.role,
           'active',
           0,
@@ -373,7 +385,7 @@ for (const user of testUsers) {
           now,
           'System'
         )
-        console.log(`✓ Created employee for admin (user_id: ${userId})`)
+        console.log(`✓ Created employee for ${user.login} (user_id: ${userId})`)
       }
     }
   } catch (err) {

@@ -267,7 +267,6 @@ import {
 } from 'naive-ui'
 import {
   QrCodeOutline,
-  EyeOutline,
   CreateOutline,
   ArrowBackOutline,
   SearchOutline,
@@ -275,7 +274,6 @@ import {
   TimeOutline,
   CheckmarkDoneOutline,
   CashOutline,
-  AppsOutline,
   SyncOutline
 } from '@vicons/ionicons5'
 import { useIntegrationStore } from '@/stores/integration'

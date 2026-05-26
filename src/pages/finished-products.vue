@@ -204,7 +204,7 @@ import { useInventoryStore } from '@/stores/inventory'
 import { useOrdersStore } from '@/stores/orders'
 import { useQRCodesStore } from '@/stores/qrCodes'
 import type { InventoryItem, InventoryTransaction, MaterialInvoice } from '@/types'
-import type { DataTableColumns, SelectOption } from 'naive-ui'
+import type { DataTableColumns } from 'naive-ui'
 import {
   NH1,
   NText,
@@ -219,13 +219,12 @@ import {
   NImage,
   NTag,
   NProgress,
-  NH3,
-  NPopover
+  NH3
 } from 'naive-ui'
 import {
   DownloadOutline,
   AnalyticsOutline,
-  AddOutline,
+
   CashOutline,
   BusinessOutline,
   SearchOutline,
@@ -861,17 +860,6 @@ const resetFilters = () => {
   advancedFilters.maxPrice = null
 }
 
-const handlePrintQR = (item: InventoryItem) => {
-  if (item && (item.barcode || item.sku)) {
-    printData.title = item.name
-    printData.code = item.barcode || item.sku
-    printData.description = `Артикул: ${item.sku}`
-    showPrintModal.value = true
-  } else {
-    message.warning('Для печати необходим штрих-код или артикул')
-  }
-}
-
 const handleEditFromDetails = (id: string) => {
   selectedItemId.value = id
   showDetailsModal.value = false
@@ -881,19 +869,6 @@ const handleEditFromDetails = (id: string) => {
 const editItem = (id: string) => {
   selectedItemId.value = id
   showCreateModal.value = true
-}
-
-const deleteItem = (id: string) => {
-  dialog.warning({
-    title: 'Удаление изделия',
-    content: 'Вы уверены, что хотите удалить это изделие? Это действие нельзя будет отменить.',
-    positiveText: 'Удалить',
-    negativeText: 'Отмена',
-    onPositiveClick: () => {
-      inventoryStore.deleteItem(id)
-      message.success('Изделие удалено')
-    }
-  })
 }
 
 const handleItemSubmit = (itemData: Partial<InventoryItem>) => {

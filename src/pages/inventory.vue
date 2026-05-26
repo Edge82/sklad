@@ -793,17 +793,6 @@ const resetFilters = () => {
   advancedFilters.maxPrice = null
 }
 
-const handlePrintQR = (item: InventoryItem) => {
-  if (item && (item.barcode || item.sku)) {
-    printData.title = item.name
-    printData.code = item.barcode || item.sku
-    printData.description = `Артикул: ${item.sku}`
-    showPrintModal.value = true
-  } else {
-    message.warning('Для печати необходим штрих-код или артикул')
-  }
-}
-
 const handleEditFromDetails = (id: string) => {
   selectedItemId.value = id
   showDetailsModal.value = false
@@ -813,19 +802,6 @@ const handleEditFromDetails = (id: string) => {
 const editItem = (id: string) => {
   selectedItemId.value = id
   showCreateModal.value = true
-}
-
-const deleteItem = (id: string) => {
-  dialog.warning({
-    title: 'Удаление материала',
-    content: 'Вы уверены, что хотите удалить этот материал? Это действие нельзя будет отменить.',
-    positiveText: 'Удалить',
-    negativeText: 'Отмена',
-    onPositiveClick: () => {
-      inventoryStore.deleteItem(id)
-      message.success('Материал удален')
-    }
-  })
 }
 
 const handleItemSubmit = (itemData: Partial<InventoryItem>) => {
