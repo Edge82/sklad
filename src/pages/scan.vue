@@ -35,6 +35,13 @@
       </n-alert>
     </div>
 
+    <!-- Реактивная валидация отгрузки -->
+    <div v-if="shipmentValidation" class="mb-6">
+      <n-alert :type="shipmentValidation.type">
+        {{ shipmentValidation.text }}
+      </n-alert>
+    </div>
+
     <!-- Таблица состава отгрузки -->
     <n-card title="Состав отгрузки" class="mb-6">
       <template #header-extra>
@@ -117,6 +124,7 @@ interface ScannedQRCode {
   scanCount: number // Количество сканирований (1 = принят на склад, 2 = готов к отгрузке)
   warehouseState: 'pending' | 'received' | 'shipped'
   receivedAt?: Date // Время приёмки на склад (первое сканирование)
+  isPackage: boolean // Является ли QR код упаковкой
 }
 
 interface ShipmentHistory {
@@ -145,7 +153,235 @@ const readyToShipItems = computed(() => scannedCodes.value.filter(item => item.s
 const hasReadyToShipItems = computed(() => readyToShipItems.value.length > 0)
 const actionButtonLabel = computed(() => hasReadyToShipItems.value ? 'Отгрузить' : 'Переместить на склад')
 const actionButtonType = computed(() => hasReadyToShipItems.value ? 'primary' : 'success')
-const actionButtonCount = computed(() => hasReadyToShipItems.value ? readyToShipItems.value.length : pendingTransferItems.value.length)
+const actionButtonCount = computed(() => readyToShipItems.value.length || pendingTransferItems.value.length)
+
+// Режим текущего документа: определяется по первому отсканированному коду
+const documentMode = computed<'transfer' | 'shipment' | null>(() => {
+  if (scannedCodes.value.length === 0) return null
+  const first = scannedCodes.value[0]
+  if (first.warehouseState === 'pending') return 'transfer'
+  return 'shipment'
+})
+
+// Кэш статистики QR-кодов заказа (данные загружаются свежими при каждом новом сканировании)
+interface PositionStats {
+  productName: string
+  productId: string
+  totalCodes: number
+  hasPackages: boolean
+  packageCount: number
+  detailCount: number
+  shipped: number
+  shippedPackages: number
+  shippedDetails: number
+  scanned: number
+  notReceived: number
+}
+
+interface OrderStats {
+  orderNumber: string
+  totalCodes: number
+  totalShipped: number
+  totalScanned: number
+  totalNotReceived: number
+  hasPackages: boolean
+  positions: PositionStats[]
+}
+
+const orderStatsCache = ref<Map<string, OrderStats>>(new Map())
+const shipmentValidation = ref<{ type: 'error' | 'success' | 'info' | 'warning'; text: string } | null>(null)
+
+async function loadOrderStats(orderNumber: string): Promise<OrderStats | null> {
+  // Всегда запрашиваем свежие данные (статусы меняются после перемещения/отгрузки)
+  try {
+    const res = await fetch(`/sklad/api/qr-codes/stats?orderNumber=${encodeURIComponent(orderNumber)}`)
+    if (res.ok) {
+      const data = await res.json()
+      const stats = data.stats as OrderStats
+      if (stats) {
+        const newCache = new Map(orderStatsCache.value)
+        newCache.set(orderNumber, stats)
+        orderStatsCache.value = newCache
+        return stats
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return null
+}
+
+function pluralRu(n: number, one: string, few: string, many: string): string {
+  const mod10 = n % 10
+  const mod100 = n % 100
+  if (mod10 === 1 && mod100 !== 11) return `${n} ${one}`
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return `${n} ${few}`
+  return `${n} ${many}`
+}
+
+function recalcShipmentValidation() {
+  const shipItems = readyToShipItems.value
+  const pendingItems = pendingTransferItems.value
+
+  if (shipItems.length === 0 && pendingItems.length === 0) {
+    shipmentValidation.value = null
+    return
+  }
+
+  const allOrderNums = [...new Set([
+    ...shipItems.map(i => i.orderNumber),
+    ...pendingItems.map(i => i.orderNumber)
+  ].filter(n => n && n !== 'Без номера'))]
+
+  if (allOrderNums.length === 0) {
+    shipmentValidation.value = null
+    return
+  }
+
+  // Только приёмка
+  if (shipItems.length === 0) {
+    const parts = allOrderNums.map(orderNum => {
+      const n = pendingItems.filter(i => i.orderNumber === orderNum).length
+      const s = orderStatsCache.value.get(orderNum)
+      const total = s?.totalCodes
+      return `заказ ${orderNum}: ${n}${total ? ' из ' + total : ''} шт.`
+    })
+    shipmentValidation.value = { type: 'info', text: `К приёмке: ${parts.join(', ')}` }
+    return
+  }
+
+  // Отгрузка
+  const orderMessages: string[] = []
+  let anyWarning = false
+
+  allOrderNums.forEach(orderNum => {
+    const stats = orderStatsCache.value.get(orderNum)
+    const orderItems = shipItems.filter(i => i.orderNumber === orderNum)
+
+    if (stats && stats.totalCodes > 0) {
+      const positionParts: string[] = []
+      let orderComplete = true
+
+      // Группируем по позициям с учётом типа (деталь/упаковка)
+      const sessionByProduct = new Map<string, { count: number; allPackages: boolean; allDetails: boolean }>()
+      orderItems.forEach(item => {
+        const info = sessionByProduct.get(item.productName) || { count: 0, allPackages: true, allDetails: true }
+        info.count++
+        if (!item.isPackage) info.allPackages = false
+        if (item.isPackage) info.allDetails = false
+        sessionByProduct.set(item.productName, info)
+      })
+
+      stats.positions.forEach(pos => {
+        const isPkgPos = pos.hasPackages
+        const effTotal = isPkgPos ? pos.packageCount : pos.totalCodes
+        const effShipped = isPkgPos ? pos.shippedPackages : pos.shipped
+        const remaining = effTotal - effShipped
+
+        if (remaining <= 0) return
+
+        const info = sessionByProduct.get(pos.productName)
+        const inSession = info?.count || 0
+
+        if (inSession === 0) {
+          orderComplete = false
+          return
+        }
+
+        const posCovered = effShipped + inSession
+        if (posCovered >= effTotal) {
+          positionParts.push(`${pos.productName}: ${inSession}/${effTotal} будет отгружена полностью`)
+        } else {
+          const unit = isPkgPos
+            ? { one: 'упаковка', few: 'упаковки', many: 'упаковок' }
+            : { one: 'деталь', few: 'детали', many: 'деталей' }
+          positionParts.push(`${pos.productName}: ${pluralRu(inSession, unit.one, unit.few, unit.many)} из ${effTotal}`)
+          orderComplete = false
+          anyWarning = true
+        }
+      })
+
+      // Товары в сессии, не найденные в статистике (несоответствие названий)
+      const unmatched = new Map(sessionByProduct)
+      stats.positions.forEach(p => unmatched.delete(p.productName))
+      unmatched.forEach((info, name) => {
+        let unitOne: string, unitFew: string, unitMany: string
+        if (info.allPackages) {
+          unitOne = 'упаковка'; unitFew = 'упаковки'; unitMany = 'упаковок'
+        } else if (info.allDetails) {
+          unitOne = 'деталь'; unitFew = 'детали'; unitMany = 'деталей'
+        } else {
+          unitOne = 'позиция'; unitFew = 'позиции'; unitMany = 'позиций'
+        }
+        positionParts.push(`${name}: ${pluralRu(info.count, unitOne, unitFew, unitMany)}`)
+        orderComplete = false
+      })
+
+      const effOrderTotal = stats.positions.reduce((sum, p) =>
+        sum + (p.hasPackages ? p.packageCount : p.totalCodes), 0)
+      const effOrderShipped = stats.positions.reduce((sum, p) =>
+        sum + (p.hasPackages ? p.shippedPackages : p.shipped), 0)
+      const remaining = effOrderTotal - effOrderShipped // осталось отгрузить всего
+      const totalCovered = effOrderShipped + orderItems.length
+
+      // Строка с количеством для текущей сессии
+      let orderAllPkg = true, orderAllDet = true
+      orderItems.forEach(item => {
+        if (!item.isPackage) orderAllPkg = false
+        if (item.isPackage) orderAllDet = false
+      })
+      let countStr: string
+      if (orderAllPkg) {
+        countStr = pluralRu(orderItems.length, 'упаковка', 'упаковки', 'упаковок')
+      } else if (orderAllDet) {
+        countStr = pluralRu(orderItems.length, 'деталь', 'детали', 'деталей')
+      } else {
+        countStr = `${orderItems.length} позиций`
+      }
+
+      if (orderComplete && totalCovered >= effOrderTotal) {
+        orderMessages.push(`заказ ${orderNum}: отгружается ${countStr}, заказ будет отгружен полностью${positionParts.length > 0 ? ': ' + positionParts.join(', ') : ''}`)
+      } else {
+        orderMessages.push(`заказ ${orderNum}: отгружается ${countStr} из ${remaining}, заказ будет отгружен не полностью${positionParts.length > 0 ? ': ' + positionParts.join(', ') : ''}`)
+        anyWarning = true
+      }
+    } else {
+      // Fallback — нет статистики с бэкенда
+      const posMap = new Map<string, { count: number; allPackages: boolean; allDetails: boolean }>()
+      orderItems.forEach(item => {
+        const info = posMap.get(item.productName) || { count: 0, allPackages: true, allDetails: true }
+        info.count++
+        if (!item.isPackage) info.allPackages = false
+        if (item.isPackage) info.allDetails = false
+        posMap.set(item.productName, info)
+      })
+      const posMsgs = [...posMap.entries()].map(([name, info]) => {
+        let unitOne: string, unitFew: string, unitMany: string
+        if (info.allPackages) {
+          unitOne = 'упаковка'; unitFew = 'упаковки'; unitMany = 'упаковок'
+        } else if (info.allDetails) {
+          unitOne = 'деталь'; unitFew = 'детали'; unitMany = 'деталей'
+        } else {
+          return `${name}: ${info.count} шт.`
+        }
+        return `${name}: ${pluralRu(info.count, unitOne, unitFew, unitMany)}`
+      })
+      orderMessages.push(`заказ ${orderNum}: отгружается ${orderItems.length} шт.${posMsgs.length > 0 ? ' | ' + posMsgs.join(', ') : ''}`)
+      anyWarning = true
+    }
+  })
+
+  if (orderMessages.length === 0) {
+    shipmentValidation.value = null
+    return
+  }
+
+  shipmentValidation.value = {
+    type: anyWarning ? 'warning' : 'success',
+    text: orderMessages.join('; ')
+  }
+}
+
 const workflowHint = computed(() => {
   if (pendingTransferItems.value.length > 0) {
     return 'Сканируйте товар для приёмки на склад готовой продукции. После этого нажмите «Переместить на склад».'
@@ -265,11 +501,6 @@ const handleScan = async () => {
 
   if (!code) return
 
-  // Очищаем предыдущее сообщение об ошибке при новом сканировании
-  if (statusMessage.value?.type === 'error') {
-    statusMessage.value = null
-  }
-
   // Ищем QR код в локальном кэше
   let qrCode = qrStore.qrCodesMap.get(code)
 
@@ -331,6 +562,33 @@ const handleScan = async () => {
   const isAlreadyInWarehouse = qrCode.status === 'scanned'
   const isAlreadyShipped = qrCode.status === 'shipped'
 
+  // Загружаем свежую статистику по QR-кодам заказа
+  if (qrCode.orderNumber) {
+    await loadOrderStats(qrCode.orderNumber)
+  }
+
+  // Проверка совместимости с режимом документа
+  if (!existingItem && documentMode.value) {
+    if (documentMode.value === 'transfer' && isAlreadyInWarehouse) {
+      statusMessage.value = {
+        type: 'error',
+        text: '⚠ Эти детали готовятся к отгрузке. Для перемещения на склад создайте другой документ.'
+      }
+      lastScannedCode.value = ''
+      nextTick(() => { scanInputRef.value?.focus() })
+      return
+    }
+    if (documentMode.value === 'shipment' && !isAlreadyInWarehouse && !isAlreadyShipped) {
+      statusMessage.value = {
+        type: 'error',
+        text: '⚠ Эти детали готовятся к перемещению на склад готовой продукции. Для отгрузки создайте другой документ.'
+      }
+      lastScannedCode.value = ''
+      nextTick(() => { scanInputRef.value?.focus() })
+      return
+    }
+  }
+
   if (existingItem) {
     // Повторный скан в рамках текущей сессии добавляет товар в отгрузку
     if (existingItem.scanCount === 1 && existingItem.warehouseState === 'received') {
@@ -342,7 +600,7 @@ const handleScan = async () => {
         resultMessage: `Добавлено к отгрузке: ${qrCode.productName}`,
         resultType: 'success'
       })
-      message.success(`✓ Товар добавлен к отгрузке: ${qrCode.productName}`)
+      message.success(`✓ Товар добавлен к отгрузке: ${qrCode.productName}`, { duration: 5000 })
     } else {
       // Уже находится в текущей отгрузке или не требует повторного сканирования
       scanHistory.value.unshift({
@@ -351,7 +609,7 @@ const handleScan = async () => {
         resultMessage: 'Товар уже добавлен к текущей отгрузке',
         resultType: 'warning'
       })
-      message.warning('Этот товар уже добавлен к текущей отгрузке')
+      message.warning('Этот товар уже добавлен к текущей отгрузке', { duration: 5000 })
     }
   } else {
     if (isAlreadyShipped) {
@@ -361,26 +619,23 @@ const handleScan = async () => {
         resultMessage: 'Товар уже отгружен',
         resultType: 'warning'
       })
-      message.warning(`Товар уже отгружен: ${qrCode.productName}`)
+      message.warning(`Товар уже отгружен: ${qrCode.productName}`, { duration: 5000 })
       checkOrderStatus(qrCode.orderNumber)
     } else if (isAlreadyInWarehouse) {
-      // Проверка: если у изделия уже есть упаковка на складе — отгружаем только упаковку
+      // Если у позиции есть упаковочные коды — отгружаем только упаковки
       if (!qrCode.isPackage) {
-        const packageOnWarehouse = qrStore.qrCodes.find(q =>
+        const hasPackageForPosition = qrStore.qrCodes.some(q =>
           q.orderId === qrCode.orderId &&
           q.productId === qrCode.productId &&
-          q.isPackage &&
-          q.status === 'scanned'
+          q.isPackage
         )
-        if (packageOnWarehouse) {
+        if (hasPackageForPosition) {
           statusMessage.value = {
             type: 'error',
-            text: '❌ Деталь упакована, для отгрузки отсканируйте упаковку.'
+            text: '❌ Деталь нужно упаковать и переместить упаковку на склад, после чего её можно отгрузить.'
           }
           lastScannedCode.value = ''
-          nextTick(() => {
-            scanInputRef.value?.focus()
-          })
+          nextTick(() => { scanInputRef.value?.focus() })
           return
         }
       }
@@ -392,7 +647,8 @@ const handleScan = async () => {
         productName: qrCode.productName,
         scanCount: 2,
         warehouseState: 'received',
-        receivedAt: new Date()
+        receivedAt: new Date(),
+        isPackage: qrCode.isPackage || false
       })
 
       scanHistory.value.unshift({
@@ -402,7 +658,7 @@ const handleScan = async () => {
         resultType: 'success'
       })
 
-      message.success(`✓ Товар добавлен к отгрузке: ${qrCode.productName}`)
+      message.success(`✓ Товар добавлен к отгрузке: ${qrCode.productName}`, { duration: 5000 })
       checkOrderStatus(qrCode.orderNumber)
     } else {
       // Проверка: если упаковочный код — все ли детали отсканированы?
@@ -449,7 +705,8 @@ const handleScan = async () => {
         productName: qrCode.productName,
         scanCount: 1,
         warehouseState: 'pending',
-        receivedAt: new Date()
+        receivedAt: new Date(),
+        isPackage: qrCode.isPackage || false
       })
 
       scanHistory.value.unshift({
@@ -459,11 +716,12 @@ const handleScan = async () => {
         resultType: 'warning'
       })
 
-      message.warning(`✓ Товар добавлен в список перемещения: ${qrCode.productName}`)
+      message.warning(`✓ Товар добавлен в список перемещения: ${qrCode.productName}`, { duration: 5000 })
       checkOrderStatus(qrCode.orderNumber)
     }
   }
 
+  recalcShipmentValidation()
   lastScannedCode.value = ''
   nextTick(() => {
     scanInputRef.value?.focus()
@@ -488,22 +746,11 @@ const checkOrderStatus = (orderNumber: string | undefined) => {
 
   if (totalCount === 0) return
 
-  const itemType = hasPackages ? 'упаковок' : 'позиций'
-
   if (shippedCount === totalCount) {
+    const itemType = hasPackages ? 'упаковок' : 'позиций'
     statusMessage.value = {
       type: 'success',
       text: `✓ Заказ ${orderNumber} полностью отгружен (${shippedCount}/${totalCount} ${itemType})`
-    }
-  } else if (shippedCount > 0) {
-    statusMessage.value = {
-      type: 'warning',
-      text: `⚠ Заказ ${orderNumber} отгружен частично (${shippedCount}/${totalCount} ${itemType}). Осталось: ${totalCount - shippedCount} шт.`
-    }
-  } else {
-    statusMessage.value = {
-      type: 'info',
-      text: `📦 Заказ ${orderNumber}: не отгружено ни одной позиции из ${totalCount}`
     }
   }
 }
@@ -511,12 +758,14 @@ const checkOrderStatus = (orderNumber: string | undefined) => {
 const removeCode = (code: string) => {
   scannedCodes.value = scannedCodes.value.filter(item => item.code !== code)
   statusMessage.value = null
+  recalcShipmentValidation()
 }
 
 const clearSession = () => {
   scannedCodes.value = []
   scanHistory.value = []
   statusMessage.value = null
+  shipmentValidation.value = null
   lastScannedCode.value = ''
 }
 
@@ -524,7 +773,7 @@ const transferToWarehouse = async () => {
   const itemsToTransfer = scannedCodes.value.filter(item => item.warehouseState === 'pending')
 
   if (itemsToTransfer.length === 0) {
-    message.warning('Нет товаров для перемещения на склад')
+    message.warning('Нет товаров для перемещения на склад', { duration: 5000 })
     return
   }
 
@@ -564,7 +813,8 @@ const transferToWarehouse = async () => {
 
     await inventoryStore.loadStocksFromApi()
 
-    message.success(`Перемещено на склад: ${itemsToTransfer.length} шт.`)
+    message.success(`Перемещено на склад: ${itemsToTransfer.length} шт.`, { duration: 5000 })
+    clearSession()
   } catch (err) {
     scanHistory.value.unshift({
       time: new Date(),
@@ -572,7 +822,7 @@ const transferToWarehouse = async () => {
       resultMessage: `Ошибка перемещения: ${err instanceof Error ? err.message : 'неизвестная ошибка'}`,
       resultType: 'error'
     })
-    message.error(`Ошибка перемещения: ${err instanceof Error ? err.message : 'неизвестная ошибка'}`)
+    message.error(`Ошибка перемещения: ${err instanceof Error ? err.message : 'неизвестная ошибка'}`, { duration: 5000 })
   }
 }
 
@@ -581,7 +831,7 @@ const completeShipment = async () => {
   const itemsToShip = scannedCodes.value.filter(item => item.scanCount === 2)
 
   if (itemsToShip.length === 0) {
-    message.warning('Нет товаров, добавленных к отгрузке. Отсканируйте принятые товары повторно.')
+    message.warning('Нет товаров, добавленных к отгрузке. Отсканируйте принятые товары повторно.', { duration: 5000 })
     return
   }
 
@@ -591,7 +841,7 @@ const completeShipment = async () => {
   }
 
   const count = itemsToShip.length
-  message.success(`Отгрузка завершена! Отправлено ${count} QR кодов`)
+  message.success(`Отгрузка завершена! Отправлено ${count} QR кодов`, { duration: 5000 })
 
   // Обновляем прогресс отгрузки по заказам
   const shippedOrderNumbers = new Set(itemsToShip.map(item => item.orderNumber))
@@ -622,6 +872,10 @@ watch(lastScannedCode, (val) => {
     handleScan()
   }, 300)
 })
+
+watch(scannedCodes, () => {
+  nextTick(() => recalcShipmentValidation())
+}, { deep: true })
 
 onMounted(() => {
   nextTick(() => {

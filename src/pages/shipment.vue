@@ -121,6 +121,13 @@
 
     <n-card bordered class="table-card shadow-sm" style="margin-top: 24px;">
       <div v-if="!selectedInvoice">
+        <div class="flex justify-between items-center mb-4">
+          <n-text depth="3">Всего: {{ filteredInvoices.length }}</n-text>
+          <div class="flex items-center gap-2">
+            <n-text>Показывать:</n-text>
+            <n-select v-model:value="itemsPerPage" :options="pageSizeOptions" class="w-24!" />
+          </div>
+        </div>
         <n-data-table
           :columns="columns"
           :data="filteredInvoices"
@@ -188,7 +195,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, h, onMounted } from 'vue'
+import { ref, computed, h, onMounted, watch } from 'vue'
 import {
   NText, NCard, NDataTable, NButton, NIcon, NSpace, NInput,
   NDescriptions, NDescriptionsItem, NTag,
@@ -213,6 +220,10 @@ const shipmentsStore = useShipmentsStore()
 const userStore = useUserStore()
 const searchQuery = ref('')
 const filterDestination = ref('all')
+
+watch([searchQuery, filterDestination], () => {
+  currentPage.value = 1
+})
 
 interface InvoiceWithWorker extends Omit<MaterialInvoice, 'date'> {
   date: string | Date
@@ -240,9 +251,30 @@ const destinationOptions = [
   { label: 'Клиент', value: 'Клиент' }
 ]
 
-const pagination = {
-  pageSize: 15
-}
+const currentPage = ref(1)
+const itemsPerPage = ref(15)
+
+const pageSizeOptions = [
+  { label: '10', value: 10 },
+  { label: '25', value: 25 },
+  { label: '50', value: 50 },
+  { label: '100', value: 100 }
+]
+
+const pagination = computed(() => ({
+  pageSize: itemsPerPage.value,
+  page: currentPage.value,
+  pageCount: Math.ceil(filteredInvoices.value.length / itemsPerPage.value),
+  showSizePicker: true,
+  pageSizes: [10, 25, 50, 100],
+  onChange: (page: number) => {
+    currentPage.value = page
+  },
+  onUpdatePageSize: (pageSize: number) => {
+    itemsPerPage.value = pageSize
+    currentPage.value = 1
+  }
+}))
 
 // Собираем все накладные
 const allInvoices = computed(() => {

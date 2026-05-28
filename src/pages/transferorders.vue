@@ -118,6 +118,13 @@
       </n-grid>
 
       <div style="margin-top: 24px;">
+        <div class="flex justify-between items-center mb-4">
+          <n-text depth="3">Всего: {{ filteredOrders.length }}</n-text>
+          <div class="flex items-center gap-2">
+            <n-text>Показывать:</n-text>
+            <n-select v-model:value="itemsPerPage" :options="pageSizeOptions" class="w-24!" />
+          </div>
+        </div>
         <n-spin :show="loading">
           <n-empty v-if="orders.length === 0" description="Нет заказов на перемещение" />
 
@@ -380,11 +387,11 @@
       </n-grid>
 
       <n-card size="small" title="Сканирование товаров" :segmented="true">
-        <div class="flex gap-2 mb-3">
+        <div class="flex gap-2 mb-4" style="position: relative; margin-bottom: 12px">
           <n-input
             ref="createBarcodeInputRef"
             v-model:value="createBarcodeBuffer"
-            placeholder="Отсканируйте штрихкод или введите вручную"
+            placeholder="Отсканируйте штрихкод или введите название товара"
             @keydown.enter.prevent="handleCreateScan"
             :disabled="createSaving"
           >
@@ -392,9 +399,24 @@
               <n-icon><CameraOutline /></n-icon>
             </template>
           </n-input>
-          <n-button @click="handleCreateScan" :disabled="!createBarcodeBuffer.trim() || createSaving">
-            Добавить
-          </n-button>
+          <div
+            v-if="searchOptions.length > 0"
+            style="position: absolute; top: 100%; left: 0; right: 0; z-index: 100; max-height: 240px; overflow-y: auto"
+          >
+            <n-card size="small" content-style="padding: 4px 0">
+              <div
+                v-for="opt in searchOptions"
+                :key="opt.value || opt.label"
+                style="padding: 8px 12px; cursor: pointer; border-bottom: 1px solid var(--n-border-color)"
+                :style="{ color: opt.value ? 'inherit' : 'var(--n-text-color-disabled)' }"
+                @click="handleProductSelectResult(opt)"
+                @mouseenter="(e: MouseEvent) => (e.target as HTMLElement).style.background = 'var(--n-action-color)'"
+                @mouseleave="(e: MouseEvent) => (e.target as HTMLElement).style.background = ''"
+              >
+                {{ opt.label }}
+              </div>
+            </n-card>
+          </div>
         </div>
 
         <n-data-table
@@ -490,6 +512,19 @@ const barcodeBuffer = ref('')
 const lastBarcode = ref('')
 const barcodeInputRef = ref<InputInst | null>(null)
 const filterStatus = ref('')
+const currentPage = ref(1)
+const itemsPerPage = ref(10)
+
+const pageSizeOptions = [
+  { label: '10', value: 10 },
+  { label: '25', value: 25 },
+  { label: '50', value: 50 },
+  { label: '100', value: 100 }
+]
+
+watch(filterStatus, () => {
+  currentPage.value = 1
+})
 const orders = ref<TransferOrder[]>([])
 const selectedOrderId = ref<string | null>(null)
 const selectedOrder = ref<TransferOrder | null>(null)
@@ -502,6 +537,9 @@ const createBarcodeBuffer = ref('')
 const createBarcodeInputRef = ref<InputInst | null>(null)
 const warehouseOptions = ref<Array<{ label: string; value: string }>>([])
 const createResult = ref<{ success: boolean; message: string; details?: string } | null>(null)
+const searchOptions = ref<Array<{ label: string; value: string }>>([])
+const stockDataMap = ref<Map<string, any>>(new Map())
+let searchTimer: ReturnType<typeof setTimeout> | null = null
 
 interface CreateItem {
   nomenclatureKey: string
@@ -528,17 +566,93 @@ const canSaveCreate = computed(() =>
   !createSaving.value
 )
 
-// Auto-detect barcode scanner input — triggers on trailing newline
+const handleProductSearch = () => {
+  const query = createBarcodeBuffer.value
+  if (!query || query.length < 2) {
+    searchOptions.value = []
+    return
+  }
+  if (searchTimer) clearTimeout(searchTimer)
+  searchTimer = setTimeout(async () => {
+    try {
+      const res = await fetch(`/sklad/api/onec/stocks?search=${encodeURIComponent(query)}`)
+      const data = await res.json()
+      const stocks = data.value || []
+      const options: Array<{ label: string; value: string }> = []
+      const map = new Map<string, any>()
+      stocks.slice(0, 20).forEach((s: any) => {
+        const label = `${s.name || s.product || 'Без названия'}${s.barcode ? ' [' + s.barcode + ']' : ''}`
+        options.push({ label, value: s.ref_key })
+        map.set(s.ref_key, s)
+      })
+      searchOptions.value = options.length > 0 ? options : [{ label: 'Ничего не найдено', value: '' }]
+      stockDataMap.value = map
+    } catch {
+      searchOptions.value = [{ label: 'Ошибка поиска', value: '' }]
+    }
+  }, 300)
+}
+
+const handleProductSelectResult = (opt: { label: string; value: string }) => {
+  if (!opt.value) {
+    searchOptions.value = []
+    return
+  }
+  const stock = stockDataMap.value.get(opt.value)
+  if (!stock) return
+
+  const existing = createForm.items.find((i: CreateItem) => i.nomenclatureKey === opt.value)
+  if (existing) {
+    existing.quantity++
+    message.success(`✓ ${existing.productName}: +1 (всего ${existing.quantity})`)
+  } else {
+    createForm.items.push({
+      nomenclatureKey: opt.value,
+      productName: stock.name || stock.product || 'Без названия',
+      barcode: stock.barcode || '',
+      quantity: 1,
+      sku: stock.sku || '',
+      unit: stock.unit || 'шт',
+      unitKey: stock.unit_key || ''
+    })
+    message.success(`✓ Добавлен: ${stock.name || stock.product}`)
+  }
+  createBarcodeBuffer.value = ''
+  searchOptions.value = []
+  nextTick(() => createBarcodeInputRef.value?.focus())
+}
+
+// Auto-detect barcode scanner AND product name search
 watch(createBarcodeBuffer, (val) => {
-  if (!val) return
+  if (!val) {
+    searchOptions.value = []
+    return
+  }
   const trimmed = val.replace(/[\r\n]+/g, '')
   if (trimmed.length < val.length) {
+    // Scanner input detected
     createBarcodeBuffer.value = trimmed
     handleCreateScan()
+    return
   }
+  // Manual input — product search
+  handleProductSearch()
 })
 
-const pagination = ref({ pageSize: 10 })
+const pagination = computed(() => ({
+  pageSize: itemsPerPage.value,
+  page: currentPage.value,
+  pageCount: Math.ceil(filteredOrders.value.length / itemsPerPage.value),
+  showSizePicker: true,
+  pageSizes: [10, 25, 50, 100],
+  onChange: (page: number) => {
+    currentPage.value = page
+  },
+  onUpdatePageSize: (pageSize: number) => {
+    itemsPerPage.value = pageSize
+    currentPage.value = 1
+  }
+}))
 
 const handleSync = async () => {
   syncing.value = true
@@ -724,17 +838,7 @@ const handleCreateScan = async () => {
       })
       message.success(`✓ Добавлен: ${found.name}`)
     } else {
-      // Add as unknown item
-      createForm.items.push({
-        nomenclatureKey: '',
-        productName: 'Неизвестный товар',
-        barcode: barcode,
-        quantity: 1,
-        sku: '',
-        unit: 'шт',
-        unitKey: ''
-      })
-      message.warning(`Товар со штрихкодом ${barcode} не найден в базе. Добавлен как "Неизвестный товар"`)
+      message.warning(`Товар со штрихкодом ${barcode} не найден`)
     }
   } catch {
     message.error('Ошибка поиска штрихкода')
@@ -942,7 +1046,7 @@ const completedOrdersCount = computed(() =>
 )
 
 const activeOrdersCount = computed(() =>
-  orders.value.filter(o => o.Posted && o.statusDescription !== 'Завершен').length
+  orders.value.filter(o => o.statusDescription !== 'Завершен').length
 )
 
 // Отфильтрованные заказы для таблицы
@@ -955,7 +1059,7 @@ const filteredOrders = computed(() => {
     case 'completed':
       return orders.value.filter(o => o.statusDescription === 'Завершен')
     case 'active':
-      return orders.value.filter(o => o.Posted && o.statusDescription !== 'Завершен')
+      return orders.value.filter(o => o.statusDescription !== 'Завершен')
     default:
       return orders.value
   }

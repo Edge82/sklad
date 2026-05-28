@@ -315,7 +315,17 @@ const server = http.createServer(async (req, res) => {
   // Stocks (с обогащением из кэша)
   if (pathname === '/sklad/api/onec/stocks' && req.method === 'GET') {
     try {
-      const allStocks = db.prepare('SELECT * FROM onec_stocks').all()
+      const search = url.searchParams.get('search')
+      let query = 'SELECT * FROM onec_stocks'
+      const params = []
+
+      if (search) {
+        const like = `%${search}%`
+        query += ' WHERE (LOWER(name) LIKE LOWER(?) OR LOWER(product) LIKE LOWER(?) OR LOWER(barcode) LIKE LOWER(?))'
+        params.push(like, like, like)
+      }
+
+      const allStocks = db.prepare(query).all(...params)
 
       const unitsMap = new Map()
       cache.units?.forEach(u => {
@@ -1468,10 +1478,11 @@ const server = http.createServer(async (req, res) => {
   if (pathname === '/sklad/api/qr-codes' && req.method === 'GET') {
     try {
       const orderId = url.searchParams.get('orderId')
+      const orderNumber = url.searchParams.get('orderNumber')
       const codeQuery = url.searchParams.get('code')
 
-      if (!orderId && !codeQuery) {
-        sendJSON(res, 400, { error: 'orderId or code is required', _version: 2 })
+      if (!orderId && !codeQuery && !orderNumber) {
+        sendJSON(res, 400, { error: 'orderId, orderNumber or code is required', _version: 2 })
         return
       }
 
@@ -1481,6 +1492,10 @@ const server = http.createServer(async (req, res) => {
       if (orderId) {
         query += ' AND order_id = ?'
         params.push(orderId)
+      }
+      if (orderNumber) {
+        query += ' AND order_number = ?'
+        params.push(orderNumber)
       }
       if (codeQuery) {
         query += ' AND code = ?'
@@ -1516,6 +1531,83 @@ const server = http.createServer(async (req, res) => {
       sendJSON(res, 200, { qrCodes, _lookupCode: params[params.length - 1] || '' })
     } catch (err) {
       console.error('Error fetching QR codes:', err)
+      sendJSON(res, 500, { error: err.message })
+    }
+    return
+  }
+
+  // Get QR code statistics for an order (aggregated per position)
+  if (pathname === '/sklad/api/qr-codes/stats' && req.method === 'GET') {
+    try {
+      const orderNumber = url.searchParams.get('orderNumber')
+      if (!orderNumber) {
+        sendJSON(res, 400, { error: 'orderNumber is required' })
+        return
+      }
+
+      const rows = db.prepare(`
+        SELECT product_name, product_id, is_package, status, COUNT(*) as count
+        FROM local_qr_codes
+        WHERE order_number = ?
+        GROUP BY product_name, product_id, is_package, status
+      `).all(orderNumber)
+
+      const positionsMap = new Map()
+      let totalCodes = 0
+      const summaryByStatus = {}
+
+      rows.forEach(row => {
+        totalCodes += row.count
+        summaryByStatus[row.status] = (summaryByStatus[row.status] || 0) + row.count
+
+        const key = row.product_id
+        if (!positionsMap.has(key)) {
+          positionsMap.set(key, {
+            productName: row.product_name,
+            productId: row.product_id,
+            totalCodes: 0,
+            byStatus: {},
+            packageCount: 0,
+            detailCount: 0,
+            hasPackages: false,
+            shippedPackages: 0,
+            shippedDetails: 0
+          })
+        }
+        const pos = positionsMap.get(key)
+        pos.totalCodes += row.count
+        pos.byStatus[row.status] = (pos.byStatus[row.status] || 0) + row.count
+        if (row.is_package) {
+          pos.packageCount += row.count
+          pos.hasPackages = true
+          if (row.status === 'shipped') pos.shippedPackages += row.count
+        } else {
+          pos.detailCount += row.count
+          if (row.status === 'shipped') pos.shippedDetails += row.count
+        }
+      })
+
+      const positions = Array.from(positionsMap.values())
+
+      positions.forEach(pos => {
+        pos.shipped = pos.byStatus.shipped || 0
+        pos.scanned = pos.byStatus.scanned || 0
+        pos.notReceived = pos.totalCodes - pos.shipped - pos.scanned
+      })
+
+      sendJSON(res, 200, {
+        stats: {
+          orderNumber,
+          totalCodes,
+          totalShipped: summaryByStatus.shipped || 0,
+          totalScanned: summaryByStatus.scanned || 0,
+          totalNotReceived: totalCodes - (summaryByStatus.shipped || 0) - (summaryByStatus.scanned || 0),
+          hasPackages: positions.some(p => p.hasPackages),
+          positions
+        }
+      })
+    } catch (err) {
+      console.error('Error fetching QR code stats:', err)
       sendJSON(res, 500, { error: err.message })
     }
     return

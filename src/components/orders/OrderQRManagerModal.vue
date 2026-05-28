@@ -6,6 +6,7 @@
     :title="singlePrintData.title"
     :code="singlePrintData.code"
     :description="singlePrintData.description"
+    :is-package="singlePrintData.isPackage"
   />
 
   <n-modal
@@ -253,7 +254,8 @@ const showSinglePrintModal = ref(false)
 const singlePrintData = ref({
   title: '',
   code: '',
-  description: ''
+  description: '',
+  isPackage: false
 })
 
 const canPrintLast = computed(() => lastGeneratedCodes.value.length > 0)
@@ -434,7 +436,8 @@ const handlePrint = async (code: QRType) => {
     code: code.code,
     description: infoText
       ? `Заказ: ${code.orderNumber}\n${infoText}`
-      : `Заказ: ${code.orderNumber}`
+      : `Заказ: ${code.orderNumber}`,
+    isPackage: code.isPackage || false
   }
   showSinglePrintModal.value = true
 }

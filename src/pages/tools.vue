@@ -135,15 +135,23 @@
     </n-card>
 
     <n-card size="small">
-      <n-data-table 
-        :columns="columns" 
-        :data="filteredTools" 
-        :row-props="(row: Tool) => ({
-          class: 'cursor-pointer',
-          onClick: () => handleEditTool(row.id)
-        })"
-      />
-    </n-card>
+    <div class="flex justify-between items-center mb-4">
+      <n-text depth="3">Всего: {{ filteredTools.length }}</n-text>
+      <div class="flex items-center gap-2">
+        <n-text>Показывать:</n-text>
+        <n-select v-model:value="itemsPerPage" :options="pageSizeOptions" class="w-24!" />
+      </div>
+    </div>
+    <n-data-table 
+      :columns="columns" 
+      :data="filteredTools" 
+      :pagination="pagination"
+      :row-props="(row: Tool) => ({
+        class: 'cursor-pointer',
+        onClick: () => handleEditTool(row.id)
+      })"
+    />
+  </n-card>
 
     <ToolModal 
       v-model:show="showModal" 
@@ -215,6 +223,10 @@ watch(() => filters.search, (val) => {
   }
 })
 
+watch(filters, () => {
+  currentPage.value = 1
+})
+
 const filteredTools = computed(() => {
   return toolsStore.tools.filter(tool => {
     const q = filters.search.toLowerCase()
@@ -229,6 +241,31 @@ const filteredTools = computed(() => {
     return matchesSearch && tool.status === filters.status
   })
 })
+
+const currentPage = ref(1)
+const itemsPerPage = ref(10)
+
+const pageSizeOptions = [
+  { label: '10', value: 10 },
+  { label: '25', value: 25 },
+  { label: '50', value: 50 },
+  { label: '100', value: 100 }
+]
+
+const pagination = computed(() => ({
+  pageSize: itemsPerPage.value,
+  page: currentPage.value,
+  pageCount: Math.ceil(filteredTools.value.length / itemsPerPage.value),
+  showSizePicker: true,
+  pageSizes: [10, 25, 50, 100],
+  onChange: (page: number) => {
+    currentPage.value = page
+  },
+  onUpdatePageSize: (pageSize: number) => {
+    itemsPerPage.value = pageSize
+    currentPage.value = 1
+  }
+}))
 
 const getStatusLabel = (status: string) => {
   switch (status) {

@@ -400,10 +400,12 @@ const getProductShipmentMeta = (item: InventoryItem) => {
     unitPrice,  // цена за 1 шт из заказа
     totalValue, // сумма позиции из заказа (из 1С)
     packageCount: packageCodes.length,
-    shipmentStatusLabel: totalCount > 0 && shippedCount >= totalCount ? 'Отгружен' : 'На складе',
+    shipmentStatusLabel: totalCount > 0 && shippedCount >= totalCount
+      ? 'Отгружен'
+      : (shippedCount > 0 ? 'Отгружен частично' : 'На складе'),
     shipmentStatusType: totalCount > 0 && shippedCount >= totalCount
       ? 'success'
-      : (scannedCount > 0 ? 'warning' : 'info') as 'success' | 'warning' | 'info'
+      : (shippedCount > 0 ? 'warning' : 'info') as 'success' | 'warning' | 'info'
   }
 }
 
@@ -422,12 +424,43 @@ const filteredItems = computed(() => {
 
   if (searchQuery.value) {
     const query = searchQuery.value.toLowerCase()
-    result = result.filter(item =>
+
+    // Получаем номера заказов для позиции через QR-коды
+    const getOrderNumbers = (item: InventoryItem): string[] => {
+      const itemQrs = qrCodesStore.qrCodes.filter(q =>
+        q.productId === item.id ||
+        q.productId === item.sku ||
+        q.productName === item.name
+      )
+      return Array.from(new Set([
+        ...itemQrs.map(q => q.orderNumber).filter(Boolean),
+        item.orderNumber
+      ].filter(Boolean)))
+    }
+
+    const matchesQuery = (item: InventoryItem) =>
       item.name.toLowerCase().includes(query) ||
       item.sku.toLowerCase().includes(query) ||
       (item.barcode && item.barcode.includes(query)) ||
-      item.description?.toLowerCase().includes(query)
-    )
+      item.description?.toLowerCase().includes(query) ||
+      getOrderNumbers(item).some(on => on.toLowerCase().includes(query))
+
+    // Находим все номера заказов, где есть хотя бы одна подходящая позиция
+    const matchingOrderNumbers = new Set<string>()
+    result.forEach(item => {
+      if (matchesQuery(item)) {
+        getOrderNumbers(item).forEach(on => matchingOrderNumbers.add(on))
+      }
+    })
+
+    // Показываем все позиции из заказов с совпадениями + отдельные совпавшие без заказа
+    result = result.filter(item => {
+      const itemOrders = getOrderNumbers(item)
+      if (itemOrders.length > 0) {
+        return itemOrders.some(on => matchingOrderNumbers.has(on))
+      }
+      return matchesQuery(item)
+    })
   }
 
   if (filters.category) {

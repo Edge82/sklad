@@ -22,6 +22,7 @@
           <div class="qr-preview-wrapper">
             <div class="qr-preview-scaler" :style="previewStyle">
               <div id="qr-print-content" class="qr-label" :style="labelStyle">
+                <div v-if="isPackage" class="qr-package-badge">УПАКОВКА</div>
                 <div v-if="orderLine" class="qr-order-line">{{ orderLine }}</div>
                 <div v-else class="qr-code-text">{{ code }}</div>
                 <img :src="qrUrl" class="qr-image" />
@@ -59,6 +60,7 @@ const props = defineProps<{
   title: string
   code: string
   description?: string
+  isPackage?: boolean
 }>()
 
 const emit = defineEmits(['update:show'])
@@ -163,6 +165,10 @@ function handlePrint() {
             object-fit: contain;
             flex-shrink: 0;
           }
+          .qr-package-badge {
+            font-size: 16pt; font-weight: 700; color: #e6474a;
+            letter-spacing: 0.5mm; line-height: 1.2; flex-shrink: 0;
+          }
           .qr-order-line {
             font-size: 22pt; font-weight: 900; color: #000; line-height: 1.15;
             width: 100%; overflow: hidden; text-overflow: ellipsis;
@@ -191,7 +197,8 @@ function handlePrint() {
       <body>
         <div class="qr-scaler">
           <div class="qr-label">
-            ${orderLine.value ? `<div class="qr-order-line">${escapeHtml(orderLine.value)}</div>` : `<div class="qr-code-text">${escapeHtml(props.code)}</div>`}
+            ${props.isPackage ? '<div class="qr-package-badge">УПАКОВКА</div>' : ''}
+          ${orderLine.value ? `<div class="qr-order-line">${escapeHtml(orderLine.value)}</div>` : `<div class="qr-code-text">${escapeHtml(props.code)}</div>`}
             <img src="${qrUrl.value}" class="qr-image" />
             <div class="label-title">${escapeHtml(props.title)}</div>
             ${extraInfo.value ? `<div class="qr-extra-info">${escapeHtml(extraInfo.value).replace(/\n/g, '<br>')}</div>` : ''}
@@ -320,6 +327,15 @@ function escapeHtml(text: string): string {
   width: 35mm;
   height: 35mm;
   object-fit: contain;
+  flex-shrink: 0;
+}
+
+.qr-package-badge {
+  font-size: 16pt;
+  font-weight: 700;
+  color: #e6474a;
+  letter-spacing: 0.5mm;
+  line-height: 1.2;
   flex-shrink: 0;
 }
 
