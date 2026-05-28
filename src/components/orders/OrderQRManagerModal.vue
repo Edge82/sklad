@@ -51,7 +51,7 @@
             <tbody>
               <tr v-for="code in orderCodes" :key="code.id">
                 <td>
-                  <n-text code>{{ code.id }}</n-text>
+                  <n-text code>{{ code.code }}</n-text>
                   <n-tag v-if="code.isPackage" size="tiny" type="info" class="ml-1">📦</n-tag>
                 </td>
                 <td>{{ code.productName || '—' }}</td>

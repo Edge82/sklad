@@ -256,12 +256,12 @@ const convertRussianKeyboardToLatin = (text: string): string => {
 }
 
 const handleScan = async () => {
-  // Очищаем код от спецсимволов сканера и конвертируем раскладку
+  // Очищаем код от спецсимволов сканера, конвертируем раскладку и убираем не-ASCII
   const code = convertRussianKeyboardToLatin(
     lastScannedCode.value
       .trim()
       .replace(/[\|\r\n\t]+/g, '')
-  )
+  ).replace(/[^\x20-\x7E]/g, '')
 
   if (!code) return
 
@@ -270,8 +270,46 @@ const handleScan = async () => {
     statusMessage.value = null
   }
 
-  // Ищем QR код в базе
-  const qrCode = qrStore.qrCodesMap.get(code)
+  // Ищем QR код в локальном кэше
+  let qrCode = qrStore.qrCodesMap.get(code)
+
+  // Если не нашли — пробуем загрузить с бэкенда
+  if (!qrCode) {
+    try {
+      const res = await fetch(`/sklad/api/qr-codes?code=${encodeURIComponent(code)}`)
+      if (res.ok) {
+        const data = await res.json()
+        const raw = data.qrCodes?.[0]
+        if (raw) {
+          qrCode = {
+            id: raw.id,
+            code: raw.code,
+            orderId: raw.order_id,
+            orderNumber: raw.order_number,
+            productId: raw.product_id,
+            productName: raw.product_name,
+            label: {
+              order: raw.label_order || raw.order_number,
+              info: raw.label_info || ''
+            },
+            status: raw.status,
+            isActive: raw.status !== 'deleted',
+            version: 1,
+            generatedAt: new Date(raw.generated_at),
+            generatedBy: raw.generated_by,
+            isPackage: raw.is_package || false,
+            scannedAt: raw.scanned_at ? new Date(raw.scanned_at) : undefined,
+            scannedBy: raw.scanned_by
+          }
+          if (!qrStore.qrCodes.find(q => q.code === raw.code)) {
+            qrStore.qrCodes.push(qrCode)
+          }
+        }
+      }
+    } catch {
+      // ignore network errors
+    }
+  }
 
   if (!qrCode) {
     scanHistory.value.unshift({
@@ -375,39 +413,25 @@ const handleScan = async () => {
           !q.isPackage &&
           q.status !== 'shipped'
         )
-        const unscannedCount = siblingCodes.filter(q => q.status === 'generated' || q.status === 'printed').length
+        const scannedQrIds = new Set(scannedCodes.value.map(s => s.qrId))
+        const unscannedCount = siblingCodes.filter(q =>
+          q.status === 'generated' || q.status === 'printed'
+        ).length
+        const inTableCount = siblingCodes.filter(q =>
+          scannedQrIds.has(q.id)
+        ).length
+        const totalUnaccounted = Math.max(0, unscannedCount - inTableCount)
 
-        if (unscannedCount > 0) {
+        if (totalUnaccounted > 0) {
           scanHistory.value.unshift({
             time: new Date(),
             code: code,
-            resultMessage: `Упаковка заблокирована: не все детали отсканированы (${siblingCodes.length - unscannedCount}/${siblingCodes.length})`,
+            resultMessage: `Упаковка заблокирована: не все детали отсканированы (${siblingCodes.length - unscannedCount + inTableCount}/${siblingCodes.length})`,
             resultType: 'error'
           })
           statusMessage.value = {
             type: 'error',
-            text: `❌ Упаковка «${qrCode.productName}» не может быть перемещена. Отсканируйте все детали (${unscannedCount} шт. осталось).`
-          }
-          lastScannedCode.value = ''
-          nextTick(() => {
-            scanInputRef.value?.focus()
-          })
-          return
-        }
-      }
-
-      // Проверка: если это деталь и у изделия уже есть упаковка на складе — отгружаем только упаковку
-      if (!qrCode.isPackage) {
-        const packageOnWarehouse = qrStore.qrCodes.find(q =>
-          q.orderId === qrCode.orderId &&
-          q.productId === qrCode.productId &&
-          q.isPackage &&
-          q.status === 'scanned'
-        )
-        if (packageOnWarehouse) {
-          statusMessage.value = {
-            type: 'error',
-            text: '❌ Деталь упакована, для отгрузки отсканируйте упаковку.'
+            text: `❌ Упаковка «${qrCode.productName}» не может быть перемещена. Отсканируйте все детали (${totalUnaccounted} шт. осталось).`
           }
           lastScannedCode.value = ''
           nextTick(() => {

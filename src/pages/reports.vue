@@ -180,6 +180,8 @@ const dateRange = ref<[number, number] | null>(null)
 const activeTab = ref('main')
 const selectedEmployee = ref<Employee | null>(null)
 const showEmployeeModal = ref(false)
+const employeeOperations = ref<any[]>([])
+const employeeOperationsLoading = ref(false)
 const expandedOrderKeys = ref<string[]>([])
 const searchToolsQuery = ref('')
 
@@ -314,10 +316,19 @@ const summaryMetrics = computed(() => [
 
 
 
-const employeeHistoryColumns = [
-  { title: 'Дата', key: 'date', render: (row: MaterialInvoice) => new Date(row.date).toLocaleDateString() },
+const employeeHistoryColumns: DataTableColumns<any> = [
+  {
+    title: 'Дата',
+    key: 'created_at',
+    render: (row: any) => new Date(row.created_at || row.date).toLocaleString()
+  },
+  { title: 'Операция', key: 'operationLabel' },
   { title: 'Заказ', key: 'orderNumber' },
-  { title: 'Кол-во позиций', key: 'items', render: (row: MaterialInvoice) => row.items?.length }
+  {
+    title: 'Детали',
+    key: 'productName',
+    render: (row: any) => row.productName || row.qrCode || row.details || '—'
+  }
 ]
 
 const criticalDetailedColumns = [
@@ -336,14 +347,39 @@ const toolsDetailedColumns = [
   }
 ]
 
-const openEmployeeProfile = (emp: Employee) => {
-  selectedEmployee.value = emp
-  showEmployeeModal.value = true
+const operationLabels: Record<string, string> = {
+  qr_code_generated: 'QR код сгенерирован',
+  qr_code_scanned: 'QR код отсканирован',
+  qr_code_deleted: 'QR код удален',
+  order_painting_updated: 'Окраска обновлена',
+  transfer_order_created: 'Перемещение создано',
+  transfer_order_completed: 'Перемещение завершено'
 }
 
-const selectedEmployeeHistory = computed(() => selectedEmployee.value?.materialHistory || [])
-const selectedEmployeeUniqueOrders = computed(() => new Set(selectedEmployee.value?.materialHistory?.map((h: MaterialInvoice) => h.orderNumber)).size)
-const selectedEmployeeOperations = computed(() => selectedEmployee.value?.materialHistory?.length || 0)
+const openEmployeeProfile = async (emp: Employee) => {
+  selectedEmployee.value = emp
+  showEmployeeModal.value = true
+  employeeOperationsLoading.value = true
+  try {
+    const res = await fetch(`/sklad/api/employees/${emp.id}/operations?limit=50`)
+    if (res.ok) {
+      const data = await res.json()
+      employeeOperations.value = (data.logs || []).map((log: any) => ({
+        ...log,
+        operationLabel: operationLabels[log.operation_type] || log.operation_type,
+        details: typeof log.details === 'object' ? JSON.stringify(log.details) : log.details
+      }))
+    }
+  } catch {
+    // ignore
+  } finally {
+    employeeOperationsLoading.value = false
+  }
+}
+
+const selectedEmployeeHistory = computed(() => employeeOperations.value)
+const selectedEmployeeUniqueOrders = computed(() => new Set(employeeOperations.value.map((h: any) => h.orderNumber).filter(Boolean)).size)
+const selectedEmployeeOperations = computed(() => employeeOperations.value.length)
 </script>
 
 <style scoped>

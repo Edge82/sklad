@@ -209,7 +209,7 @@ onMounted(() => {
 
 <style scoped>
 .my-tools-page {
-  max-width: 1200px;
+  max-width: 1600px;
   margin: 0 auto;
 }
 </style>

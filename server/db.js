@@ -119,7 +119,6 @@ try { db.exec(`ALTER TABLE onec_stocks ADD COLUMN barcode TEXT`) } catch(e) { /*
 try { db.exec(`ALTER TABLE onec_stocks ADD COLUMN image TEXT`) } catch(e) { /* already exists */ }
 try { db.exec(`ALTER TABLE onec_stocks ADD COLUMN local_only INTEGER DEFAULT 0`) } catch(e) { /* already exists */ }
 try { db.exec(`ALTER TABLE onec_orders ADD COLUMN items TEXT DEFAULT '[]'`) } catch(e) { /* already exists */ }
-try { db.exec(`ALTER TABLE onec_orders ADD COLUMN painting TEXT DEFAULT ''`) } catch(e) { /* already exists */ }
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS onec_orders (
@@ -135,6 +134,8 @@ db.exec(`
     synced_at DATETIME DEFAULT CURRENT_TIMESTAMP
   )
 `)
+
+try { db.exec(`ALTER TABLE onec_orders ADD COLUMN painting TEXT DEFAULT ''`) } catch(e) { /* already exists */ }
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS transfer_orders (

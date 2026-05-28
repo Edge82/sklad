@@ -33,7 +33,7 @@ function getUserRoleFromRequest(req) {
 }
 
 import { sendJSON, _readBody, writeSyncLog, logOperation, mapMaterialInvoiceRows } from './helpers.js'
-import { cache, lastSyncTime, updateLastSyncTime } from './cache.js'
+import { cache, unitsCache, lastSyncTime, updateLastSyncTime } from './cache.js'
 import {
   fetch1COData, fetch1CUnits, fetch1CCategories, fetch1CWarehouses,
   fetch1CStocks, fetch1COrders, fetch1CTransferOrders,
@@ -69,6 +69,12 @@ const server = http.createServer(async (req, res) => {
 
   const url = new URL(req.url, `http://${req.headers.host}`)
   const pathname = url.pathname
+
+  // Ping / version check
+  if (pathname === '/sklad/api/ping' && req.method === 'GET') {
+    sendJSON(res, 200, { ok: true, version: 2 })
+    return
+  }
 
   // -------------------------------------------------------
   // AUTH ROUTES
@@ -388,6 +394,39 @@ const server = http.createServer(async (req, res) => {
         sendJSON(res, 500, { error: err.message })
       }
     })
+    return
+  }
+
+  // Barcode lookup in stocks
+  if (pathname === '/sklad/api/onec/stocks/by-barcode' && req.method === 'GET') {
+    try {
+      const barcode = (url.searchParams.get('barcode') || '').trim()
+      if (!barcode) {
+        sendJSON(res, 400, { error: 'barcode parameter is required' })
+        return
+      }
+      const stocks = db.prepare(
+        'SELECT * FROM onec_stocks WHERE barcode = ? OR barcode LIKE ? LIMIT 50'
+      ).all(barcode, `%${barcode}%`)
+
+      sendJSON(res, 200, {
+        success: true,
+        items: stocks.map(s => ({
+          ref_key: s.ref_key,
+          name: s.name,
+          product: s.product,
+          sku: s.sku || '',
+          barcode: s.barcode || '',
+          warehouse: s.warehouse || '',
+          quantity: s.quantity || 0,
+          unit: s.unit || 'шт',
+          unit_key: s.unit_key || '',
+          category: s.category || ''
+        }))
+      })
+    } catch (err) {
+      sendJSON(res, 500, { error: err.message })
+    }
     return
   }
 
@@ -767,6 +806,8 @@ const server = http.createServer(async (req, res) => {
             body: JSON.stringify({ СостояниеЗаказа_Key: statusKey })
           })
 
+          console.log('[1C COMPLETE TRANSFER ORDER] Patching with statusKey:', statusKey, 'response:', response.status)
+
           if (response.ok) {
             updated = true
           }
@@ -775,6 +816,28 @@ const server = http.createServer(async (req, res) => {
         }
 
         const deletedScans = db.prepare('DELETE FROM transfer_order_scans WHERE order_ref_key = ?').run(orderId)
+
+        // Get user info from JWT
+        let employeeName = 'System'
+        let employeeId = null
+        try {
+          const cookies = req.headers.cookie || ''
+          const m = cookies.match(/auth_token=([^;]+)/)
+          if (m) {
+            const payload = jwt.verify(decodeURIComponent(m[1]), JWT_SECRET)
+            employeeName = payload?.login || 'System'
+            employeeId = payload?.userId || null
+          }
+        } catch {}
+
+        const order = db.prepare('SELECT * FROM transfer_orders WHERE ref_key = ?').get(orderId)
+        logOperation('transfer_order_completed', {
+          orderId,
+          orderNumber: order?.order_number || orderId,
+          employeeName,
+          employeeId: String(employeeId),
+          details: { statusName: targetStatusName, updated }
+        })
 
         sendJSON(res, 200, {
           success: true,
@@ -839,6 +902,214 @@ const server = http.createServer(async (req, res) => {
     } catch (err) {
       sendJSON(res, 500, { error: err.message })
     }
+    return
+  }
+
+  // Create new transfer order (local + try 1C)
+  if (pathname === '/sklad/api/transfer-orders/create' && req.method === 'POST') {
+    let body = ''
+    req.on('data', chunk => { body += chunk })
+    req.on('end', async () => {
+      try {
+        const data = JSON.parse(body)
+        const { sourceWarehouseKey, sourceWarehouseName, destinationWarehouseKey, destinationWarehouseName, items, customerOrderKey, customerOrderNumber } = data
+
+        if (!sourceWarehouseKey || !destinationWarehouseKey) {
+          sendJSON(res, 400, { error: 'sourceWarehouseKey and destinationWarehouseKey are required' })
+          return
+        }
+
+        const localRefKey = `LOCAL-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`
+        const orderNumber = `LOCAL-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.random().toString(36).substr(2, 4).toUpperCase()}`
+        const now = new Date().toISOString()
+        const itemsJson = JSON.stringify(items || [])
+
+        // Save locally first
+        const localResult = db.prepare(`
+          INSERT INTO transfer_orders (ref_key, order_number, date, source_warehouse_key, source_warehouse_name,
+            destination_warehouse_key, destination_warehouse_name, customer_order_key, customer_order_number, posted, items, synced_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+        `).run(localRefKey, orderNumber, now, sourceWarehouseKey, sourceWarehouseName || '',
+          destinationWarehouseKey, destinationWarehouseName || '', customerOrderKey || null,
+          customerOrderNumber || null, itemsJson, now)
+
+        let onecResult = null
+        let onecRefKey = null
+
+        // Try to create in 1C via OData
+        try {
+          const authHeader = getBasicAuthHeader()
+          const baseUrl = ONEC_CONFIG.baseUrl.replace(/\/$/, '')
+          const url = `${baseUrl}/Document_ЗаказНаПеремещение`
+
+          const debugItems = (items || []).map(i => ({ nomenclatureKey: i.nomenclatureKey, unitKey: i.unitKey, unit: i.unit, productName: i.productName }))
+          console.log('[1C CREATE TRANSFER ORDER] Items before enrich:', JSON.stringify(debugItems, null, 2))
+
+          // Enrich items with unit keys from DB
+          const enrichedItems = await Promise.all((items || []).map(async (item) => {
+            if (!item.unitKey && item.nomenclatureKey) {
+              const stock = db.prepare('SELECT unit_key FROM onec_stocks WHERE ref_key = ?').get(item.nomenclatureKey)
+              if (stock?.unit_key) {
+                item.unitKey = stock.unit_key
+              }
+            }
+            return item
+          }))
+
+          // Look up operation type key for 'Перемещение'
+          let operationKey = null
+          try {
+            const opUrl = `${baseUrl}/Catalog_ХозяйственныеОперации?$format=json&$select=Ref_Key,Description&$filter=Description eq 'Перемещение'`
+            const opResponse = await fetch(opUrl, {
+              headers: { 'Authorization': authHeader, 'Accept': 'application/json' }
+            })
+            if (opResponse.ok) {
+              const opData = await opResponse.json()
+              const opItems = opData.value || []
+              if (opItems.length > 0) {
+                operationKey = opItems[0].Ref_Key
+              }
+            }
+          } catch { /* ignore */ }
+
+          // Look up status key for 'Завершен'
+          let statusKey = null
+          try {
+            const stUrl = `${baseUrl}/Catalog_СостоянияЗаказовНаПеремещение?$format=json&$select=Ref_Key,Description`
+            const stResponse = await fetch(stUrl, {
+              headers: { 'Authorization': authHeader, 'Accept': 'application/json' }
+            })
+            if (stResponse.ok) {
+              const stData = await stResponse.json()
+              const stItems = stData.value || []
+              let found = stItems.find(item => {
+                const desc = String(item.Description || '').trim()
+                return desc === 'Завершен'
+              })
+              if (!found) {
+                found = stItems.find(item => {
+                  const desc = String(item.Description || '').trim()
+                  return desc.startsWith('Завершен')
+                })
+              }
+              if (!found) {
+                found = stItems.find(item => {
+                  const desc = String(item.Description || '').trim().toLowerCase()
+                  return desc.includes('завершен')
+                })
+              }
+              if (found) {
+                statusKey = found.Ref_Key
+              } else if (stItems.length > 1) {
+                statusKey = stItems[1].Ref_Key
+              } else if (stItems.length === 1) {
+                statusKey = stItems[0].Ref_Key
+              }
+            }
+            if (statusKey) console.log(`[1C] Using status key: ${statusKey}`)
+          } catch (err) {
+            console.warn(`⚠️ Error looking up status: ${err.message}`)
+          }
+
+          const docPayload = {
+            Date: new Date().toISOString().split('T')[0],
+            СтруктурнаяЕдиницаРезерв_Key: sourceWarehouseKey,
+            СтруктурнаяЕдиницаПолучатель_Key: destinationWarehouseKey,
+            ...(operationKey ? { ХозяйственнаяОперация_Key: operationKey } : {}),
+            ...(statusKey ? { СостояниеЗаказа_Key: statusKey } : {}),
+            Posted: false,
+            Запасы: enrichedItems.map((item, idx) => ({
+              LineNumber: idx + 1,
+              Номенклатура_Key: item.nomenclatureKey || '',
+              Количество: Number(item.quantity) || 1,
+              ...(item.unitKey
+                ? { ЕдиницаИзмерения: item.unitKey, ЕдиницаИзмерения_Type: 'StandardODATA.Catalog_КлассификаторЕдиницИзмерения' }
+                : {})
+            }))
+          }
+
+          console.log('[1C CREATE TRANSFER ORDER] Sending payload:', JSON.stringify(docPayload, null, 2))
+
+          const controller = new AbortController()
+          const timeoutId = setTimeout(() => controller.abort(), 30000)
+
+          const response = await fetch(url, {
+            method: 'POST',
+            signal: controller.signal,
+            headers: {
+              'Authorization': authHeader,
+              'Content-Type': 'application/json',
+              'Accept': 'application/json'
+            },
+            body: JSON.stringify(docPayload)
+          })
+
+          clearTimeout(timeoutId)
+
+          if (response.ok) {
+            const result = await response.json()
+            onecRefKey = result['Ref_Key'] || null
+            onecResult = { success: true, refKey: onecRefKey }
+
+            // Update local record with 1C ref_key
+            if (onecRefKey) {
+              db.prepare('UPDATE transfer_orders SET ref_key = ?, posted = 1 WHERE ref_key = ?')
+                .run(onecRefKey, localRefKey)
+            }
+          } else {
+            const errorText = await response.text()
+            onecResult = { success: false, error: `1C Error: ${response.status}: ${errorText.substring(0, 200)}` }
+          }
+        } catch (err) {
+          onecResult = { success: false, error: err.message }
+        }
+
+        // Get user info from JWT
+        let employeeName = 'System'
+        let employeeId = null
+        try {
+          const cookies = req.headers.cookie || ''
+          const m = cookies.match(/auth_token=([^;]+)/)
+          if (m) {
+            const payload = jwt.verify(decodeURIComponent(m[1]), JWT_SECRET)
+            employeeName = payload?.login || 'System'
+            employeeId = payload?.userId || null
+          }
+        } catch {}
+
+        logOperation('transfer_order_created', {
+          orderNumber,
+          employeeName,
+          employeeId: String(employeeId),
+          details: {
+            sourceWarehouse: sourceWarehouseName,
+            destinationWarehouse: destinationWarehouseName,
+            itemsCount: (items || []).length,
+            syncedTo1C: !!onecRefKey
+          }
+        })
+
+        sendJSON(res, 201, {
+          success: true,
+          order: {
+            ref_key: onecRefKey || localRefKey,
+            order_number: orderNumber,
+            date: now,
+            sourceWarehouseKey,
+            sourceWarehouseName: sourceWarehouseName || '',
+            destinationWarehouseKey,
+            destinationWarehouseName: destinationWarehouseName || '',
+            customerOrderKey: customerOrderKey || null,
+            customerOrderNumber: customerOrderNumber || null,
+            items: items || [],
+            posted: !!onecRefKey
+          },
+          onecResult
+        })
+      } catch (err) {
+        sendJSON(res, 500, { error: err.message })
+      }
+    })
     return
   }
 
@@ -1042,11 +1313,14 @@ const server = http.createServer(async (req, res) => {
           const qrId = `QR-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
 
           // Generate unique code - check if exists and add suffix if needed
-          let code = `QR-${order.order_number || orderId}-${productId || ''}-${i + 1}`
+          const safeOrderNum = (order.order_number || orderId)
+            .replace(/\//g, '-')
+            .replace(/[^A-Za-z0-9\-_]/g, '')
+          let code = `QR-${safeOrderNum}-${productId || ''}-${i + 1}`
           let existingCode = db.prepare('SELECT code FROM local_qr_codes WHERE code = ?').get(code)
           let suffix = 1
           while (existingCode) {
-            code = `QR-${order.order_number || orderId}-${productId || ''}-${i + 1}-${suffix}`
+            code = `QR-${safeOrderNum}-${productId || ''}-${i + 1}-${suffix}`
             existingCode = db.prepare('SELECT code FROM local_qr_codes WHERE code = ?').get(code)
             suffix++
           }
@@ -1140,7 +1414,10 @@ const server = http.createServer(async (req, res) => {
           const qty = item.quantity || 1
           for (let i = 0; i < qty; i++) {
             const qrId = `QR-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
-            const code = `QR-${order.order_number || orderId}-${item.sku || ''}-${i + 1}`
+            const safeOrderNum = (order.order_number || orderId)
+            .replace(/\//g, '-')
+            .replace(/[^A-Za-z0-9\-_]/g, '')
+            const code = `QR-${safeOrderNum}-${item.sku || ''}-${i + 1}`
 
             db.prepare(`
               INSERT INTO local_qr_codes (id, code, order_id, order_number, product_id, product_name, label_order, label_info, status, generated_at, generated_by)
@@ -1187,18 +1464,45 @@ const server = http.createServer(async (req, res) => {
     return
   }
 
-  // Get QR codes for order (by query param)
+  // Get QR codes for order (by query param) or by code
   if (pathname === '/sklad/api/qr-codes' && req.method === 'GET') {
     try {
       const orderId = url.searchParams.get('orderId')
+      const codeQuery = url.searchParams.get('code')
 
-      if (!orderId) {
-        sendJSON(res, 400, { error: 'orderId is required' })
+      if (!orderId && !codeQuery) {
+        sendJSON(res, 400, { error: 'orderId or code is required', _version: 2 })
         return
       }
 
-      let query = 'SELECT * FROM local_qr_codes WHERE order_id = ?'
-      const params = [orderId]
+      let query = 'SELECT * FROM local_qr_codes WHERE 1=1'
+      const params = []
+
+      if (orderId) {
+        query += ' AND order_id = ?'
+        params.push(orderId)
+      }
+      if (codeQuery) {
+        query += ' AND code = ?'
+        params.push(codeQuery)
+        const exact = db.prepare('SELECT code FROM local_qr_codes WHERE code = ?').get(codeQuery)
+        console.log('[QR LOOKUP] code:', codeQuery, 'exact:', !!exact)
+        if (!exact && codeQuery.startsWith('QR-')) {
+          const parts = codeQuery.split('-')
+          for (let n = 1; n <= parts.length - 3; n++) {
+            const orderNum = parts.slice(1, 1 + n).join('/')
+            const rest = parts.slice(1 + n).join('-')
+            const altCode = `QR-${orderNum}-${rest}`
+            if (altCode === codeQuery) continue
+            const alt = db.prepare('SELECT code FROM local_qr_codes WHERE code = ?').get(altCode)
+            console.log('[QR LOOKUP] trying n=' + n, altCode, 'found:', !!alt)
+            if (alt) {
+              params[params.length - 1] = altCode
+              break
+            }
+          }
+        }
+      }
 
       const status = url.searchParams.get('status')
       if (status) {
@@ -1209,7 +1513,7 @@ const server = http.createServer(async (req, res) => {
       query += ' ORDER BY generated_at DESC'
 
       const qrCodes = db.prepare(query).all(...params)
-      sendJSON(res, 200, { qrCodes })
+      sendJSON(res, 200, { qrCodes, _lookupCode: params[params.length - 1] || '' })
     } catch (err) {
       console.error('Error fetching QR codes:', err)
       sendJSON(res, 500, { error: err.message })

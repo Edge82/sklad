@@ -25,6 +25,10 @@
           <template #icon><n-icon><ReloadOutline /></n-icon></template>
           Синхронизировать с 1С
         </n-button>
+        <n-button v-if="!selectedOrderId" type="success" @click="openCreateModal">
+          <template #icon><n-icon><AddOutline /></n-icon></template>
+          Новый заказ на перемещение
+        </n-button>
       </n-space>
     </div>
 
@@ -358,10 +362,72 @@
       </n-spin>
     </div>
   </div>
+
+  <!-- Модал создания нового заказа на перемещение -->
+  <n-modal v-model:show="showCreateModal" :mask-closable="false" :close-on-esc="false" preset="card" style="width: 800px; max-width: 95vw" title="Новый заказ на перемещение" :segmented="{ content: true }">
+    <div class="space-y-4">
+      <n-grid :cols="2" :x-gap="12">
+        <n-gi>
+          <n-form-item label="Склад отправитель" required>
+            <n-select v-model:value="createForm.sourceWarehouseKey" :options="warehouseOptions" filterable placeholder="Выберите склад" />
+          </n-form-item>
+        </n-gi>
+        <n-gi>
+          <n-form-item label="Склад получатель" required>
+            <n-select v-model:value="createForm.destinationWarehouseKey" :options="warehouseOptions" filterable placeholder="Выберите склад" />
+          </n-form-item>
+        </n-gi>
+      </n-grid>
+
+      <n-card size="small" title="Сканирование товаров" :segmented="true">
+        <div class="flex gap-2 mb-3">
+          <n-input
+            ref="createBarcodeInputRef"
+            v-model:value="createBarcodeBuffer"
+            placeholder="Отсканируйте штрихкод или введите вручную"
+            @keydown.enter.prevent="handleCreateScan"
+            :disabled="createSaving"
+          >
+            <template #prefix>
+              <n-icon><CameraOutline /></n-icon>
+            </template>
+          </n-input>
+          <n-button @click="handleCreateScan" :disabled="!createBarcodeBuffer.trim() || createSaving">
+            Добавить
+          </n-button>
+        </div>
+
+        <n-data-table
+          :columns="createItemsColumns"
+          :data="createForm.items"
+          :bordered="false"
+          :single-line="true"
+          size="small"
+          :max-height="300"
+          v-if="createForm.items.length > 0"
+        />
+        <n-empty v-else description="Отсканируйте товары, они появятся в таблице" />
+      </n-card>
+
+      <n-alert v-if="createResult" :type="createResult.success ? 'success' : 'warning'" :title="createResult.success ? 'Заказ создан' : 'Заказ сохранён локально'">
+        {{ createResult.message }}
+        <template v-if="createResult.details" #default>
+          <br><small>{{ createResult.details }}</small>
+        </template>
+      </n-alert>
+
+      <div class="flex justify-end gap-2 pt-2">
+        <n-button @click="closeCreateModal" :disabled="createSaving">Отмена</n-button>
+        <n-button type="primary" @click="saveCreateOrder" :loading="createSaving" :disabled="!canSaveCreate">
+          Сохранить и отправить в 1С
+        </n-button>
+      </div>
+    </div>
+  </n-modal>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, h, onBeforeUnmount, watch, nextTick } from 'vue'
+import { ref, reactive, computed, onMounted, h, onBeforeUnmount, watch, nextTick } from 'vue'
 import { useStockBalances } from '@/composables/useStockBalances'
 import { useMessage } from 'naive-ui'
 import {
@@ -379,9 +445,12 @@ import {
   NH3,
   NAlert,
   NInput,
+  NModal,
+  NSelect,
+  NFormItem,
   type InputInst
 } from 'naive-ui'
-import { ArrowBackOutline, CameraOutline, ReloadOutline, CloseCircleOutline, CubeOutline, PencilOutline, CheckmarkCircleOutline, TimeOutline, PrintOutline } from '@vicons/ionicons5'
+import { ArrowBackOutline, CameraOutline, ReloadOutline, CloseCircleOutline, CubeOutline, PencilOutline, CheckmarkCircleOutline, TimeOutline, PrintOutline, AddOutline } from '@vicons/ionicons5'
 import type { DataTableColumns } from 'naive-ui'
 
 interface TransferOrder {
@@ -425,6 +494,49 @@ const orders = ref<TransferOrder[]>([])
 const selectedOrderId = ref<string | null>(null)
 const selectedOrder = ref<TransferOrder | null>(null)
 const scannedBarcodes = ref<Set<string>>(new Set())
+
+// Create order modal state
+const showCreateModal = ref(false)
+const createSaving = ref(false)
+const createBarcodeBuffer = ref('')
+const createBarcodeInputRef = ref<InputInst | null>(null)
+const warehouseOptions = ref<Array<{ label: string; value: string }>>([])
+const createResult = ref<{ success: boolean; message: string; details?: string } | null>(null)
+
+interface CreateItem {
+  nomenclatureKey: string
+  productName: string
+  barcode: string
+  quantity: number
+  sku: string
+  unit: string
+  unitKey: string
+}
+
+const createForm = reactive({
+  sourceWarehouseKey: '',
+  destinationWarehouseKey: '',
+  items: [] as CreateItem[]
+})
+
+const canSaveCreate = computed(() =>
+  !createResult.value &&
+  createForm.sourceWarehouseKey &&
+  createForm.destinationWarehouseKey &&
+  createForm.sourceWarehouseKey !== createForm.destinationWarehouseKey &&
+  createForm.items.length > 0 &&
+  !createSaving.value
+)
+
+// Auto-detect barcode scanner input — triggers on trailing newline
+watch(createBarcodeBuffer, (val) => {
+  if (!val) return
+  const trimmed = val.replace(/[\r\n]+/g, '')
+  if (trimmed.length < val.length) {
+    createBarcodeBuffer.value = trimmed
+    handleCreateScan()
+  }
+})
 
 const pagination = ref({ pageSize: 10 })
 
@@ -482,6 +594,217 @@ let scanTimeout: ReturnType<typeof setTimeout> | null = null
 
 // Конвертация символов русской раскладки клавиатуры в латинские
 // (сканер работает как клавиатура и вводит русские буквы при русской раскладке)
+// --- Create order modal functions ---
+
+const createItemsColumns: DataTableColumns<CreateItem> = [
+  {
+    title: '№',
+    key: 'index',
+    width: 50,
+    render: (_, index) => index + 1
+  },
+  {
+    title: 'Товар',
+    key: 'productName',
+    ellipsis: true
+  },
+  {
+    title: 'Артикул',
+    key: 'sku',
+    width: 120,
+    render: (row) => row.sku || '-'
+  },
+  {
+    title: 'Штрихкод',
+    key: 'barcode',
+    width: 150,
+    render: (row) => h('code', {}, row.barcode || '-')
+  },
+  {
+    title: 'Кол-во',
+    key: 'quantity',
+    width: 100,
+    align: 'center',
+    render: (row, index) => h(NInput, {
+      value: String(row.quantity),
+      type: 'text',
+      size: 'small',
+      style: 'width: 70px; text-align: center',
+      onInput: (val: string) => {
+        const num = parseInt(val) || 1
+        if (createForm.items[index]) {
+          createForm.items[index].quantity = Math.max(1, num)
+        }
+      }
+    })
+  },
+  {
+    title: '',
+    key: 'actions',
+    width: 50,
+    render: (_, index) => h(NButton, {
+      text: true,
+      type: 'error',
+      onClick: () => { createForm.items.splice(index, 1) }
+    }, { default: () => '✕' })
+  }
+]
+
+const openCreateModal = async () => {
+  createForm.sourceWarehouseKey = ''
+  createForm.destinationWarehouseKey = ''
+  createForm.items = []
+  createBarcodeBuffer.value = ''
+  createResult.value = null
+  showCreateModal.value = true
+
+  // Load warehouse options
+  if (warehouseOptions.value.length === 0) {
+    try {
+      const res = await fetch('/sklad/api/onec/warehouses')
+      const data = await res.json()
+      const items = data.value || []
+      warehouseOptions.value = items.map((w: any) => ({
+        label: w.name || w.description || w.Description || w.id,
+        value: w.id || w.ref_key || w.Ref_Key
+      }))
+    } catch {
+      // Fallback: hardcoded warehouses
+      warehouseOptions.value = [
+        { label: 'Основной склад', value: 'main' },
+        { label: 'Склад готовой продукции', value: 'finished' }
+      ]
+    }
+  }
+
+  nextTick(() => {
+    createBarcodeInputRef.value?.focus()
+  })
+}
+
+const closeCreateModal = () => {
+  showCreateModal.value = false
+  createResult.value = null
+}
+
+const handleCreateScan = async () => {
+  const raw = createBarcodeBuffer.value.trim()
+  if (!raw) return
+
+  const barcode = convertRussianKeyboardToLatin(
+    raw.replace(/[\|\r\n\t]+/g, '').trim()
+  )
+
+  if (!barcode) return
+
+  // Check if already in list
+  const existing = createForm.items.find((i: CreateItem) => i.barcode === barcode)
+  if (existing) {
+    existing.quantity++
+    createBarcodeBuffer.value = ''
+    message.success(`✓ ${existing.productName}: +1 (всего ${existing.quantity})`)
+    nextTick(() => createBarcodeInputRef.value?.focus())
+    return
+  }
+
+  // Lookup barcode via API
+  try {
+    const res = await fetch(`/sklad/api/onec/stocks/by-barcode?barcode=${encodeURIComponent(barcode)}`)
+    const data = await res.json()
+    if (data.success && data.items.length > 0) {
+      const found = data.items[0]
+      createForm.items.push({
+        nomenclatureKey: found.ref_key || '',
+        productName: found.name || found.product || 'Неизвестный товар',
+        barcode: barcode,
+        quantity: 1,
+        sku: found.sku || '',
+        unit: found.unit || 'шт',
+        unitKey: found.unit_key || ''
+      })
+      message.success(`✓ Добавлен: ${found.name}`)
+    } else {
+      // Add as unknown item
+      createForm.items.push({
+        nomenclatureKey: '',
+        productName: 'Неизвестный товар',
+        barcode: barcode,
+        quantity: 1,
+        sku: '',
+        unit: 'шт',
+        unitKey: ''
+      })
+      message.warning(`Товар со штрихкодом ${barcode} не найден в базе. Добавлен как "Неизвестный товар"`)
+    }
+  } catch {
+    message.error('Ошибка поиска штрихкода')
+  }
+
+  createBarcodeBuffer.value = ''
+  nextTick(() => createBarcodeInputRef.value?.focus())
+}
+
+const saveCreateOrder = async () => {
+  if (!canSaveCreate.value) return
+  createSaving.value = true
+  createResult.value = null
+
+  try {
+    const res = await fetch('/sklad/api/transfer-orders/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sourceWarehouseKey: createForm.sourceWarehouseKey,
+        sourceWarehouseName: warehouseOptions.value.find(o => o.value === createForm.sourceWarehouseKey)?.label || '',
+        destinationWarehouseKey: createForm.destinationWarehouseKey,
+        destinationWarehouseName: warehouseOptions.value.find(o => o.value === createForm.destinationWarehouseKey)?.label || '',
+        items: createForm.items.map((item: CreateItem) => ({
+          nomenclatureKey: item.nomenclatureKey,
+          productName: item.productName,
+          barcode: item.barcode,
+          quantity: item.quantity,
+          unitKey: item.unitKey
+        }))
+      })
+    })
+
+    const result = await res.json()
+
+    if (result.success) {
+      if (result.onecResult?.success) {
+        message.success(`Заказ №${result.order.order_number} создан и отправлен в 1С`)
+        closeCreateModal()
+        // Refresh order list
+        const data = await fetchTransferOrders()
+        orders.value = data
+        return
+      } else {
+        createResult.value = {
+          success: true,
+          message: `Заказ №${result.order.order_number} сохранён локально`,
+          details: result.onecResult?.error ? `1С недоступна: ${result.onecResult.error}` : 'Будет синхронизирован с 1С при следующей синхронизации'
+        }
+      }
+    } else {
+      createResult.value = {
+        success: false,
+        message: 'Ошибка создания заказа',
+        details: result.error || 'Неизвестная ошибка'
+      }
+    }
+  } catch (err) {
+    createResult.value = {
+      success: false,
+      message: 'Ошибка создания заказа',
+      details: err instanceof Error ? err.message : 'Неизвестная ошибка'
+    }
+  } finally {
+    createSaving.value = false
+  }
+}
+
+// --- End create order modal functions ---
+
 const convertRussianKeyboardToLatin = (text: string): string => {
   const map: Record<string, string> = {
     'й': 'q', 'ц': 'w', 'у': 'e', 'к': 'r', 'е': 't', 'н': 'y', 'г': 'u', 'ш': 'i', 'щ': 'o', 'з': 'p',

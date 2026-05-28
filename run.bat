@@ -77,6 +77,8 @@ call :WriteNginxConf || goto :error
 echo [*] Starting backend and nginx...
 
 taskkill /IM nginx.exe /F >nul 2>&1
+taskkill /IM node.exe /F >nul 2>&1
+timeout /T 1 /NOBREAK >nul
 start "Sklad Backend" cmd /k "cd /d ""%ROOT%"" && node server/index.js"
 start "Sklad Nginx" cmd /k "cd /d ""%NGINX_HOME%"" && nginx.exe -p ""%NGINX_HOME%"" -c conf\nginx.conf"
 

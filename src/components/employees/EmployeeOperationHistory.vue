@@ -133,7 +133,9 @@ const getOperationType = (operationType: string): 'success' | 'error' | 'warning
     'qr_code_generated': 'success',
     'qr_code_scanned': 'default',
     'qr_code_deleted': 'error',
-    'order_painting_updated': 'warning'
+    'order_painting_updated': 'warning',
+    'transfer_order_created': 'success',
+    'transfer_order_completed': 'default'
   }
   return typeMap[operationType] || 'default'
 }
@@ -143,7 +145,9 @@ const getOperationLabel = (operationType: string) => {
     'qr_code_generated': 'QR код сгенерирован',
     'qr_code_scanned': 'QR код отсканирован',
     'qr_code_deleted': 'QR код удален',
-    'order_painting_updated': 'Окраска обновлена'
+    'order_painting_updated': 'Окраска обновлена',
+    'transfer_order_created': 'Заказ на перемещение создан',
+    'transfer_order_completed': 'Заказ на перемещение завершен'
   }
   return labelMap[operationType] || operationType
 }
@@ -153,7 +157,9 @@ const getOperationIcon = (operationType: string) => {
     'qr_code_generated': CheckmarkCircleOutline,
     'qr_code_scanned': SwapHorizontalOutline,
     'qr_code_deleted': TrashOutline,
-    'order_painting_updated': CreateOutline
+    'order_painting_updated': CreateOutline,
+    'transfer_order_created': CreateOutline,
+    'transfer_order_completed': CheckmarkCircleOutline
   }
   return iconMap[operationType] || CheckmarkCircleOutline
 }

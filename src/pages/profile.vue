@@ -2,9 +2,8 @@
   <div class="profile-page">
     <n-h1>Личный кабинет</n-h1>
 
-    <n-grid :cols="12" :x-gap="16" :y-gap="16">
-      <!-- Информация о пользователе -->
-      <n-gi :span="8">
+    <n-grid :cols="24" :x-gap="16" :y-gap="16">
+      <n-gi :span="17">
         <n-card title="Основная информация">
           <n-form :model="userForm" :rules="rules" ref="formRef">
             <n-grid :cols="2" :x-gap="12">
@@ -116,7 +115,7 @@
       </n-gi>
 
       <!-- Боковая панель -->
-      <n-gi :span="4">
+      <n-gi :span="7">
         <!-- Аватар и основная информация -->
         <n-card>
           <div class="flex flex-col items-center text-center">
@@ -542,7 +541,7 @@ onMounted(async () => {
 
 <style scoped>
 .profile-page {
-  max-width: 1200px;
+  max-width: 1600px;
   margin: 0 auto;
 }
 </style>

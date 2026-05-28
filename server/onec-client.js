@@ -74,8 +74,8 @@ export async function loadUnitsCache() {
   try {
     const authHeader = getBasicAuthHeader()
 
-    console.log(`📡 Loading units cache from Catalog_ЕдиницыИзмерения...`)
-    let url = `${ONEC_CONFIG.baseUrl.replace(/\/$/, '')}/Catalog_ЕдиницыИзмерения?$format=json&$select=Ref_Key,Description`
+    console.log(`📡 Loading units cache from Catalog_КлассификаторЕдиницИзмерения...`)
+    let url = `${ONEC_CONFIG.baseUrl.replace(/\/$/, '')}/Catalog_КлассификаторЕдиницИзмерения?$format=json&$select=Ref_Key,Description`
 
     let response = await fetch(url, {
       headers: {
@@ -93,7 +93,7 @@ export async function loadUnitsCache() {
           newCache.set(unit.Ref_Key, unit.Description)
         })
         setUnitsCache(newCache)
-        console.log(`✅ Loaded ${unitsCache.size} units from Catalog_ЕдиницыИзмерения:`)
+        console.log(`✅ Loaded ${unitsCache.size} units from Catalog_КлассификаторЕдиницИзмерения:`)
         data.value.forEach(unit => {
           console.log(`   ${unit.Ref_Key} = "${unit.Description}"`)
         })
@@ -101,7 +101,32 @@ export async function loadUnitsCache() {
       }
     }
 
-    // Второй вариант: загружаем из номенклатуры
+    // Fallback to Catalog_ЕдиницыИзмерения
+    console.log(`📡 Catalog_КлассификаторЕдиницИзмерения empty, trying Catalog_ЕдиницыИзмерения...`)
+    url = `${ONEC_CONFIG.baseUrl.replace(/\/$/, '')}/Catalog_ЕдиницыИзмерения?$format=json&$select=Ref_Key,Description`
+
+    response = await fetch(url, {
+      headers: {
+        'Authorization': authHeader,
+        'Accept': 'application/json'
+      },
+      timeout: ONEC_CONFIG.timeout
+    })
+
+    if (response.ok) {
+      const data = await response.json()
+      if (data.value && Array.isArray(data.value) && data.value.length > 0) {
+        const newCache = new Map()
+        data.value.forEach(unit => {
+          newCache.set(unit.Ref_Key, unit.Description)
+        })
+        setUnitsCache(newCache)
+        console.log(`✅ Loaded ${unitsCache.size} units from Catalog_ЕдиницыИзмерения`)
+        return
+      }
+    }
+
+    // Third try: extract from Nomenclature
     console.log(`📡 Catalog_ЕдиницыИзмерения empty, extracting from Nomenclature...`)
     url = `${ONEC_CONFIG.baseUrl.replace(/\/$/, '')}/Catalog_Номенклатура?$format=json&$select=ЕдиницаИзмерения_Key`
 
@@ -174,8 +199,7 @@ export async function loadUnitsCache() {
  */
 export async function fetch1CUnits() {
   let units = await fetch1COData('Catalog_КлассификаторЕдиницИзмерения', {
-    '$select': 'Ref_Key,Description,Code',
-    '$orderby': 'Description'
+    '$select': 'Ref_Key,Description,Code'
   })
 
   if (!units || units.length === 0) {
@@ -186,8 +210,6 @@ export async function fetch1CUnits() {
   }
 
   if (!units || units.length === 0) {
-    console.log('⚠️  No units from either catalog, extracting from Nomenclature...')
-
     const nomenclature = await fetch1COData('Catalog_Номенклатура', {
       '$select': 'Ref_Key,ЕдиницаИзмерения_Key',
       '$top': '10000'
@@ -198,7 +220,8 @@ export async function fetch1CUnits() {
       for (const nom of nomenclature) {
         const uomKey = nom.ЕдиницаИзмерения_Key
         if (uomKey && !uniqueUoms.has(uomKey)) {
-          uniqueUoms.set(uomKey, { Ref_Key: uomKey, Description: '?' })
+          const realDesc = unitsCache.get(uomKey)
+          uniqueUoms.set(uomKey, { Ref_Key: uomKey, Description: realDesc || 'шт' })
         }
       }
 
@@ -284,7 +307,11 @@ export async function fetch1CStocks() {
   }
   console.log(`  ✓ Номенклатура: ${nomenclature.length} позиций`)
 
-  let uomData = await fetch1COData('Catalog_ЕдиницыИзмерения', { '$select': 'Ref_Key,Description' })
+  let uomData = await fetch1COData('Catalog_КлассификаторЕдиницИзмерения', { '$select': 'Ref_Key,Description' })
+
+  if (!uomData || uomData.length === 0) {
+    uomData = await fetch1COData('Catalog_ЕдиницыИзмерения', { '$select': 'Ref_Key,Description' })
+  }
 
   if (!uomData || uomData.length === 0) {
     console.log('⚠️  No units from Catalog_ЕдиницыИзмерения, extracting from Nomenclature...')
@@ -293,7 +320,8 @@ export async function fetch1CStocks() {
     for (const nom of nomenclature) {
       const uomKey = nom.ЕдиницаИзмерения_Key
       if (uomKey && !uniqueUoms.has(uomKey)) {
-        uniqueUoms.set(uomKey, { Ref_Key: uomKey, Description: '?' })
+        const realDesc = unitsCache.get(uomKey)
+        uniqueUoms.set(uomKey, { Ref_Key: uomKey, Description: realDesc || '?' })
       }
     }
 
