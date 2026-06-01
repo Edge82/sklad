@@ -261,6 +261,16 @@ try {
 } catch (e) { /* column already exists */ }
 
 try {
+  db.prepare('ALTER TABLE transfer_orders ADD COLUMN selected_product TEXT').run()
+  console.log('✓ Added selected_product column')
+} catch (e) { /* column already exists */ }
+
+try {
+  db.prepare('ALTER TABLE transfer_orders ADD COLUMN created_by TEXT').run()
+  console.log('✓ Added created_by column to transfer_orders')
+} catch (e) { /* column already exists */ }
+
+try {
   db.prepare('ALTER TABLE users ADD COLUMN needs_password_change INTEGER DEFAULT 1').run()
   console.log('✓ Added needs_password_change column to users')
 } catch (e) { /* column already exists */ }
@@ -281,6 +291,11 @@ try {
 } catch (err) {
   console.error('Error migrating passwords:', err.message)
 }
+
+try {
+  db.prepare('ALTER TABLE onec_stocks ADD COLUMN last_receipt TEXT').run()
+  console.log('✓ Added last_receipt column to onec_stocks')
+} catch (e) { /* column already exists */ }
 
 // ============================================================
 // Дополнительные таблицы (employees, tools, tool_breakdowns, material_invoices)

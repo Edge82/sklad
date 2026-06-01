@@ -13,11 +13,11 @@
     <div class="reports-content">
         <!-- Сводка (закреплена сверху) -->
         <div class="sticky-summary">
-          <n-grid :cols="5" :x-gap="12" class="mb-4 py-2">
+          <n-grid :cols="4" :x-gap="12" class="mb-4 py-2">
             <!-- Метрики -->
             <n-gi v-for="metric in summaryMetrics" :key="metric.id">
-              <n-card 
-                size="small" 
+              <n-card
+                size="small"
                 hoverable
                 :class="['metric-card', { 'active': activeTab === metric.id }]"
                 @click="activeTab = metric.id"
@@ -42,7 +42,7 @@
             <n-gi>
               <n-card title="Топ сотрудников (активность)">
                 <n-list hoverable clickable>
-                  <n-list-item v-for="emp in topEmployees" :key="emp.id" @click="openEmployeeProfile(emp)">
+                  <n-list-item v-for="emp in topEmployees" :key="emp.id">
                     <template #prefix>
                       <n-avatar round :size="48" :src="emp.avatar" class="mr-2" />
                     </template>
@@ -65,46 +65,59 @@
         <!-- Детальный отчет по заказам -->
         <div v-else-if="activeTab === 'orders'">
           <div class="mb-4 flex justify-between items-center">
-            <n-h2 class="m-0">Расход материалов по заказам</n-h2>
-            <n-date-picker 
-              v-model:value="dateRange" 
-              type="daterange" 
-              clearable 
-              placeholder="Период"
-              class="w-65"
-            />
+            <n-h2 class="m-0">Резерв материалов по заказам</n-h2>
+            <div class="flex gap-3 items-center">
+              <n-input
+                v-model:value="ordersSearchQuery"
+                placeholder="Поиск по номеру заказа..."
+                clearable
+                class="w-56"
+              />
+              <n-select
+                v-model:value="ordersStatusFilter"
+                placeholder="Статус заказа"
+                :options="ordersStatusOptions"
+                clearable
+                class="w-44"
+              />
+              <n-date-picker
+                v-model:value="dateRange"
+                type="daterange"
+                clearable
+                placeholder="Период"
+                class="w-65"
+              />
+            </div>
           </div>
 
           <n-card border-variant="dark" class="table-card shadow-sm">
-            <n-data-table 
-              :columns="ordersReportColumns" 
-              :data="ordersReport" 
+            <n-data-table
+              :columns="ordersReportColumns"
+              :data="filteredOrdersReport"
               :row-key="(row: OrderReportEntry) => row.orderNumber"
               v-model:expanded-row-keys="expandedOrderKeys"
-              :pagination="{ pageSize: 15 }"
+              max-height="calc(100vh - 320px)"
+              :pagination="{
+                pageSize: 15,
+                showSizePicker: true,
+                pageSizes: [10, 15, 25, 50, 100]
+              }"
               :row-props="(row: OrderReportEntry) => ({
-                 class: 'cursor-pointer',
+                 style: 'cursor: pointer;',
                  onClick: () => handleOrderReportRowClick(row)
               })"
             />
           </n-card>
-          <n-empty v-if="ordersReport.length === 0" description="За выбранный период данных не найдено" class="mt-20" />
-        </div>
-
-        <!-- Детальный отчет по критическим остаткам -->
-        <div v-else-if="activeTab === 'critical'">
-          <n-card border-variant="dark">
-            <n-data-table :columns="criticalDetailedColumns" :data="criticalItems" :pagination="{ pageSize: 20 }" />
-          </n-card>
+          <n-empty v-if="filteredOrdersReport.length === 0" description="За выбранный период данных не найдено" class="mt-20" />
         </div>
 
         <!-- Детальный отчет по инструменту -->
         <div v-else-if="activeTab === 'tools'">
           <div class="mb-4 flex justify-between items-center">
             <n-h2 class="m-0">Инструмент на руках</n-h2>
-            <n-input 
-              v-model:value="searchToolsQuery" 
-              type="text" 
+            <n-input
+              v-model:value="searchToolsQuery"
+              type="text"
               placeholder="Поиск по названию или сотруднику..."
               clearable
               class="w-65"
@@ -117,80 +130,316 @@
           <n-empty v-if="filteredForgottenTools.length === 0" description="Инструменты не найдены" class="mt-20" />
         </div>
 
-      </div>
-
-      <!-- Модалка только для профиля сотрудника -->
-      <n-modal v-model:show="showEmployeeModal" preset="card" :auto-focus="false" title="Портрет производительности мастера" class="w-225!">
-        <div v-if="selectedEmployee">
-          <div class="flex justify-between items-center mb-6">
-            <div class="flex gap-4 items-center">
-              <n-avatar :size="80" round :src="selectedEmployee.avatar" />
-              <div>
-                <n-h2 class="m-0">{{ selectedEmployee.name }}</n-h2>
-                <n-text depth="3" class="text-lg">{{ selectedEmployee.position }}</n-text>
-              </div>
+        <!-- Расход материалов по заказам (производство) -->
+        <div v-else-if="activeTab === 'production'">
+          <div class="mb-4 flex justify-between items-center">
+            <n-h2 class="m-0">Расход материалов по заказам</n-h2>
+            <div class="flex gap-3">
+              <n-input
+                v-model:value="productionSearchQuery"
+                type="text"
+                placeholder="Поиск по заказу или изделию..."
+                clearable
+                class="w-60"
+              />
+              <n-date-picker
+                v-model:value="productionDateRange"
+                type="daterange"
+                clearable
+                placeholder="Период"
+                class="w-65"
+              />
             </div>
-            <n-tag type="success" size="large" round>
-              В штате
-            </n-tag>
           </div>
-
-          <n-grid :cols="4" :x-gap="12" class="mb-6">
-            <n-gi><n-card size="small"><n-statistic label="Заказов" :value="selectedEmployeeUniqueOrders"><template #prefix><n-icon><CubeOutline /></n-icon></template></n-statistic></n-card></n-gi>
-            <n-gi><n-card size="small"><n-statistic label="Операций" :value="selectedEmployeeOperations"><template #prefix><n-icon><StatsChartOutline /></n-icon></template></n-statistic></n-card></n-gi>
-            <n-gi><n-card size="small"><n-statistic label="Эффективность" :value="89"><template #suffix>%</template></n-statistic></n-card></n-gi>
-            <n-gi><n-card size="small"><n-statistic label="Ошибок" :value="0"><template #prefix><n-icon><WarningOutline /></n-icon></template></n-statistic></n-card></n-gi>
-          </n-grid>
-
-          <n-h3>История операций</n-h3>
-          <n-data-table :columns="employeeHistoryColumns" :data="selectedEmployeeHistory" size="small" />
+          <n-card border-variant="dark">
+            <n-data-table
+              :columns="productionColumns"
+              :data="productionReport"
+              :row-key="(row: any) => row.orderNumber"
+              v-model:expanded-row-keys="productionExpandedKeys"
+              max-height="calc(100vh - 320px)"
+              :pagination="{
+                pageSize: 20,
+                showSizePicker: true,
+                pageSizes: [10, 20, 50, 100]
+              }"
+              :row-props="(row: any) => ({
+                style: 'cursor: pointer;',
+                onClick: () => {
+                  const key = row.orderNumber
+                  const idx = productionExpandedKeys.indexOf(key)
+                  if (idx > -1) {
+                    productionExpandedKeys.splice(idx, 1)
+                  } else {
+                    productionExpandedKeys.push(key)
+                  }
+                }
+              })"
+            />
+          </n-card>
+          <n-empty v-if="productionReport.length === 0" description="Нет данных" class="mt-20" />
         </div>
-      </n-modal>
+
     </div>
+  </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, h, onMounted } from 'vue'
+import { ref, computed, h, onMounted, watch, markRaw } from 'vue'
+import { storeToRefs } from 'pinia'
 import { useInventoryStore } from '@/stores/inventory'
 import { useToolsStore } from '@/stores/tools'
 import { useReportsStore } from '@/stores/reports'
-import { 
-  type InventoryItem, 
-  type MaterialInvoice, 
-  type MaterialInvoiceItem, 
-  type Employee,
+import { useOrdersStore } from '@/stores/orders'
+import {
+  type MaterialInvoiceItem,
   type Tool
 } from '@/types'
 import {
-  WarningOutline, 
   StatsChartOutline, CubeOutline
 } from '@vicons/ionicons5'
 import {
-  NIcon, NH1, NText, NGrid, NGi, NCard, NH3, 
+  NSelect, NIcon, NH1, NText, NGrid, NGi, NCard, NH3,
   NDatePicker, NDataTable, NList, NListItem,
-  NThing, NAvatar, NTag, NH2, NStatistic, NTable, NEmpty, NModal,
-  NSpace, NInput, type DataTableColumns
+  NThing, NAvatar, NTag, NH2, NTable, NEmpty,
+  NInput, type DataTableColumns
 } from 'naive-ui'
 
 const inventoryStore = useInventoryStore()
 const toolsStore = useToolsStore()
 const reportsStore = useReportsStore()
+const ordersStore = useOrdersStore()
+const { ordersReport, topEmployees } = storeToRefs(reportsStore)
 
 const dateRange = ref<[number, number] | null>(null)
 const activeTab = ref('main')
-const selectedEmployee = ref<Employee | null>(null)
-const showEmployeeModal = ref(false)
-const employeeOperations = ref<any[]>([])
-const employeeOperationsLoading = ref(false)
+const productionReport = ref<any[]>([])
+const productionDateRange = ref<[number, number] | null>(null)
+const productionSearchQuery = ref('')
+const productionExpandedKeys = ref<string[]>([])
+const productExpandedKeys = ref<Record<string, string[]>>({})
 const expandedOrderKeys = ref<string[]>([])
 const searchToolsQuery = ref('')
+const ordersSearchQuery = ref('')
+const ordersStatusFilter = ref<string | null>(null)
+
+const ordersStatusOptions = computed(() => [
+  { label: 'В работе', value: 'in_progress' },
+  { label: 'На складе', value: 'ready' },
+  { label: 'Завершён', value: 'completed' }
+])
+
+const pageHeader = ref('Отчёты')
+const pageSubHeader = ref('Аналитика и отчёты по складу')
+
+interface MetricCard {
+  id: string
+  label: string
+  value: string
+  color: string
+  icon: any
+}
+const summaryMetrics = ref<MetricCard[]>([
+  { id: 'main', label: 'Главная', value: 'Обзор', color: '#2080f0', icon: markRaw(StatsChartOutline) },
+  { id: 'orders', label: 'Резерв по заказам', value: '0', color: '#18a058', icon: markRaw(CubeOutline) },
+  { id: 'production', label: 'Производство', value: '0', color: '#f0a020', icon: markRaw(CubeOutline) },
+  { id: 'tools', label: 'Инструменты', value: '0', color: '#8a8a8a', icon: markRaw(CubeOutline) }
+])
+
+const filteredForgottenTools = computed(() => {
+  const issued = toolsStore.issuedTools
+  if (!searchToolsQuery.value) return issued
+  const q = searchToolsQuery.value.toLowerCase()
+  return issued.filter(t =>
+    t.name.toLowerCase().includes(q) ||
+    (t.issuedToName || '').toLowerCase().includes(q)
+  )
+})
+
+const handleOrderReportRowClick = (row: OrderReportEntry) => {
+  const idx = expandedOrderKeys.value.indexOf(row.orderNumber)
+  if (idx > -1) {
+    expandedOrderKeys.value.splice(idx, 1)
+  } else {
+    expandedOrderKeys.value.push(row.orderNumber)
+  }
+}
+
+const allowedStatuses = ['in_progress', 'ready', 'completed']
+
+const filteredOrdersReport = computed(() => {
+  return ordersReport.value.filter(r => {
+    const order = ordersStore.orders.find((o: any) => o.orderNumber === r.orderNumber)
+    if (!order) return false
+    if (!allowedStatuses.includes(order.status)) return false
+    if (ordersStatusFilter.value) return order.status === ordersStatusFilter.value
+    if (ordersSearchQuery.value) {
+      const q = ordersSearchQuery.value.toLowerCase()
+      if (!r.orderNumber.toLowerCase().includes(q)) return false
+    }
+    return true
+  })
+})
+
+const loadProductionReport = async () => {
+  try {
+    const params = new URLSearchParams()
+    if (productionDateRange.value) {
+      const range = productionDateRange.value
+      const from = range[0] as number
+      const to = range[1] as number
+      params.set('dateFrom', new Date(from).toISOString().split('T')[0] || '')
+      params.set('dateTo', new Date(to).toISOString().split('T')[0] || '')
+    }
+    if (productionSearchQuery.value) {
+      params.set('search', productionSearchQuery.value)
+    }
+    const qs = params.toString()
+    const res = await fetch(`/sklad/api/reports/production-materials${qs ? '?' + qs : ''}`)
+    if (res.ok) {
+      const data = await res.json()
+      productionReport.value = data.data || []
+    }
+  } catch { /* ignore */ }
+}
+
+const productionColumns: DataTableColumns<any> = [
+  {
+    type: 'expand',
+    expandable: () => true,
+    renderExpand: (row: any) => {
+      const children: any[] = []
+
+      const materialColumns = [
+        h('th', { style: 'width:30%' }, 'Материал'),
+        h('th', { style: 'width:15%' }, 'Кол-во'),
+        h('th', { style: 'width:25%' }, 'Цена, ₽'),
+        h('th', { style: 'width:30%' }, 'Сумма, ₽')
+      ]
+      const materialRow = (m: any) => [
+        h('td', m.name),
+        h('td', h(NText, { strong: true }, { default: () => m.quantity })),
+        h('td', h(NText, { depth: 3 }, { default: () => m.price ? Number(m.price).toLocaleString('ru-RU') : '—' })),
+        h('td', h(NText, { strong: true }, { default: () => m.sum ? Number(m.sum).toLocaleString('ru-RU') : '—' }))
+      ]
+
+      // Products section first
+      if (row.products?.length) {
+        const orderKey = row.orderNumber
+        const productColumns = [
+          { type: 'expand' as const, expandable: () => true, renderExpand: (p: any) => {
+            const total = p.materials.reduce((s: number, m: any) => s + (m.sum || 0), 0)
+            return h('div', { style: 'margin:4px 8px 4px 16px; border-left:2px solid #2080f0; background:rgba(32,128,240,0.04); border-radius:0 4px 4px 0; padding:6px 10px' }, [
+              h('div', { style: 'font-size:11px; font-weight:600; color:#2080f0; margin-bottom:4px' }, 'Состав изделия'),
+              h(NTable, { size: 'small', singleLine: false, striped: true, style: 'background:transparent' }, {
+                default: () => [
+                  h('thead', [h('tr', materialColumns)]),
+                  h('tbody', p.materials.map((m: any) => h('tr', materialRow(m))))
+                ]
+              }),
+              h('div', { style: 'text-align:right; font-size:13px; font-weight:700; margin-top:6px; padding-top:4px; border-top:1px solid rgba(255,255,255,0.08)' }, `Итого: ${total.toLocaleString('ru-RU')} ₽`)
+            ])
+          }},
+          { title: 'Изделие', key: 'name', ellipsis: true, render: (p: any) => h(NText, { strong: true, style: 'padding-left:4px' }, { default: () => p.name }) },
+          { title: 'Материалов', key: 'materialCount', width: 110, render: (p: any) => h(NTag, { type: 'info', quaternary: true, size: 'small' }, { default: () => `${p.materials?.length || 0} наим.` }) },
+          { title: 'Сумма, ₽', key: 'totalSum', width: 110, render: (p: any) => h(NText, { strong: true, type: 'success' }, { default: () => (p.totalSum || 0).toLocaleString('ru-RU') }) }
+        ]
+        children.push(h('div', { style: 'margin:0 4px 8px 4px; border:1px solid rgba(255,255,255,0.08); border-radius:8px; background:rgba(255,255,255,0.03)' }, [
+          h('div', { style: 'padding:10px 14px 4px; font-size:12px; font-weight:700; color:#aaa; text-transform:uppercase; letter-spacing:0.5px' }, 'Изделия'),
+          h(NDataTable, {
+            columns: productColumns,
+            data: row.products,
+            size: 'small',
+            bordered: false,
+            singleLine: false,
+            striped: true,
+            rowKey: (p: any) => p.name,
+            expandedRowKeys: productExpandedKeys.value[orderKey] || [],
+            'onUpdate:expanded-row-keys': (keys: string[]) => {
+              productExpandedKeys.value = { ...productExpandedKeys.value, [orderKey]: keys }
+            },
+            rowProps: (p: any) => ({
+              style: 'cursor: pointer;',
+              onClick: () => {
+                const key = p.name
+                const current = productExpandedKeys.value[orderKey] || []
+                const idx = current.indexOf(key)
+                const next = idx > -1 ? current.filter((k: string) => k !== key) : [...current, key]
+                productExpandedKeys.value = { ...productExpandedKeys.value, [orderKey]: next }
+              }
+            })
+          })
+        ]))
+      }
+
+      // Order-level materials section (after products)
+      if (row.orderMaterials?.length) {
+        const total = row.orderMaterials.reduce((s: number, m: any) => s + (m.sum || 0), 0)
+        children.push(h('div', { style: 'margin:8px 12px; border-left:3px solid #f0a020; background:rgba(240,160,32,0.06); border-radius:0 6px 6px 0; padding:8px 12px' }, [
+          h('div', { style: 'font-size:12px; font-weight:700; color:#f0a020; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:6px' }, `Прочие материалы по заказу — ${total.toLocaleString('ru-RU')} ₽`),
+          h(NTable, { size: 'small', singleLine: false, striped: true, style: 'background:transparent' }, {
+            default: () => [
+              h('thead', [h('tr', materialColumns)]),
+              h('tbody', row.orderMaterials.map((m: any) => h('tr', materialRow(m))))
+            ]
+          })
+        ]))
+      }
+      return h('div', { style: 'padding:4px 0; background:rgba(255,255,255,0.02); border-top:1px solid rgba(255,255,255,0.06)' }, children)
+    }
+  },
+  {
+    title: 'Заказ покупателя',
+    key: 'orderNumber',
+    width: 240,
+    render: (row: any) => h('div', { style: 'display:flex; align-items:center; gap:8px' }, [
+      h('div', { style: 'width:3px; height:20px; background:#f0a020; border-radius:2px; flex-shrink:0' }),
+      h(NText, { strong: true }, { default: () => row.orderNumber })
+    ])
+  },
+  {
+    title: 'Изделий',
+    key: 'productCount',
+    width: 100,
+    render: (row: any) => h(NTag, { type: 'info', quaternary: true, size: 'small' }, { default: () => `${row.products?.length || 0} шт.` })
+  },
+  {
+    title: 'Материалов',
+    key: 'materialCount',
+    width: 120,
+    render: (row: any) => {
+      const count = (row.orderMaterials?.length || 0) + (row.products || []).reduce((s: number, p: any) => s + (p.materials?.length || 0), 0)
+      return h(NTag, { type: 'success', quaternary: true, size: 'small' }, { default: () => `${count} наим.` })
+    }
+  },
+  {
+    title: 'Сумма материалов, ₽',
+    key: 'orderTotal',
+    width: 150,
+    render: (row: any) => h(NText, { strong: true }, { default: () => row.orderTotal ? Number(row.orderTotal).toLocaleString('ru-RU') : '—' })
+  },
+]
 
 // Load reports on mount
 onMounted(async () => {
   await Promise.all([
     reportsStore.loadAllReports(),
+    loadProductionReport(),
+    ordersStore.loadOrdersFromApi(),
     toolsStore.loadToolsFromApi()
   ])
+  const totalOrders = ordersReport.value.reduce((s, r) => s + r.items.length, 0)
+  if (summaryMetrics.value[1]) summaryMetrics.value[1].value = `${filteredOrdersReport.value.length} заказов`
+
+  const prodOrders = productionReport.value.length
+  if (summaryMetrics.value[2]) summaryMetrics.value[2].value = `${prodOrders} заказов`
+
+  const issuedCount = toolsStore.issuedTools.length
+  if (summaryMetrics.value[3]) summaryMetrics.value[3].value = `${issuedCount} шт.`
+})
+
+watch([productionDateRange, productionSearchQuery], () => {
+  loadProductionReport()
 })
 
 interface OrderReportEntry {
@@ -211,19 +460,19 @@ const ordersReportColumns: DataTableColumns<OrderReportEntry> = [
             h('thead', [
               h('tr', [
                 h('th', 'Наименование'),
-                h('th', 'Артикул'),
                 h('th', 'Цена'),
                 h('th', 'Кол-во'),
                 h('th', 'Ед.'),
+                h('th', 'Резерв'),
                 h('th', 'Сумма')
               ])
             ]),
             h('tbody', row.items.map(item => h('tr', [
               h('td', item.productName),
-              h('td', h(NText, { depth: 3, code: true }, { default: () => item.article || '—' })),
               h('td', `${(item.price || 0).toLocaleString('ru-RU')} ₽`),
               h('td', h(NText, { strong: true }, { default: () => item.quantity })),
               h('td', item.unit),
+              h('td', h(NText, { strong: true }, { default: () => (item as any).reserve ? Number((item as any).reserve).toLocaleString('ru-RU') : '0' })),
               h('td', h(NText, { strong: true }, { default: () => `${((item.price || 0) * item.quantity).toLocaleString('ru-RU')} ₽` }))
             ])))
           ]
@@ -237,149 +486,29 @@ const ordersReportColumns: DataTableColumns<OrderReportEntry> = [
     render: (row: OrderReportEntry) => h(NText, { strong: true, class: 'text-lg font-mono' }, { default: () => row.orderNumber })
   },
   {
-    title: 'Заказчик',
-    key: 'employees',
-    render: (row: OrderReportEntry) => h(NSpace, { size: 'small' }, {
-      default: () => Array.from(row.employees).map(name => h(NTag, { size: 'small', round: true, quaternary: true, type: 'info' }, { default: () => name }))
-    })
-  },
-  {
     title: 'Позиций ТМЦ',
     key: 'itemsCount',
     render: (row: OrderReportEntry) => h(NTag, { type: 'success', quaternary: true }, { default: () => `${row.items.length} наим.` })
   },
   {
-    title: 'Итоговая стоимость',
-    key: 'totalAmount',
+    title: 'Резерв',
+    key: 'totalReserve',
     render: (row: OrderReportEntry) => {
-      const total = row.items.reduce((sum, i) => sum + (i.price || 0) * i.quantity, 0)
-      return h(NText, { strong: true, type: 'success', class: 'text-lg' }, { default: () => `${total.toLocaleString('ru-RU')} ₽` })
+      const total = row.items.reduce((sum, i) => sum + ((i as any).reserve || 0), 0)
+      return h(NText, { strong: true }, { default: () => total ? total.toLocaleString('ru-RU') : '0' })
     }
   }
-]
-
-const handleOrderReportRowClick = (row: OrderReportEntry) => {
-  const index = expandedOrderKeys.value.indexOf(row.orderNumber)
-  if (index > -1) {
-    expandedOrderKeys.value.splice(index, 1)
-  } else {
-    expandedOrderKeys.value.push(row.orderNumber)
-  }
-}
-
-const pageHeader = computed(() => {
-  switch (activeTab.value) {
-    case 'orders': return 'Расход материала по заказам'
-    case 'critical': return 'Критические остатки ТМЦ'
-    case 'tools': return 'Инструмент на руках'
-    default: return 'Отчеты и аналитика'
-  }
-})
-
-const pageSubHeader = computed(() => {
-  switch (activeTab.value) {
-    case 'orders': return 'Детальный перечень затрат ТМЦ'
-    case 'critical': return 'Список позиций, требующих пополнения'
-    case 'tools': return 'Контроль выданного оборудования'
-    default: return 'Контроль ключевых показателей и история движений'
-  }
-})
-
-const criticalItems = computed(() => inventoryStore.items.filter((item: InventoryItem) => item.currentStock <= (item.minStock || 5)))
-const forgottenTools = computed(() => toolsStore.tools.filter(t => t.status === 'issued'))
-
-const filteredForgottenTools = computed(() => {
-  const query = searchToolsQuery.value.toLowerCase()
-  if (!query) return forgottenTools.value
-  return forgottenTools.value.filter(tool => 
-    tool.name.toLowerCase().includes(query) || 
-    (tool.issuedToName || '').toLowerCase().includes(query)
-  )
-})
-
-interface OrderReportEntry {
-  orderNumber: string
-  items: MaterialInvoiceItem[]
-  employees: Set<string>
-}
-
-const ordersReport = computed(() => reportsStore.ordersReport)
-
-const topEmployees = computed(() => reportsStore.topEmployees)
-
-const summaryMetrics = computed(() => [
-  { id: 'main', label: 'Общая сводка', value: '📊', icon: StatsChartOutline, color: '#666' },
-  { id: 'orders', label: 'Расход по заказам', value: ordersReport.value.length.toString(), icon: CubeOutline, color: '#9c27b0' },
-  { id: 'critical', label: 'Крит. остатки', value: criticalItems.value.length.toString(), icon: WarningOutline, color: '#d03050' },
-  { id: 'tools', label: 'Инструмент', value: forgottenTools.value.length.toString(), icon: WarningOutline, color: '#2080f0' }
-])
-
-
-
-const employeeHistoryColumns: DataTableColumns<any> = [
-  {
-    title: 'Дата',
-    key: 'created_at',
-    render: (row: any) => new Date(row.created_at || row.date).toLocaleString()
-  },
-  { title: 'Операция', key: 'operationLabel' },
-  { title: 'Заказ', key: 'orderNumber' },
-  {
-    title: 'Детали',
-    key: 'productName',
-    render: (row: any) => row.productName || row.qrCode || row.details || '—'
-  }
-]
-
-const criticalDetailedColumns = [
-  { title: 'Наименование', key: 'name' },
-  { title: 'Артикул', key: 'sku' },
-  { title: 'Остаток', key: 'currentStock', render: (row: InventoryItem) => h('b', { style: 'color: red' }, row.currentStock) },
-  { title: 'Мин. запас', key: 'minStock' }
 ]
 
 const toolsDetailedColumns = [
   { title: 'Инструмент', key: 'name' },
   { title: 'Сотрудник', key: 'issuedToName' },
-  { 
-    title: 'Срок (дней)', key: 'issuedAt', 
+  {
+    title: 'Срок (дней)', key: 'issuedAt',
     render: (row: Tool) => row.issuedAt ? Math.floor((Date.now() - new Date(row.issuedAt).getTime()) / (1000 * 60 * 60 * 24)) : '-'
   }
 ]
 
-const operationLabels: Record<string, string> = {
-  qr_code_generated: 'QR код сгенерирован',
-  qr_code_scanned: 'QR код отсканирован',
-  qr_code_deleted: 'QR код удален',
-  order_painting_updated: 'Окраска обновлена',
-  transfer_order_created: 'Перемещение создано',
-  transfer_order_completed: 'Перемещение завершено'
-}
-
-const openEmployeeProfile = async (emp: Employee) => {
-  selectedEmployee.value = emp
-  showEmployeeModal.value = true
-  employeeOperationsLoading.value = true
-  try {
-    const res = await fetch(`/sklad/api/employees/${emp.id}/operations?limit=50`)
-    if (res.ok) {
-      const data = await res.json()
-      employeeOperations.value = (data.logs || []).map((log: any) => ({
-        ...log,
-        operationLabel: operationLabels[log.operation_type] || log.operation_type,
-        details: typeof log.details === 'object' ? JSON.stringify(log.details) : log.details
-      }))
-    }
-  } catch {
-    // ignore
-  } finally {
-    employeeOperationsLoading.value = false
-  }
-}
-
-const selectedEmployeeHistory = computed(() => employeeOperations.value)
-const selectedEmployeeUniqueOrders = computed(() => new Set(employeeOperations.value.map((h: any) => h.orderNumber).filter(Boolean)).size)
-const selectedEmployeeOperations = computed(() => employeeOperations.value.length)
 </script>
 
 <style scoped>

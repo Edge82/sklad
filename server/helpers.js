@@ -85,7 +85,9 @@ export function logOperation(operationType, data) {
   try {
     const {
       employeeId = null,
+      employee_id = null,
       employeeName = null,
+      employee_name = null,
       orderId = null,
       orderNumber = null,
       productId = null,
@@ -95,6 +97,8 @@ export function logOperation(operationType, data) {
       details = null,
       status = 'success'
     } = data || {}
+    const resolvedEmployeeId = employeeId || employee_id
+    const resolvedEmployeeName = employeeName || employee_name
 
     const stmt = db.prepare(`
       INSERT INTO operation_logs (
@@ -105,8 +109,8 @@ export function logOperation(operationType, data) {
 
     stmt.run(
       operationType,
-      employeeId,
-      employeeName,
+      resolvedEmployeeId,
+      resolvedEmployeeName,
       orderId,
       orderNumber,
       productId,

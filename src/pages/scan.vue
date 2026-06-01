@@ -1,7 +1,7 @@
 <template>
   <div class="scan-page p-6">
     <div class="flex justify-between items-center mb-6">
-      <n-h1 class="m-0">Отгрузка</n-h1>
+      <n-h1 class="m-0">Приём и отгрузка</n-h1>
       <n-space v-if="scannedCodes.length > 0">
         <n-button type="error" ghost @click="clearSession">
           Очистить
@@ -38,7 +38,7 @@
     <!-- Реактивная валидация отгрузки -->
     <div v-if="shipmentValidation" class="mb-6">
       <n-alert :type="shipmentValidation.type">
-        {{ shipmentValidation.text }}
+        <div style="white-space: pre-line">{{ shipmentValidation.text }}</div>
       </n-alert>
     </div>
 
@@ -340,9 +340,9 @@ function recalcShipmentValidation() {
       }
 
       if (orderComplete && totalCovered >= effOrderTotal) {
-        orderMessages.push(`заказ ${orderNum}: отгружается ${countStr}, заказ будет отгружен полностью${positionParts.length > 0 ? ': ' + positionParts.join(', ') : ''}`)
+        orderMessages.push(`заказ ${orderNum}: отгружается ${countStr}, заказ будет отгружен полностью${positionParts.length > 0 ? '\n' + positionParts.join('\n') : ''}`)
       } else {
-        orderMessages.push(`заказ ${orderNum}: отгружается ${countStr} из ${remaining}, заказ будет отгружен не полностью${positionParts.length > 0 ? ': ' + positionParts.join(', ') : ''}`)
+        orderMessages.push(`заказ ${orderNum}: отгружается ${countStr} из ${remaining}, заказ будет отгружен не полностью${positionParts.length > 0 ? '\n' + positionParts.join('\n') : ''}`)
         anyWarning = true
       }
     } else {
@@ -366,7 +366,7 @@ function recalcShipmentValidation() {
         }
         return `${name}: ${pluralRu(info.count, unitOne, unitFew, unitMany)}`
       })
-      orderMessages.push(`заказ ${orderNum}: отгружается ${orderItems.length} шт.${posMsgs.length > 0 ? ' | ' + posMsgs.join(', ') : ''}`)
+      orderMessages.push(`заказ ${orderNum}: отгружается ${orderItems.length} шт.${posMsgs.length > 0 ? '\n' + posMsgs.join('\n') : ''}`)
       anyWarning = true
     }
   })
@@ -378,7 +378,7 @@ function recalcShipmentValidation() {
 
   shipmentValidation.value = {
     type: anyWarning ? 'warning' : 'success',
-    text: orderMessages.join('; ')
+    text: orderMessages.join('\n')
   }
 }
 
@@ -661,7 +661,7 @@ const handleScan = async () => {
       message.success(`✓ Товар добавлен к отгрузке: ${qrCode.productName}`, { duration: 5000 })
       checkOrderStatus(qrCode.orderNumber)
     } else {
-      // Проверка: если упаковочный код — все ли детали отсканированы?
+      // Проверка: если упаковочный код — все ли детали на складе или в таблице?
       if (qrCode.isPackage) {
         const siblingCodes = qrStore.qrCodes.filter(q =>
           q.orderId === qrCode.orderId &&
@@ -670,24 +670,21 @@ const handleScan = async () => {
           q.status !== 'shipped'
         )
         const scannedQrIds = new Set(scannedCodes.value.map(s => s.qrId))
-        const unscannedCount = siblingCodes.filter(q =>
-          q.status === 'generated' || q.status === 'printed'
+        const unaccounted = siblingCodes.filter(q =>
+          q.status !== 'scanned' &&
+          !scannedQrIds.has(q.id)
         ).length
-        const inTableCount = siblingCodes.filter(q =>
-          scannedQrIds.has(q.id)
-        ).length
-        const totalUnaccounted = Math.max(0, unscannedCount - inTableCount)
 
-        if (totalUnaccounted > 0) {
+        if (unaccounted > 0) {
           scanHistory.value.unshift({
             time: new Date(),
             code: code,
-            resultMessage: `Упаковка заблокирована: не все детали отсканированы (${siblingCodes.length - unscannedCount + inTableCount}/${siblingCodes.length})`,
+            resultMessage: `Упаковка заблокирована: не все детали на складе или отсканированы (осталось ${unaccounted})`,
             resultType: 'error'
           })
           statusMessage.value = {
             type: 'error',
-            text: `❌ Упаковка «${qrCode.productName}» не может быть перемещена. Отсканируйте все детали (${totalUnaccounted} шт. осталось).`
+            text: `❌ Упаковка «${qrCode.productName}» не может быть перемещена. Отсканируйте все детали (${unaccounted} шт. осталось).`
           }
           lastScannedCode.value = ''
           nextTick(() => {
@@ -802,7 +799,7 @@ const transferToWarehouse = async () => {
       }
 
       item.warehouseState = 'received'
-      await qrStore.updateQRCodeStatus(item.qrId, 'scanned', userStore.user?.name || 'System', userStore.user?.id)
+      await qrStore.updateQRCodeStatus(item.qrId, 'scanned', userStore.user?.name || 'Неизвестно', userStore.user?.id)
       scanHistory.value.unshift({
         time: new Date(),
         code: item.code,
@@ -837,7 +834,7 @@ const completeShipment = async () => {
 
   // Обновляем статусы QR кодов на "отгружены"
   for (const item of itemsToShip) {
-    await qrStore.updateQRCodeStatus(item.qrId, 'shipped', userStore.user?.name || 'System', userStore.user?.id)
+    await qrStore.updateQRCodeStatus(item.qrId, 'shipped', userStore.user?.name || 'Неизвестно', userStore.user?.id)
   }
 
   const count = itemsToShip.length

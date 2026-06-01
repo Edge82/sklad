@@ -155,37 +155,8 @@ const issuedTools = computed(() => {
 
 const handleReturnTool = async (toolId: string) => {
   try {
-    const tool = toolsStore.getToolById(toolId)
     await toolsStore.returnTool(toolId)
     message.success('Инструмент успешно сдан')
-
-    // Логируем операцию
-    if (userStore.user?.id && tool) {
-      const currentUserId = parseFloat(String(userStore.user.id))
-      const employee = employeesStore.employees.find(e => {
-        if (!e.userId) return false
-        const empUserId = parseFloat(String(e.userId))
-        return !isNaN(empUserId) && empUserId === currentUserId
-      })
-
-      if (employee) {
-        try {
-          await fetch(`/sklad/api/employees/${employee.id}/tool-operations`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              tool_id: toolId,
-              tool_name: tool.name,
-              inventory_number: tool.inventoryNumber,
-              action: 'returned',
-              performed_by: userStore.user.name
-            })
-          })
-        } catch (err) {
-          // API error
-        }
-      }
-    }
 
     // Обновляем список операций на странице профиля
     if (window.location.pathname === '/profile') {

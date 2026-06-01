@@ -372,11 +372,12 @@ export async function fetch1CStocks() {
           if (!itemId) return
 
           const type = String(item.RecordType)
-          const isReceipt = type === 'Receipt' || type === '0' || type === 'true' || type === 'Active'
+          const isReceipt = type === 'Receipt' || type === 'Приход' || type === '0' || type === 'true' || type === 'Active'
           movements.push({
             nomId: itemId,
             quantity: Number(item.Количество) || 0,
             isReceipt: isReceipt,
+            date: item.Period || item.Период || item.DateTime || record.Period || record.Период || record.DateTime || null,
             warehouse: item.СтруктурнаяЕдиница_Key || item.Склад_Key
           })
         })
@@ -385,11 +386,12 @@ export async function fetch1CStocks() {
         if (!itemId) return
 
         const type = String(record.RecordType)
-        const isReceipt = type === 'Receipt' || type === '0' || type === 'true' || type === 'Active'
+        const isReceipt = type === 'Receipt' || type === 'Приход' || type === '0' || type === 'true' || type === 'Active'
         movements.push({
           nomId: itemId,
           quantity: Number(record.Количество) || 0,
           isReceipt: isReceipt,
+          date: record.Period || record.Период || null,
           warehouse: record.СтруктурнаяЕдиница_Key || record.Склад_Key
         })
       }
@@ -414,6 +416,7 @@ export async function fetch1CStocks() {
 
   const balanceMap = new Map()
   const warehouseByNom = new Map()
+  const lastReceiptMap = new Map()
   if (movements && movements.length > 0) {
     console.log(`  ✓ Регистр остатков: ${movements.length} записей`)
     for (const m of movements) {
@@ -425,7 +428,15 @@ export async function fetch1CStocks() {
       if (!warehouseByNom.has(nomKey) && m.warehouse) {
         warehouseByNom.set(nomKey, m.warehouse)
       }
+      if (m.isReceipt && m.date) {
+        const prev = lastReceiptMap.get(nomKey)
+        if (!prev || m.date > prev) {
+          lastReceiptMap.set(nomKey, m.date)
+        }
+      }
     }
+    const receiptsWithDate = [...lastReceiptMap].length
+    console.log(`  ✓ Даты прихода: ${receiptsWithDate} позиций`)
   } else {
     console.warn('⚠️ Данные регистра остатков не получены, остатки будут 0')
   }
@@ -439,7 +450,9 @@ export async function fetch1CStocks() {
     const unitName = uomMap.get(n.ЕдиницаИзмерения_Key) || 'шт'
     const whKey = warehouseByNom.get(n.Ref_Key) || ''
     const whName = warehouseMap.get(whKey) || 'Основной склад'
-    const price = priceMap.get(n.Ref_Key) || 0
+    const price = priceMap.get(n.Ref_Key)
+    const latestPrice = price?.latest || 0
+    const avgPrice = price?.average || 0
 
     let unitKey = n.ЕдиницаИзмерения_Key || ''
     if (unitKey && !uomMap.has(unitKey)) {
@@ -469,8 +482,9 @@ export async function fetch1CStocks() {
       reserved: 0,
       available: Math.max(0, qty),
       minStock: 0,
-      purchasePrice: price,
-      averagePrice: price,
+      purchasePrice: latestPrice,
+      averagePrice: avgPrice,
+      lastReceipt: lastReceiptMap.get(n.Ref_Key) || null,
       status: qty > 0 ? 'in_stock' : 'out_of_stock'
     })
   }
@@ -653,6 +667,117 @@ export async function fetch1CTransferOrders() {
 }
 
 /**
+ * Загружает заказы на производство из 1C
+ */
+export async function fetchProductionOrders() {
+  console.log('📦 Загружаем заказы на производство из 1C...')
+  try {
+    const baseUrl = ONEC_CONFIG.baseUrl.replace(/\/$/, '')
+    const url = `${baseUrl}/Document_ЗаказНаПроизводство?$format=json&$top=500&$select=Ref_Key,Number,Date,Posted,ЗаказПокупателя_Key,ЗаказПокупателя____Presentation,СостояниеЗаказа_Key,СостояниеЗаказа____Presentation,Организация_Key,Организация____Presentation,Ответственный_Key,Ответственный____Presentation,СтруктурнаяЕдиница_Key,СтруктурнаяЕдиница____Presentation,Старт,Финиш,Исполнитель&$orderby=Date desc`
+
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 30000)
+
+    const response = await fetch(url, {
+      headers: {
+        'Authorization': getBasicAuthHeader(),
+        'Content-Type': 'application/json'
+      },
+      signal: controller.signal
+    })
+
+    clearTimeout(timeoutId)
+
+    if (!response.ok) {
+      console.warn(`⚠️ 1C error fetching production orders: ${response.status}`)
+      return []
+    }
+
+    const data = await response.json()
+    const orders = (data.value || []).map(order => ({
+      ref_key: order.Ref_Key,
+      order_number: order.Number,
+      date: order.Date,
+      posted: order.Posted ? 1 : 0,
+      customer_order_key: order.ЗаказПокупателя_Key || '',
+      customer_order_number: order.ЗаказПокупателя____Presentation || '',
+      status_key: order.СостояниеЗаказа_Key || '',
+      status_description: order.СостояниеЗаказа____Presentation || 'В работе',
+      organization_key: order.Организация_Key || '',
+      organization_name: order.Организация____Presentation || '',
+      responsible_key: order.Ответственный_Key || '',
+      responsible_name: order.Ответственный____Presentation || '',
+      warehouse_key: order.СтруктурнаяЕдиница_Key || '',
+      warehouse_name: order.СтруктурнаяЕдиница____Presentation || '',
+      start_date: order.Старт || '',
+      finish_date: order.Финиш || '',
+      executor: order.Исполнитель || ''
+    }))
+
+    console.log(`  ✓ Production orders: ${orders.length} загружено`)
+    return orders
+  } catch (err) {
+    console.warn('⚠️ Error fetching production orders:', err.message)
+    return []
+  }
+}
+
+/**
+ * Загружает материалы заказа на производство из 1C
+ */
+export async function fetchProductionOrderMaterials(orderRefKey) {
+  try {
+    const baseUrl = ONEC_CONFIG.baseUrl.replace(/\/$/, '')
+    const url = `${baseUrl}/Document_ЗаказНаПроизводство(guid'${orderRefKey}')/Запасы?$format=json&$select=LineNumber,Номенклатура_Key,Количество,ЕдиницаИзмерения_Key`
+
+    const response = await fetch(url, {
+      headers: {
+        'Authorization': getBasicAuthHeader(),
+        'Content-Type': 'application/json'
+      }
+    })
+
+    if (!response.ok) return []
+
+    const data = await response.json()
+    const items = (data.value || []).map(item => ({
+      line: item.LineNumber,
+      nomenclature_key: item.Номенклатура_Key,
+      nomenclature_name: item.Номенклатура____Presentation || item.Номенклатура?.Description || '',
+      quantity: Number(item.Количество) || 0,
+      unit_key: item.ЕдиницаИзмерения_Key || ''
+    }))
+
+    // Дозагружаем названия если не получены из презентации
+    const missingNames = items.filter(i => !i.nomenclature_name && i.nomenclature_key)
+    if (missingNames.length > 0) {
+      const nomIds = [...new Set(missingNames.map(i => i.nomenclature_key))]
+      const nomMap = new Map()
+      for (const id of nomIds) {
+        try {
+          const nomUrl = `${baseUrl}/Catalog_Номенклатура(guid'${id}')?$format=json&$select=Description`
+          const nomRes = await fetch(nomUrl, {
+            headers: { 'Authorization': getBasicAuthHeader(), 'Content-Type': 'application/json' }
+          })
+          if (nomRes.ok) {
+            const nomData = await nomRes.json()
+            nomMap.set(id, nomData.Description || 'Без названия')
+          }
+        } catch { /* skip */ }
+      }
+      for (const item of missingNames) {
+        item.nomenclature_name = nomMap.get(item.nomenclature_key) || 'Без названия'
+      }
+    }
+
+    return items
+  } catch (err) {
+    console.warn('⚠️ Error fetching production order materials:', err.message)
+    return []
+  }
+}
+
+/**
  * Загружает кэш из БД
  */
 export function loadCacheFromDB() {
@@ -761,15 +886,29 @@ export async function fetchPrices() {
         })
 
         if (prices && Array.isArray(prices) && prices.length > 0) {
-          const priceMap = new Map()
+          const priceSums = new Map()
+          const priceCounts = new Map()
+          const latestPrices = new Map()
           prices.forEach(p => {
             const nomId = p.Номенклатура_Key
             const price = Number(p.Цена) || 0
-            if (nomId && !priceMap.has(nomId)) {
-              priceMap.set(nomId, price)
+            if (nomId && price > 0) {
+              priceSums.set(nomId, (priceSums.get(nomId) || 0) + price)
+              priceCounts.set(nomId, (priceCounts.get(nomId) || 0) + 1)
+              if (!latestPrices.has(nomId)) {
+                latestPrices.set(nomId, price) // первая запись = самая свежая ($orderby: Period desc)
+              }
             }
           })
-          console.log(`  ✓ Got prices for ${priceMap.size} materials from ${register}`)
+          const priceMap = new Map()
+          priceSums.forEach((sum, nomId) => {
+            const count = priceCounts.get(nomId) || 1
+            priceMap.set(nomId, {
+              latest: latestPrices.get(nomId) || 0,
+              average: Math.round((sum / count) * 100) / 100
+            })
+          })
+          console.log(`  ✓ Цены для ${priceMap.size} материалов из ${register} (средние + последние)`)
           return priceMap
         }
       } catch (err) {

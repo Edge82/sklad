@@ -97,16 +97,16 @@
             size="small"
             hoverable
             class="metric-card h-full flex flex-col justify-center"
-            :class="{ 'active': filters.status === 'shipped' }"
-            @click="filters.status = 'shipped'"
+            :class="{ 'active': filters.status === 'completed' }"
+            @click="filters.status = 'completed'"
           >
             <div class="flex items-center gap-3 py-1">
               <n-icon size="28" color="#2080f0">
                 <CheckmarkDoneOutline />
               </n-icon>
               <div>
-                <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">Отгружен</n-text>
-                <n-h3 class="m-0 leading-none">{{ shippedOrdersCount }}</n-h3>
+                <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">Завершён</n-text>
+                <n-h3 class="m-0 leading-none">{{ completedOrdersCount }}</n-h3>
               </div>
             </div>
           </n-card>
@@ -185,6 +185,7 @@
             <tr>
               <th class="w-16 text-left!">№</th>
               <th class="text-left!">Наименование</th>
+              <th class="w-40 text-center!">Выполнено</th>
               <th class="w-32 text-right!">Кол-во</th>
               <th v-if="userStore.canSeePrices" class="w-40 text-right!">Сумма</th>
             </tr>
@@ -193,6 +194,27 @@
             <tr v-for="(item, idx) in selectedOrderForInvoices.items" :key="item.id">
               <td class="text-left!">{{ idx + 1 }}</td>
               <td class="font-bold text-green-500 text-left!">{{ item.productName }}</td>
+              <td class="text-center!">
+                <template v-if="orderItemProgress.get(item.productId)?.total">
+                  <div class="flex justify-end text-xs mb-0.5 px-0.5" :class="(orderItemProgress.get(item.productId)?.percent || 0) >= 100 ? 'text-green-500' : 'text-amber-500'">
+                    {{ orderItemProgress.get(item.productId)?.scanned }}/{{ orderItemProgress.get(item.productId)?.total }}
+                  </div>
+                  <n-tooltip trigger="hover" placement="top">
+                    <template #trigger>
+                      <n-progress
+                        type="line"
+                        :percentage="orderItemProgress.get(item.productId)?.percent || 0"
+                        :indicator-placement="'inside'"
+                        :status="(orderItemProgress.get(item.productId)?.percent || 0) >= 100 ? 'success' : 'warning'"
+                        :processing="(orderItemProgress.get(item.productId)?.percent || 0) > 0 && (orderItemProgress.get(item.productId)?.percent || 0) < 100"
+                        :height="18"
+                      />
+                    </template>
+                    сгенерировано {{ orderItemProgress.get(item.productId)?.total || 0 }} QR кодов для деталей, на складе {{ orderItemProgress.get(item.productId)?.scannedWarehouse || 0 }} деталей с QR кодами
+                  </n-tooltip>
+                </template>
+                <span v-else class="text-gray-400">—</span>
+              </td>
               <td class="text-right! px-4">{{ item.quantity }} {{ item.unit }}</td>
               <td v-if="userStore.canSeePrices" class="text-right! font-mono px-4">{{ formatCurrency(item.totalPrice || 0) }}</td>
             </tr>
@@ -384,12 +406,12 @@ watch([searchQuery, filters], () => {
 const totalOrdersCount = computed(() => visibleOrders.value.length)
 const inProgressOrdersCount = computed(() => visibleOrders.value.filter(o => o.status === 'in_progress').length)
 const readyOrdersCount = computed(() => visibleOrders.value.filter(o => o.status === 'ready').length)
-const shippedOrdersCount = computed(() => visibleOrders.value.filter(o => o.status === 'shipped').length)
+const completedOrdersCount = computed(() => visibleOrders.value.filter(o => o.status === 'completed').length)
 
-// Показываем только заказы со статусами: в работе, на складе, отгружен
+// Показываем только заказы со статусами: в работе, на складе, завершён
 const visibleOrders = computed(() => {
   return ordersStore.orders.filter(o =>
-    o.status === 'in_progress' || o.status === 'ready' || o.status === 'shipped'
+    o.status === 'in_progress' || o.status === 'ready' || o.status === 'completed'
   )
 })
 
@@ -414,19 +436,19 @@ const filteredOrders = computed(() => {
 
 const revenueInWork = computed(() => {
   return filteredOrders.value
-    .filter(o => o.status !== 'shipped' && o.status !== 'completed')
+    .filter(o => o.status !== 'completed')
     .reduce((sum, o) => sum + (Number(o.totalAmount) || 0), 0)
 })
 
 const orderStatusOptions = computed(() => {
-  const statuses = ['in_progress', 'ready', 'shipped']
+  const statuses = ['in_progress', 'ready', 'completed']
 
   return statuses.map(status => {
     let label = status as string
 
     if (status === 'in_progress') label = 'В работе'
     else if (status === 'ready') label = 'На складе'
-    else if (status === 'shipped') label = 'Отгружен'
+    else if (status === 'completed') label = 'Завершён'
 
     return { label, value: status }
   })
@@ -499,6 +521,24 @@ const handleRowClick = async (row: Order) => {
   }
 }
 
+const getItemQRProgress = (orderId: string, productId: string): { scanned: number, total: number, percent: number, scannedWarehouse: number } => {
+  const codes = qrCodesStore.qrCodes.filter(q => q.orderId === orderId && q.productId === productId)
+  const total = codes.length
+  const scannedWarehouse = codes.filter(q => q.status === 'scanned').length
+  const scanned = codes.filter(q => q.status === 'scanned' || q.status === 'shipped').length
+  const percent = total > 0 ? Math.round((scanned / total) * 100) : 0
+  return { scanned, total, percent, scannedWarehouse }
+}
+
+const orderItemProgress = computed(() => {
+  if (!selectedOrderForInvoices.value) return new Map()
+  const map = new Map<string, { scanned: number, total: number, percent: number, scannedWarehouse: number }>()
+  selectedOrderForInvoices.value.items.forEach(item => {
+    map.set(item.productId, getItemQRProgress(selectedOrderForInvoices.value!.id, item.productId))
+  })
+  return map
+})
+
 const goBack = () => {
   if (viewMode.value === 'details') {
     viewMode.value = 'invoices'
@@ -548,34 +588,6 @@ const columnsBase = [
     }
   },
   {
-    title: 'Выполнено',
-    key: 'qrProgress',
-    render(row: Order) {
-      const percentage = ordersStore.getOrderProgress(row.id, qrCodesStore.qrCodes)
-      const orderCodes = qrCodesStore.qrCodes.filter(q => q.orderId === row.id)
-      const scannedCount = orderCodes.filter(q => q.status === 'scanned' || q.status === 'shipped').length
-      const generatedCount = orderCodes.length
-
-      let status: 'default' | 'info' | 'success' | 'warning' | 'error' = 'info'
-      if (percentage >= 100) status = 'success'
-      else if (percentage > 0) status = 'warning'
-
-      return h('div', { style: 'width: 100%' }, [
-        h('div', { class: 'flex justify-end items-center mb-1 px-1' }, [
-          h(NText, { strong: true, style: 'font-size: 10px', type: status === 'success' ? 'success' : 'default' }, { default: () => `Готово: ${scannedCount}/${generatedCount}` })
-        ]),
-        h(NProgress, {
-          type: 'line',
-          percentage,
-          indicatorPlacement: 'inside',
-          status,
-          processing: percentage > 0 && percentage < 100,
-          railColor: generatedCount > scannedCount ? 'rgba(240, 160, 32, 0.2)' : undefined
-        })
-      ])
-    }
-  },
-  {
     title: 'Статус',
     key: 'status',
     width: 140,
@@ -589,9 +601,9 @@ const columnsBase = [
       } else if (row.status === 'ready') {
         type = 'success'
         label = 'На складе'
-      } else if (row.status === 'shipped') {
+      } else if (row.status === 'completed') {
         type = 'info'
-        label = 'Отгружен'
+        label = 'Завершён'
       }
 
       // Если в notes пришел текст из 1С ("1С: В работе"), показываем его вместо стандартного label

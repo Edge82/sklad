@@ -90,15 +90,12 @@ import {
 } from '@vicons/ionicons5'
 
 interface OperationLog {
-  id: number
+  id: number | string
   operation_type: string
   employee_id: string
   employee_name: string
-  order_id?: string
   order_number?: string
-  product_id?: string
   product_name?: string
-  qr_code_id?: string
   qr_code?: string
   details?: string
   status: string
@@ -128,14 +125,20 @@ const parsedDetails = (detailsStr?: string) => {
   }
 }
 
-const getOperationType = (operationType: string): 'success' | 'error' | 'warning' | 'default' => {
-  const typeMap: Record<string, 'success' | 'error' | 'warning' | 'default'> = {
+const getOperationType = (operationType: string): 'success' | 'error' | 'warning' | 'info' | 'default' => {
+  const typeMap: Record<string, 'success' | 'error' | 'warning' | 'info' | 'default'> = {
     'qr_code_generated': 'success',
-    'qr_code_scanned': 'default',
+    'qr_code_scanned': 'info',
     'qr_code_deleted': 'error',
     'order_painting_updated': 'warning',
     'transfer_order_created': 'success',
-    'transfer_order_completed': 'default'
+    'transfer_order_completed': 'info',
+    'tool_issued': 'warning',
+    'tool_returned': 'success',
+    'invoice_Производство': 'info',
+    'invoice_Клиент': 'warning',
+    'invoice_Перемещение': 'info',
+    'invoice_Инструмент': 'info'
   }
   return typeMap[operationType] || 'default'
 }
@@ -147,7 +150,13 @@ const getOperationLabel = (operationType: string) => {
     'qr_code_deleted': 'QR код удален',
     'order_painting_updated': 'Окраска обновлена',
     'transfer_order_created': 'Заказ на перемещение создан',
-    'transfer_order_completed': 'Заказ на перемещение завершен'
+    'transfer_order_completed': 'Заказ на перемещение завершен',
+    'tool_issued': 'Выдан инструмент',
+    'tool_returned': 'Сдан инструмент',
+    'invoice_Производство': 'Поступление материалов',
+    'invoice_Клиент': 'Отгрузка клиенту',
+    'invoice_Перемещение': 'Перемещение',
+    'invoice_Инструмент': 'Операция с инструментом'
   }
   return labelMap[operationType] || operationType
 }
@@ -159,7 +168,13 @@ const getOperationIcon = (operationType: string) => {
     'qr_code_deleted': TrashOutline,
     'order_painting_updated': CreateOutline,
     'transfer_order_created': CreateOutline,
-    'transfer_order_completed': CheckmarkCircleOutline
+    'transfer_order_completed': CheckmarkCircleOutline,
+    'tool_issued': SwapHorizontalOutline,
+    'tool_returned': CheckmarkCircleOutline,
+    'invoice_Производство': SwapHorizontalOutline,
+    'invoice_Клиент': TrashOutline,
+    'invoice_Перемещение': SwapHorizontalOutline,
+    'invoice_Инструмент': SwapHorizontalOutline
   }
   return iconMap[operationType] || CheckmarkCircleOutline
 }

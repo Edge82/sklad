@@ -35,7 +35,7 @@
     <!-- Список заказов -->
     <div v-if="!selectedOrderId">
       <!-- Статистика -->
-      <n-grid :cols="4" :x-gap="12" :y-gap="12" class="mb-6 items-stretch py-2">
+      <n-grid :cols="5" :x-gap="12" :y-gap="12" class="mb-6 items-stretch py-2">
         <n-gi>
           <n-card
             size="small"
@@ -61,56 +61,76 @@
             size="small"
             hoverable
             class="metric-card h-full flex flex-col justify-center"
-            :class="{ 'active': filterStatus === 'draft' }"
-            @click="filterStatus = 'draft'"
-          >
-            <div class="flex items-center gap-3 py-1">
-              <n-icon size="28" color="#f0a020">
-                <PencilOutline />
-              </n-icon>
-              <div>
-                <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">Черновики</n-text>
-                <n-h3 class="m-0 leading-none">{{ draftOrdersCount }}</n-h3>
-              </div>
-            </div>
-          </n-card>
-        </n-gi>
-
-        <n-gi>
-          <n-card
-            size="small"
-            hoverable
-            class="metric-card h-full flex flex-col justify-center"
-            :class="{ 'active': filterStatus === 'completed' }"
-            @click="filterStatus = 'completed'"
-          >
-            <div class="flex items-center gap-3 py-1">
-              <n-icon size="28" color="#18a058">
-                <CheckmarkCircleOutline />
-              </n-icon>
-              <div>
-                <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">Завершено</n-text>
-                <n-h3 class="m-0 leading-none">{{ completedOrdersCount }}</n-h3>
-              </div>
-            </div>
-          </n-card>
-        </n-gi>
-
-        <n-gi>
-          <n-card
-            size="small"
-            hoverable
-            class="metric-card h-full flex flex-col justify-center"
-            :class="{ 'active': filterStatus === 'active' }"
-            @click="filterStatus = 'active'"
+            :class="{ 'active': filterStatus === 'active_cells' }"
+            @click="filterStatus = 'active_cells'"
           >
             <div class="flex items-center gap-3 py-1">
               <n-icon size="28" color="#f0a020">
                 <TimeOutline />
               </n-icon>
               <div>
-                <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">В работе</n-text>
-                <n-h3 class="m-0 leading-none">{{ activeOrdersCount }}</n-h3>
+                <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">В работе (ячейки)</n-text>
+                <n-h3 class="m-0 leading-none">{{ activeCellsCount }}</n-h3>
+              </div>
+            </div>
+          </n-card>
+        </n-gi>
+
+        <n-gi>
+          <n-card
+            size="small"
+            hoverable
+            class="metric-card h-full flex flex-col justify-center"
+            :class="{ 'active': filterStatus === 'active_writeoff' }"
+            @click="filterStatus = 'active_writeoff'"
+          >
+            <div class="flex items-center gap-3 py-1">
+              <n-icon size="28" color="#f0a020">
+                <TimeOutline />
+              </n-icon>
+              <div>
+                <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">В работе (списание)</n-text>
+                <n-h3 class="m-0 leading-none">{{ activeWriteoffCount }}</n-h3>
+              </div>
+            </div>
+          </n-card>
+        </n-gi>
+
+        <n-gi>
+          <n-card
+            size="small"
+            hoverable
+            class="metric-card h-full flex flex-col justify-center"
+            :class="{ 'active': filterStatus === 'completed_cells' }"
+            @click="filterStatus = 'completed_cells'"
+          >
+            <div class="flex items-center gap-3 py-1">
+              <n-icon size="28" color="#18a058">
+                <CheckmarkCircleOutline />
+              </n-icon>
+              <div>
+                <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">Завершён (ячейки)</n-text>
+                <n-h3 class="m-0 leading-none">{{ completedCellsCount }}</n-h3>
+              </div>
+            </div>
+          </n-card>
+        </n-gi>
+
+        <n-gi>
+          <n-card
+            size="small"
+            hoverable
+            class="metric-card h-full flex flex-col justify-center"
+            :class="{ 'active': filterStatus === 'completed_writeoff' }"
+            @click="filterStatus = 'completed_writeoff'"
+          >
+            <div class="flex items-center gap-3 py-1">
+              <n-icon size="28" color="#18a058">
+                <CheckmarkCircleOutline />
+              </n-icon>
+              <div>
+                <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">Завершён (списание)</n-text>
+                <n-h3 class="m-0 leading-none">{{ completedWriteoffCount }}</n-h3>
               </div>
             </div>
           </n-card>
@@ -381,7 +401,27 @@
         </n-gi>
         <n-gi>
           <n-form-item label="Склад получатель" required>
-            <n-select v-model:value="createForm.destinationWarehouseKey" :options="warehouseOptions" filterable placeholder="Выберите склад" />
+            <n-select v-model:value="createForm.destinationWarehouseKey" :options="warehouseOptionsAll" filterable placeholder="Выберите склад" />
+          </n-form-item>
+        </n-gi>
+      </n-grid>
+
+      <n-form-item label="Статус завершения" required>
+        <n-select v-model:value="createForm.statusName" :options="[
+          { label: 'Завершен (ячейки)', value: 'Завершен (ячейки)' },
+          { label: 'Завершен (списание)', value: 'Завершен (списание)' }
+        ]" />
+      </n-form-item>
+
+      <n-grid :cols="2" :x-gap="12">
+        <n-gi>
+          <n-form-item label="Заказ покупателя">
+            <n-select v-model:value="createForm.customerOrderKey" :options="customerOrderOptions" filterable placeholder="Выберите заказ" clearable @update:value="createForm.selectedProduct = ''" />
+          </n-form-item>
+        </n-gi>
+        <n-gi>
+          <n-form-item label="Изделие из заказа">
+            <n-select v-model:value="createForm.selectedProduct" :options="selectedOrderProducts" filterable placeholder="Выберите изделие" clearable :disabled="!createForm.customerOrderKey" />
           </n-form-item>
         </n-gi>
       </n-grid>
@@ -474,6 +514,7 @@ import {
 } from 'naive-ui'
 import { ArrowBackOutline, CameraOutline, ReloadOutline, CloseCircleOutline, CubeOutline, PencilOutline, CheckmarkCircleOutline, TimeOutline, PrintOutline, AddOutline } from '@vicons/ionicons5'
 import type { DataTableColumns } from 'naive-ui'
+import { useOrdersStore } from '@/stores/orders'
 
 interface TransferOrder {
   Ref_Key: string
@@ -502,6 +543,7 @@ interface TransferOrder {
 }
 
 const { fetchTransferOrders, fetchTransferOrderDetails, syncTransferOrders, completeTransferOrderInOneC, loadTransferOrderScans, saveTransferOrderScans } = useStockBalances()
+const ordersStore = useOrdersStore()
 const message = useMessage()
 const loading = ref(false)
 const syncing = ref(false)
@@ -536,6 +578,7 @@ const createSaving = ref(false)
 const createBarcodeBuffer = ref('')
 const createBarcodeInputRef = ref<InputInst | null>(null)
 const warehouseOptions = ref<Array<{ label: string; value: string }>>([])
+const warehouseOptionsAll = ref<Array<{ label: string; value: string }>>([])
 const createResult = ref<{ success: boolean; message: string; details?: string } | null>(null)
 const searchOptions = ref<Array<{ label: string; value: string }>>([])
 const stockDataMap = ref<Map<string, any>>(new Map())
@@ -549,12 +592,32 @@ interface CreateItem {
   sku: string
   unit: string
   unitKey: string
+  _qtyInput?: string
 }
 
 const createForm = reactive({
   sourceWarehouseKey: '',
   destinationWarehouseKey: '',
+  statusName: 'Завершен (ячейки)',
+  customerOrderKey: '',
+  selectedProduct: '',
   items: [] as CreateItem[]
+})
+
+const customerOrderOptions = computed(() =>
+  ordersStore.orders.map(o => ({
+    label: `${o.orderNumber} — ${o.customerName}`,
+    value: o.id
+  }))
+)
+
+const selectedOrderProducts = computed(() => {
+  if (!createForm.customerOrderKey) return []
+  const order = ordersStore.orders.find(o => o.id === createForm.customerOrderKey)
+  return (order?.items || []).map((item: any) => ({
+    label: item.productName || item.itemName || 'Без названия',
+    value: item.productName || item.itemName || ''
+  }))
 })
 
 const canSaveCreate = computed(() =>
@@ -580,7 +643,7 @@ const handleProductSearch = () => {
       const stocks = data.value || []
       const options: Array<{ label: string; value: string }> = []
       const map = new Map<string, any>()
-      stocks.slice(0, 20).forEach((s: any) => {
+      stocks.slice(0, 30).forEach((s: any) => {
         const label = `${s.name || s.product || 'Без названия'}${s.barcode ? ' [' + s.barcode + ']' : ''}`
         options.push({ label, value: s.ref_key })
         map.set(s.ref_key, s)
@@ -740,14 +803,20 @@ const createItemsColumns: DataTableColumns<CreateItem> = [
     width: 100,
     align: 'center',
     render: (row, index) => h(NInput, {
-      value: String(row.quantity),
-      type: 'text',
+      value: createForm.items[index]?._qtyInput ?? String(row.quantity).replace('.', ','),
       size: 'small',
       style: 'width: 70px; text-align: center',
       onInput: (val: string) => {
-        const num = parseInt(val) || 1
         if (createForm.items[index]) {
-          createForm.items[index].quantity = Math.max(1, num)
+          createForm.items[index]._qtyInput = val
+        }
+      },
+      onBlur: () => {
+        const item = createForm.items[index]
+        if (item?._qtyInput != null) {
+          const num = parseFloat(String(item._qtyInput).replace(',', '.'))
+          item.quantity = isNaN(num) ? item.quantity : Math.max(0.001, num)
+          delete item._qtyInput
         }
       }
     })
@@ -765,31 +834,50 @@ const createItemsColumns: DataTableColumns<CreateItem> = [
 ]
 
 const openCreateModal = async () => {
-  createForm.sourceWarehouseKey = ''
-  createForm.destinationWarehouseKey = ''
   createForm.items = []
+  createForm.customerOrderKey = ''
+  createForm.selectedProduct = ''
   createBarcodeBuffer.value = ''
   createResult.value = null
   showCreateModal.value = true
 
+  // Load orders if needed
+  if (ordersStore.orders.length === 0) {
+    try { await ordersStore.loadOrdersFromApi() } catch { /* ignore */ }
+  }
+
   // Load warehouse options
   if (warehouseOptions.value.length === 0) {
+    const [whRes, allRes] = await Promise.all([
+      fetch('/sklad/api/onec/warehouses'),
+      fetch('/sklad/api/onec/warehouses?all=1')
+    ])
+    const mapItems = (items: any[]) => items.map((w: any) => ({
+      label: w.name || w.description || w.Description || w.id,
+      value: w.id || w.ref_key || w.Ref_Key
+    }))
     try {
-      const res = await fetch('/sklad/api/onec/warehouses')
-      const data = await res.json()
-      const items = data.value || []
-      warehouseOptions.value = items.map((w: any) => ({
-        label: w.name || w.description || w.Description || w.id,
-        value: w.id || w.ref_key || w.Ref_Key
-      }))
-    } catch {
-      // Fallback: hardcoded warehouses
+      warehouseOptions.value = mapItems(((await whRes.json()).value || []))
+    } catch { warehouseOptions.value = [] }
+    try {
+      warehouseOptionsAll.value = mapItems(((await allRes.json()).value || []))
+    } catch { warehouseOptionsAll.value = [] }
+    if (warehouseOptions.value.length === 0) {
       warehouseOptions.value = [
         { label: 'Основной склад', value: 'main' },
         { label: 'Склад готовой продукции', value: 'finished' }
       ]
     }
+    if (warehouseOptionsAll.value.length === 0) {
+      warehouseOptionsAll.value = warehouseOptions.value
+    }
   }
+
+  // Устанавливаем склады по умолчанию
+  const mainWh = warehouseOptions.value.find(o => o.label.toLowerCase().includes('основной'))
+  const prodWh = warehouseOptionsAll.value.find(o => o.label.toLowerCase().includes('производств'))
+  createForm.sourceWarehouseKey = mainWh?.value || warehouseOptions.value[0]?.value || ''
+  createForm.destinationWarehouseKey = prodWh?.value || warehouseOptionsAll.value[1]?.value || ''
 
   nextTick(() => {
     createBarcodeInputRef.value?.focus()
@@ -812,7 +900,7 @@ const handleCreateScan = async () => {
   if (!barcode) return
 
   // Check if already in list
-  const existing = createForm.items.find((i: CreateItem) => i.barcode === barcode)
+  const existing = createForm.items.find((i: CreateItem) => i.barcode.toLowerCase() === barcode.toLowerCase())
   if (existing) {
     existing.quantity++
     createBarcodeBuffer.value = ''
@@ -862,13 +950,19 @@ const saveCreateOrder = async () => {
         sourceWarehouseName: warehouseOptions.value.find(o => o.value === createForm.sourceWarehouseKey)?.label || '',
         destinationWarehouseKey: createForm.destinationWarehouseKey,
         destinationWarehouseName: warehouseOptions.value.find(o => o.value === createForm.destinationWarehouseKey)?.label || '',
+        statusName: createForm.statusName,
         items: createForm.items.map((item: CreateItem) => ({
           nomenclatureKey: item.nomenclatureKey,
           productName: item.productName,
           barcode: item.barcode,
           quantity: item.quantity,
           unitKey: item.unitKey
-        }))
+        })),
+        customerOrderKey: createForm.customerOrderKey || undefined,
+        customerOrderNumber: createForm.customerOrderKey
+          ? ordersStore.orders.find(o => o.id === createForm.customerOrderKey)?.orderNumber
+          : undefined,
+        selectedProduct: createForm.selectedProduct || undefined
       })
     })
 
@@ -1037,16 +1131,20 @@ const formatDate = (dateStr: string) => {
 }
 
 // Вычисляемые свойства для статистики
-const draftOrdersCount = computed(() =>
-  orders.value.filter(o => !o.Posted).length
+const activeCellsCount = computed(() =>
+  orders.value.filter(o => (o.statusDescription || '') === 'В работе (ячейки)').length
 )
 
-const completedOrdersCount = computed(() =>
-  orders.value.filter(o => o.statusDescription === 'Завершен').length
+const activeWriteoffCount = computed(() =>
+  orders.value.filter(o => (o.statusDescription || '') === 'В работе (списание)').length
 )
 
-const activeOrdersCount = computed(() =>
-  orders.value.filter(o => o.statusDescription !== 'Завершен').length
+const completedCellsCount = computed(() =>
+  orders.value.filter(o => (o.statusDescription || '') === 'Завершен (ячейки)').length
+)
+
+const completedWriteoffCount = computed(() =>
+  orders.value.filter(o => (o.statusDescription || '') === 'Завершен (списание)').length
 )
 
 // Отфильтрованные заказы для таблицы
@@ -1054,12 +1152,14 @@ const filteredOrders = computed(() => {
   if (!filterStatus.value) return orders.value
 
   switch (filterStatus.value) {
-    case 'draft':
-      return orders.value.filter(o => !o.Posted)
-    case 'completed':
-      return orders.value.filter(o => o.statusDescription === 'Завершен')
-    case 'active':
-      return orders.value.filter(o => o.statusDescription !== 'Завершен')
+    case 'active_cells':
+      return orders.value.filter(o => (o.statusDescription || '') === 'В работе (ячейки)')
+    case 'active_writeoff':
+      return orders.value.filter(o => (o.statusDescription || '') === 'В работе (списание)')
+    case 'completed_cells':
+      return orders.value.filter(o => (o.statusDescription || '') === 'Завершен (ячейки)')
+    case 'completed_writeoff':
+      return orders.value.filter(o => (o.statusDescription || '') === 'Завершен (списание)')
     default:
       return orders.value
   }
@@ -1396,7 +1496,9 @@ const submitToOnec = async () => {
     }
 
     const orderId = selectedOrder.value.Ref_Key
-    await completeTransferOrderInOneC(orderId)
+    const currentStatus = selectedOrder.value.statusDescription || ''
+    const completeStatus = currentStatus.includes('ячейки') ? 'Завершен (ячейки)' : 'Завершен (списание)'
+    await completeTransferOrderInOneC(orderId, completeStatus)
 
     message.success(`✓ Заказ "${selectedOrder.value.Number}" завершён в 1C, локальные данные удалены`)
 

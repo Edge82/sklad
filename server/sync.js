@@ -138,7 +138,8 @@ function syncStocksIncremental(stocks) {
       db.prepare(`UPDATE onec_stocks SET
         name = ?, product = ?, warehouse = ?,
         quantity = ?, current_stock = ?, unit = ?, unit_key = ?, category = ?,
-      status = ?, reserved = ?, purchasePrice = ?, averagePrice = ?, reservesByOrder = ?, image = ?, local_only = COALESCE(local_only, 0)
+      status = ?, reserved = ?, purchasePrice = ?, averagePrice = ?, reservesByOrder = ?, image = ?,
+      last_receipt = ?, local_only = COALESCE(local_only, 0)
         WHERE ref_key = ?`)
         .run(
           stock.name || stock.product,
@@ -155,6 +156,7 @@ function syncStocksIncremental(stocks) {
           stock.averagePrice || stock.purchasePrice || 0,
           JSON.stringify(stock.reservesByOrder || {}),
           imageToSave,
+          stock.lastReceipt || null,
           stock.ref_key
         )
       stats.updated++
@@ -171,8 +173,8 @@ function syncStocksIncremental(stocks) {
         }
 
         db.prepare(`INSERT INTO onec_stocks
-          (ref_key, name, sku, product, warehouse, location, quantity, current_stock, unit, unit_key, category, status, reserved, purchasePrice, averagePrice, reservesByOrder, image, local_only)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+          (ref_key, name, sku, product, warehouse, location, quantity, current_stock, unit, unit_key, category, status, reserved, purchasePrice, averagePrice, reservesByOrder, image, local_only, last_receipt)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
           .run(
             stock.ref_key || null,
             stock.name || stock.product,
@@ -191,7 +193,8 @@ function syncStocksIncremental(stocks) {
             stock.averagePrice || stock.purchasePrice || 0,
             JSON.stringify(stock.reservesByOrder || {}),
             stock.image || null,
-            stock.local_only || 0
+            stock.local_only || 0,
+            stock.lastReceipt || null
           )
         stats.added++
       } catch (e) { /* ignore */ }
@@ -226,7 +229,7 @@ function syncTransferOrdersIncremental(orders) {
       db.prepare(`UPDATE transfer_orders SET
         order_number = ?, date = ?, source_warehouse_key = ?, source_warehouse_name = ?,
         destination_warehouse_key = ?, destination_warehouse_name = ?, customer_order_key = ?,
-        customer_order_number = ?, posted = ?
+        customer_order_number = ?, posted = ?, selected_product = COALESCE(selected_product, '')
         WHERE ref_key = ?`)
         .run(
           order.order_number,
@@ -245,8 +248,8 @@ function syncTransferOrdersIncremental(orders) {
       try {
         db.prepare(`INSERT INTO transfer_orders (ref_key, order_number, date, source_warehouse_key,
           source_warehouse_name, destination_warehouse_key, destination_warehouse_name, customer_order_key,
-          customer_order_number, posted)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+          customer_order_number, posted, selected_product, created_by)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '')`)
           .run(
             ref_key,
             order.order_number,
@@ -257,7 +260,8 @@ function syncTransferOrdersIncremental(orders) {
             order.destination_warehouse_name,
             order.customer_order_key,
             order.customer_order_number,
-            order.posted
+            order.posted,
+            order.selected_product || ''
           )
         stats.added++
       } catch (e) { /* ignore duplicates */ }

@@ -158,7 +158,9 @@ export const useOrdersStore = defineStore('orders', () => {
         }
 
         if (typeof window !== 'undefined') {
-          localStorage.setItem('orders_data', JSON.stringify(orders.value))
+          try {
+            localStorage.setItem('orders_data', JSON.stringify(orders.value))
+          } catch (e) { /* quota exceeded */ }
         }
       }
     } catch (err: any) {
@@ -187,8 +189,12 @@ export const useOrdersStore = defineStore('orders', () => {
       'Готов': 'ready',
       'готова': 'ready',
       'Готова': 'ready',
+      'shipped': 'completed',
+      'отгружен': 'completed',
+      'Отгружен': 'completed',
       'завершен': 'completed',
       'Завершен': 'completed',
+      'Завершён': 'completed',
       'completed': 'completed',
       'на выполнении': 'in_progress',
       'На выполнении': 'in_progress',

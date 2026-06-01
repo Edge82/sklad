@@ -96,7 +96,7 @@ const routes: RouteRecordRaw[] = [
     path: '/transfer-orders',
     component: TransferOrders,
     meta: { title: 'Заказы на перемещение' }
-  }
+  },
 ]
 
 const router = createRouter({

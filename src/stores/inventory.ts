@@ -22,6 +22,9 @@ export const useInventoryStore = defineStore('inventory', () => {
     { id: '99', name: 'Готовая продукция', icon: 'checkmark-done-outline', description: 'Произведенная мебель, готовая к отгрузке' }
   ])
 
+  // Склады из 1С
+  const warehouses = ref<Array<{ id: string; name: string }>>([])
+
   // Поставщики
   const suppliers = ref<Supplier[]>([
     {
@@ -901,6 +904,7 @@ export const useInventoryStore = defineStore('inventory', () => {
   return {
     // Данные
     categories,
+    warehouses,
     suppliers,
     items,
     itemsMap,
@@ -932,6 +936,33 @@ export const useInventoryStore = defineStore('inventory', () => {
     receiveFromProduction,
     
     // Методы для синхронизации с API (1С)
+    async loadCategories() {
+      try {
+        const data = await fetch(`${API_BASE_URL}/onec/categories`).then(r => r.json())
+        const cats = data.value || []
+        if (cats.length > 0) {
+          categories.value = cats.map((c: any) => ({
+            id: String(c.ref_key || c.Ref_Key),
+            name: c.description || c.Description,
+            icon: 'cube-outline' as const,
+            description: ''
+          }))
+        }
+      } catch {
+        // сохраняем последние успешно загруженные данные из 1С
+      }
+    },
+    async loadWarehouses() {
+      try {
+        const data = await fetch(`${API_BASE_URL}/onec/warehouses`).then(r => r.json())
+        const wh = data.value || []
+        if (wh.length > 0) {
+          warehouses.value = wh
+        }
+      } catch {
+        // сохраняем последние успешно загруженные данные из 1С
+      }
+    },
     async loadStocksFromApi() {
       loading.value = true
       error.value = null
@@ -998,6 +1029,7 @@ export const useInventoryStore = defineStore('inventory', () => {
               storageConditions: item.storageConditions || '',
               weight: item.weight || 0,
               dimensions: item.dimensions || '',
+              lastReceived: item.lastReceipt ? new Date(item.lastReceipt) : undefined,
               onOrderQuantity: item.onOrderQuantity || 0,
               orderNumber: item.orderNumber || undefined,
               // Преобразуем reservesByOrder из объекта в Map
@@ -1021,8 +1053,14 @@ export const useInventoryStore = defineStore('inventory', () => {
               ...item,
               reserveDetails: Object.fromEntries(item.reserveDetails || new Map())
             }))
-            localStorage.setItem('inventory_items', JSON.stringify(itemsForStorage))
-            console.log('✓ Saved to localStorage, items:', items.value.length)
+            try {
+        try {
+          localStorage.setItem('inventory_items', JSON.stringify(itemsForStorage))
+        } catch (e) { /* quota exceeded */ }
+              console.log('✓ Saved to localStorage, items:', items.value.length)
+            } catch (e) {
+              // localStorage quota exceeded — данные уже в памяти, работаем без кэша
+            }
           }
         }
       } catch (err: any) {

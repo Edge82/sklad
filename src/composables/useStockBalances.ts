@@ -1137,7 +1137,7 @@ export function useStockBalances() {
     }
   }
 
-  async function completeTransferOrderInOneC(orderId: string) {
+  async function completeTransferOrderInOneC(orderId: string, statusName?: string) {
     try {
       const response = await fetch(`${API_BASE_URL}/onec/transfer-orders/${orderId}/complete`, {
         method: 'POST',
@@ -1145,7 +1145,7 @@ export function useStockBalances() {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${localStorage.getItem('auth_token') || ''}`
         },
-        body: JSON.stringify({ statusName: 'Завершен' })
+        body: JSON.stringify({ statusName: statusName || 'Завершен' })
       });
 
       if (!response.ok) {

@@ -212,7 +212,7 @@
 
         <n-data-table :columns="columns" :data="filteredItems" :pagination="pagination"
           :row-key="(row: any) => row.id" striped @update:sorter="handleSorterChange"
-          :row-props="rowProps"
+          :row-props="rowProps" max-height="calc(100vh - 350px)"
         />
       </n-card>
 
@@ -314,6 +314,8 @@ const dialog = useDialog()
 const message = useMessage()
 
 onMounted(async () => {
+  inventoryStore.loadCategories()
+  inventoryStore.loadWarehouses()
   if (inventoryStore.items.length === 0 || !integrationStore.lastSyncTime) {
     await handleSync1C()
   }
@@ -416,21 +418,13 @@ const statusOptions: SelectOption[] = [
   { label: 'В наличии', value: 'in_stock' },
   { label: 'Мало осталось', value: 'low_stock' },
   { label: 'Отсутствует', value: 'out_of_stock' },
-  { label: 'Зарезервировано', value: 'reserved' },
-  { label: 'В пути', value: 'on_order' },
-  { label: 'Заблокировано', value: 'blocked' }
+  { label: 'Зарезервировано', value: 'reserved' }
 ]
 
 const warehouseOptions = computed<SelectOption[]>(() => {
-  const warehouses = new Set<string>()
-  inventoryStore.items.forEach(item => {
-    if (item.warehouse && item.warehouse !== '—' && item.warehouse !== '') {
-      warehouses.add(item.warehouse)
-    }
-  })
-  const options = Array.from(warehouses).sort().map(w => ({
-    label: w,
-    value: w
+  const options = inventoryStore.warehouses.map(w => ({
+    label: w.name,
+    value: w.name
   }))
   return [
     { label: 'Все склады', value: undefined },
@@ -471,8 +465,6 @@ const filteredItems = computed(() => {
   // Фильтр по статусу
   if (filters.status === 'reserved') {
     result = result.filter(item => item.reserved > 0)
-  } else if (filters.status === 'on_order') {
-    result = result.filter(item => item.status === 'on_order')
   } else if (filters.status) {
     result = result.filter(item => item.status === filters.status)
   }
@@ -661,7 +653,7 @@ const columnsBase: DataTableColumns<InventoryItem> = [
     width: 180,
     render: (row) => {
       const item = row as InventoryItem
-      const available = item.currentStock - (item.reserved || 0)
+      const available = Math.round((item.currentStock - (item.reserved || 0)) * 100) / 100
       return h('div', [
         h('div', { class: 'font-medium' }, [
           h('span', { class: item.currentStock <= item.minStock ? 'text-yellow-500 font-bold' : 'font-bold' },
@@ -669,7 +661,7 @@ const columnsBase: DataTableColumns<InventoryItem> = [
           ),
           item.reserved > 0 ? h('span', {
             class: 'text-gray-400 ml-6 font-medium',
-          }, `(резерв ${item.reserved} ${item.unit})`) : null,
+          }, `(резерв ${Math.round(item.reserved * 100) / 100} ${item.unit})`) : null,
           item.onOrderQuantity && item.onOrderQuantity > 0 ?
             h(NPopover, { trigger: 'hover', placement: 'top' }, {
               trigger: () => h('span', { class: 'text-blue-500 ml-2 cursor-help text-[11px] font-bold' }, `(+${item.onOrderQuantity} в пути)`),
@@ -683,7 +675,7 @@ const columnsBase: DataTableColumns<InventoryItem> = [
         ]),
         h('div', { class: 'text-xs mt-1.5' }, [
           h('span', { class: 'text-gray-400' }, `Всего на складе: `),
-          h('span', { class: 'font-bold text-blue-600' }, `${item.currentStock} ${item.unit}`)
+          h('span', { class: 'font-bold text-blue-600' }, `${Math.round(item.currentStock * 100) / 100} ${item.unit}`)
         ])
       ])
     }
@@ -698,6 +690,21 @@ const columnsBase: DataTableColumns<InventoryItem> = [
     },
     sorter: (a, b) => {
       return (a.averagePrice || 0) - (b.averagePrice || 0)
+    }
+  },
+  {
+    title: 'Приход',
+    key: 'lastReceived',
+    width: 110,
+    render: (row) => {
+      const item = row as InventoryItem
+      if (!item.lastReceived) return h('span', { class: 'text-gray-400' }, '—')
+      return h('span', new Date(item.lastReceived).toLocaleDateString('ru-RU'))
+    },
+    sorter: (a, b) => {
+      const da = a.lastReceived ? new Date(a.lastReceived).getTime() : 0
+      const db = b.lastReceived ? new Date(b.lastReceived).getTime() : 0
+      return da - db
     }
   },
   {

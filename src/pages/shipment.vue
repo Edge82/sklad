@@ -18,7 +18,7 @@
     </div>
 
     <!-- Резюме (Статистика в стиле Inventory.vue) -->
-    <n-grid v-if="!selectedInvoice" :cols="4" :x-gap="12" :y-gap="12" class="mb-6 items-stretch py-2">
+    <n-grid v-if="!selectedInvoice" :cols="5" :x-gap="12" :y-gap="12" class="mb-6 items-stretch py-2">
       <n-gi>
         <n-card
           size="small"
@@ -80,16 +80,44 @@
       </n-gi>
 
       <n-gi>
-        <n-card border-variant="dark" class="metric-card revenue-card h-full flex flex-col justify-center" size="small">
+        <n-card
+          size="small"
+          hoverable
+          class="metric-card h-full flex flex-col justify-center"
+          :class="{ 'active': filterDestination === 'Перемещение' }"
+          @click="filterDestination = 'Перемещение'"
+        >
           <div class="flex items-center gap-3 py-1">
-            <n-icon size="28" color="#18a058" :component="AnalyticsOutline" />
+            <n-icon size="28" color="#f0a020">
+              <AnalyticsOutline />
+            </n-icon>
             <div>
-              <n-text depth="3" class="revenue-label block mb-1">Сумма накладных</n-text>
-              <n-h3 class="m-0 leading-none revenue-value text-[22px]">{{ userStore.canSeePrices ? totalRevenue.toLocaleString() + ' ₽' : '-' }}</n-h3>
-            </div>
+              <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">Перемещение</n-text>
+            <n-h3 class="m-0 leading-none">{{ statsByType.transfers }}</n-h3>
           </div>
-        </n-card>
-      </n-gi>
+        </div>
+      </n-card>
+    </n-gi>
+
+    <n-gi>
+      <n-card
+        size="small"
+        hoverable
+        class="metric-card h-full flex flex-col justify-center"
+        :class="{ 'active': filterDestination === 'Инструмент' }"
+        @click="filterDestination = 'Инструмент'"
+      >
+        <div class="flex items-center gap-3 py-1">
+          <n-icon size="28" color="#8a8a8a">
+            <BusinessOutline />
+          </n-icon>
+          <div>
+            <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">Инструменты</n-text>
+            <n-h3 class="m-0 leading-none">{{ statsByType.tools }}</n-h3>
+          </div>
+        </div>
+      </n-card>
+    </n-gi>
     </n-grid>
 
     <n-card v-if="!selectedInvoice" class="mb-4" size="small">
@@ -162,7 +190,6 @@
               <th>Наименование</th>
               <th class="text-right">Цена</th>
               <th class="text-right">Количество</th>
-              <th class="text-right">Сумма</th>
             </tr>
           </thead>
           <tbody>
@@ -172,9 +199,6 @@
               <td class="text-right">{{ userStore.canSeePrices ? (item.price || 0).toLocaleString() + ' ₽' : '-' }}</td>
               <td class="text-right">
                 <n-text depth="2" strong>{{ item.quantity }} {{ item.unit }}</n-text>
-              </td>
-              <td class="text-right">
-                <n-text type="success" strong>{{ userStore.canSeePrices ? ((item.price || 0) * item.quantity).toLocaleString() + ' ₽' : '-' }}</n-text>
               </td>
             </tr>
           </tbody>
@@ -230,9 +254,11 @@ interface InvoiceWithWorker extends Omit<MaterialInvoice, 'date'> {
   workerName: string
   workerId: string
   operationLabel: string
-  movementType: 'receipt' | 'shipment'
+  movementType: 'receipt' | 'shipment' | 'transfer' | 'tool'
   movementCount: number
   shipmentOrders?: string[]
+  createdAt?: string
+  updatedAt?: string
 }
 
 const selectedInvoice = ref<InvoiceWithWorker | null>(null)
@@ -245,10 +271,37 @@ const shipmentHistory = ref<Array<{
   orders: string[]
 }>>([])
 
+const transferOrders = ref<Array<{
+  ref_key: string
+  order_number: string
+  date: string
+  source_warehouse_name: string
+  destination_warehouse_name: string
+  customer_order_number: string
+  posted: number
+  items: string
+  selected_product: string
+  created_by: string
+}>>([])
+
+const toolOperations = ref<Array<{
+  id: string
+  tool_id: string
+  tool_name: string
+  inventory_number: string
+  employee_id: string
+  action: string
+  date: string
+  employee_name: string
+  created_at: string
+}>>([])
+
 const destinationOptions = [
   { label: 'Все направления', value: 'all' },
   { label: 'Готовая продукция', value: 'Готовая продукция' },
-  { label: 'Клиент', value: 'Клиент' }
+  { label: 'Клиент', value: 'Клиент' },
+  { label: 'Перемещение', value: 'Перемещение' },
+  { label: 'Инструмент', value: 'Инструмент' }
 ]
 
 const currentPage = ref(1)
@@ -307,12 +360,70 @@ const allInvoices = computed(() => {
       createdAt: shipment.date,
       updatedAt: shipment.date,
       createdBy: shipment.userName,
-      workerName: shipment.userName || 'System',
+      workerName: shipment.userName || 'Неизвестно',
       workerId: 'unknown',
       operationLabel: 'Отгружен клиенту',
       movementType: 'shipment',
       movementCount: shipment.count,
       shipmentOrders: shipment.orders
+    })
+  })
+
+  transferOrders.value.forEach(order => {
+    let items: MaterialInvoiceItem[] = []
+    try {
+      const parsed = JSON.parse(order.items)
+      if (Array.isArray(parsed)) {
+        items = parsed.map((i: any) => ({
+          productName: i.productName || '',
+          quantity: Number(i.quantity) || 0,
+          unit: i.unit || 'шт',
+          article: i.barcode || '',
+        }))
+      }
+    } catch { /* ignore */ }
+    invoices.push({
+      id: order.ref_key,
+      employeeId: '',
+      date: order.date,
+      orderNumber: order.order_number,
+      destination: 'Перемещение',
+      totalAmount: 0,
+      items,
+      createdAt: order.date,
+      updatedAt: order.date,
+      createdBy: order.created_by || 'Система',
+      workerName: order.created_by || 'Система',
+      workerId: 'system',
+      operationLabel: 'Перемещение между складами',
+      movementType: 'transfer',
+      movementCount: items.length
+    })
+  })
+
+  toolOperations.value.forEach(op => {
+    const label = op.action === 'issued' ? 'Выдан инструмент' : 'Возврат инструмента'
+    invoices.push({
+      id: op.id,
+      employeeId: op.employee_id,
+      date: op.date,
+      orderNumber: `${op.tool_name} (${op.inventory_number})`,
+      destination: 'Инструмент',
+      totalAmount: 0,
+      items: [{
+        productName: op.tool_name,
+        quantity: 1,
+        unit: 'шт',
+        article: op.inventory_number,
+      }],
+      createdAt: op.created_at,
+      updatedAt: op.created_at,
+      createdBy: op.employee_name,
+      workerName: op.employee_name || 'Неизвестно',
+      workerId: op.employee_id,
+      operationLabel: label,
+      movementType: 'tool',
+      movementCount: 1
     })
   })
 
@@ -344,19 +455,15 @@ const statsByType = computed(() => {
   const warehouseReceipts = allInvoices.value.filter(inv =>
     inv.movementType === 'receipt' && inv.destination === 'Готовая продукция'
   )
+  const transfers = allInvoices.value.filter(inv => inv.movementType === 'transfer')
+  const tools = allInvoices.value.filter(inv => inv.movementType === 'tool')
 
   return {
     production: warehouseReceipts.length,
-    client: allInvoices.value.filter(inv => inv.movementType === 'shipment').length
+    client: allInvoices.value.filter(inv => inv.movementType === 'shipment').length,
+    transfers: transfers.length,
+    tools: tools.length
   }
-})
-
-// Расчет общей суммы отфильтрованных накладных (Итого по таблице)
-const totalRevenue = computed(() => {
-  return filteredInvoices.value
-    .reduce((sum, inv) => {
-      return sum + (Number(inv.totalAmount) || 0)
-    }, 0)
 })
 
 const filteredInvoices = computed(() => {
@@ -396,6 +503,26 @@ onMounted(async () => {
   } catch (err) {
     console.error('Error loading shipment history:', err)
   }
+
+  try {
+    const response = await fetch('/sklad/api/transfer-orders')
+    if (response.ok) {
+      const data = await response.json()
+      transferOrders.value = data.orders || []
+    }
+  } catch (err) {
+    console.error('Error loading transfer orders:', err)
+  }
+
+  try {
+    const response = await fetch('/sklad/api/tool-operations')
+    if (response.ok) {
+      const data = await response.json()
+      toolOperations.value = data.operations || []
+    }
+  } catch (err) {
+    console.error('Error loading tool operations:', err)
+  }
 })
 
 const columns: DataTableColumns<InvoiceWithWorker> = [
@@ -407,7 +534,7 @@ const columns: DataTableColumns<InvoiceWithWorker> = [
       if (row.movementType === 'shipment') {
         return h('div', { class: 'p-4 bg-[rgba(255,255,255,0.02)] border-t border-gray-800' }, [
           h(NH3, { class: 'mb-4' }, { default: () => 'Состав отгрузки' }),
-          h('div', { class: 'space-y-2' }, [
+          h('div', { class: 'flex flex-col gap-1' }, [
             h(NText, { depth: 3 }, { default: () => `Отгружено QR-кодов: ${row.movementCount}` }),
             h(NText, { depth: 3 }, { default: () => `Заказы: ${(row.shipmentOrders || []).join(', ') || '—'}` })
           ])
@@ -423,16 +550,14 @@ const columns: DataTableColumns<InvoiceWithWorker> = [
                 h('th', 'Артикул'),
                 h('th', 'Наименование'),
                 h('th', { class: 'text-right' }, { default: () => 'Цена' }),
-                h('th', { class: 'text-right' }, { default: () => 'Количество' }),
-                h('th', { class: 'text-right' }, { default: () => 'Сумма' })
+                h('th', { class: 'text-right' }, { default: () => 'Количество' })
               ])
             ]),
             h('tbody', items.map(item => h('tr', [
               h('td', item.article || '—'),
               h('td', item.productName),
               h('td', { class: 'text-right' }, userStore.canSeePrices ? (item.price || 0).toLocaleString() + ' ₽' : '-'),
-              h('td', { class: 'text-right' }, `${item.quantity} ${item.unit}`),
-              h('td', { class: 'text-right font-bold text-green-500' }, userStore.canSeePrices ? ((item.price || 0) * item.quantity).toLocaleString() + ' ₽' : '-')
+              h('td', { class: 'text-right' }, `${item.quantity} ${item.unit}`)
             ])))
           ]
         })
@@ -492,14 +617,6 @@ const columns: DataTableColumns<InvoiceWithWorker> = [
     title: 'Позиций',
     key: 'itemsCount',
     render: (row) => row.movementCount
-  },
-  {
-    title: 'Сумма',
-    key: 'totalAmount',
-    render: (row) => {
-      const amount = row.totalAmount || row.items.reduce((sum, i) => sum + (i.price || 0) * i.quantity, 0)
-      return h(NText, { type: 'success', strong: true }, { default: () => userStore.canSeePrices ? amount.toLocaleString() + ' ₽' : '-' })
-    }
   }
 ]
 </script>
@@ -524,7 +641,7 @@ const columns: DataTableColumns<InvoiceWithWorker> = [
   cursor: pointer;
 }
 
-.metric-card:not(.revenue-card):hover {
+.metric-card:hover {
   transform: translateY(-2px);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
   background-color: #333;
@@ -533,26 +650,5 @@ const columns: DataTableColumns<InvoiceWithWorker> = [
 .metric-card.active {
   background-color: #333;
   border-bottom-color: #18a058;
-}
-
-.revenue-card {
-  background: rgba(24, 160, 88, 0.1) !important;
-  border: 1px solid rgba(24, 160, 88, 0.3) !important;
-  cursor: default !important;
-}
-
-.revenue-label {
-  color: #18a058 !important;
-  font-weight: bold;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  font-size: 10px;
-  line-height: 1;
-  margin-bottom: 4px;
-}
-
-.revenue-value {
-  color: #18a058 !important;
-  font-weight: 900 !important;
 }
 </style>
