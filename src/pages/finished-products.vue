@@ -38,7 +38,7 @@
       </div>
 
       <!-- Статистика -->
-      <n-grid :cols="4" :x-gap="12" :y-gap="12" class="mb-6 items-stretch py-2">
+      <n-grid :cols="5" :x-gap="12" :y-gap="12" class="mb-6 items-stretch py-2">
         <n-gi>
           <n-card
             size="small"
@@ -82,16 +82,35 @@
             size="small"
             hoverable
             class="metric-card h-full flex flex-col justify-center"
-            :class="{ 'active': filters.status === 'all_products' }"
-            @click="filters.status = 'all_products'"
+            :class="{ 'active': filters.status === 'partially_shipped' }"
+            @click="filters.status = 'partially_shipped'"
           >
             <div class="flex items-center gap-3 py-1">
               <n-icon size="28" color="#f0a020">
-                <BusinessOutline />
+                <LogOutOutline />
               </n-icon>
               <div>
-                <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">Всего изделий</n-text>
-                <n-h3 class="m-0 leading-none">{{ baseItemsForStats.length }}</n-h3>
+                <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">Отгружен частично</n-text>
+                <n-h3 class="m-0 leading-none">{{ partiallyShippedCount }}</n-h3>
+              </div>
+            </div>
+          </n-card>
+        </n-gi>
+        <n-gi>
+          <n-card
+            size="small"
+            hoverable
+            class="metric-card h-full flex flex-col justify-center"
+            :class="{ 'active': filters.status === 'shipped' }"
+            @click="filters.status = 'shipped'"
+          >
+            <div class="flex items-center gap-3 py-1">
+              <n-icon size="28" color="#18a058">
+                <CheckmarkDoneOutline />
+              </n-icon>
+              <div>
+                <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">Отгружен</n-text>
+                <n-h3 class="m-0 leading-none">{{ shippedCount }}</n-h3>
               </div>
             </div>
           </n-card>
@@ -228,7 +247,9 @@ import {
   CashOutline,
   BusinessOutline,
   SearchOutline,
-  ArrowBack
+  ArrowBack,
+  CheckmarkDoneOutline,
+  LogOutOutline
 } from '@vicons/ionicons5'
 import InventoryItemModal from '@/components/inventory/InventoryItemModal.vue'
 import InventoryTransactionModal from '@/components/inventory/InventoryTransactionModal.vue'
@@ -422,6 +443,20 @@ const filteredItems = computed(() => {
     )
   }
 
+  if (filters.status === 'partially_shipped') {
+    result = result.filter(item => {
+      const meta = getProductShipmentMeta(item)
+      return meta.shippedCount > 0 && meta.shippedCount < meta.totalCount
+    })
+  }
+
+  if (filters.status === 'shipped') {
+    result = result.filter(item => {
+      const meta = getProductShipmentMeta(item)
+      return meta.totalCount > 0 && meta.shippedCount >= meta.totalCount
+    })
+  }
+
   if (searchQuery.value) {
     const query = searchQuery.value.toLowerCase()
 
@@ -467,7 +502,7 @@ const filteredItems = computed(() => {
     result = result.filter(item => item.category === filters.category)
   }
 
-  if (filters.status && filters.status !== 'ready_to_ship' && filters.status !== 'all_products') {
+  if (filters.status && filters.status !== 'ready_to_ship' && filters.status !== 'all_products' && filters.status !== 'partially_shipped' && filters.status !== 'shipped') {
     result = result.filter(item => item.status === filters.status)
   }
 
@@ -515,8 +550,7 @@ const filteredItems = computed(() => {
 })
 
 const filteredTotalValue = computed(() => {
-  // Считаем общую стоимость всех изделий на складе
-  const sum = baseItemsForStats.value.reduce((s, item) => {
+  const sum = filteredItems.value.reduce((s, item) => {
     const meta = getProductShipmentMeta(item)
     return s + meta.totalValue
   }, 0)
@@ -524,17 +558,36 @@ const filteredTotalValue = computed(() => {
 })
 
 const averageReadiness = computed(() => {
-  const items = filteredItems.value.filter(item => item.type === 'product')
+  const items = baseItemsForStats.value.filter(item => item.type === 'product')
   if (items.length === 0) return 0
-  const totalProgress = items.reduce((sum, item) => sum + ((item as any).shipmentProgress || 0), 0)
+  const totalProgress = items.reduce((sum, item) => {
+    const meta = getProductShipmentMeta(item)
+    return sum + meta.progress
+  }, 0)
   return Math.round(totalProgress / items.length)
 })
 
 const readyToShipToday = computed(() => {
-  return filteredItems.value.filter(item => {
+  return baseItemsForStats.value.filter(item => {
     if (item.type !== 'product') return false
     const meta = getProductShipmentMeta(item)
     return meta.totalCount > 0 && meta.scannedCount > 0 && meta.shippedCount < meta.totalCount
+  }).length
+})
+
+const partiallyShippedCount = computed(() => {
+  return baseItemsForStats.value.filter(item => {
+    if (item.type !== 'product') return false
+    const meta = getProductShipmentMeta(item)
+    return meta.shippedCount > 0 && meta.shippedCount < meta.totalCount
+  }).length
+})
+
+const shippedCount = computed(() => {
+  return baseItemsForStats.value.filter(item => {
+    if (item.type !== 'product') return false
+    const meta = getProductShipmentMeta(item)
+    return meta.totalCount > 0 && meta.shippedCount >= meta.totalCount
   }).length
 })
 
@@ -719,7 +772,7 @@ const columnsBase: DataTableColumns<InventoryTableRow> = [
       const barcodeCount = item.barcodeCount || 0
       const statusType = item.shipmentStatusType || (progress >= 100 ? 'success' : progress > 0 ? 'warning' : 'info')
 
-      return h('div', { class: 'w-full' }, [
+      return h('div', { class: 'w-full', title: `Отгружено деталей: ${shippedCount}\nВсего деталей: ${barcodeCount}` }, [
         h('div', { class: 'flex justify-between items-center mb-1 gap-2' }, [
           h(NText, { strong: true, style: 'font-size: 10px' }, { default: () => `Отгружено: ${shippedCount}/${barcodeCount}` }),
         ]),

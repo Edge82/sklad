@@ -80,7 +80,7 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/shipment',
     component: Shipment,
-    meta: { title: 'Движение материалов' }
+    meta: { title: 'Операции пользователей' }
   },
   {
     path: '/integration',
@@ -121,7 +121,7 @@ router.beforeEach((to, _from, next) => {
 
   // Проверка для /employees и /employees/*
   if (to.path.startsWith('/employees')) {
-    if (!userRole || !['director', 'manager'].includes(userRole)) {
+    if (!userRole || !['admin', 'manager'].includes(userRole)) {
       next('/inventory')
       return
     }
@@ -129,7 +129,15 @@ router.beforeEach((to, _from, next) => {
 
   // Проверка для /reports и /reports/*
   if (to.path.startsWith('/reports')) {
-    if (!userRole || !['director', 'manager'].includes(userRole)) {
+    if (!userRole || !['admin', 'manager'].includes(userRole)) {
+      next('/inventory')
+      return
+    }
+  }
+
+  // Проверка для /shipment
+  if (to.path.startsWith('/shipment')) {
+    if (!userRole || !['admin', 'manager'].includes(userRole)) {
       next('/inventory')
       return
     }

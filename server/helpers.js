@@ -79,6 +79,13 @@ export function transformOrderStatus(status1C) {
 }
 
 /**
+ * Возвращает текущее время в формате ISO с часовым поясом Europe/Moscow
+ */
+export function moscowNow() {
+  return new Date().toLocaleString('sv-SE', { timeZone: 'Europe/Moscow' }).replace(' ', 'T')
+}
+
+/**
  * Логирование операций
  */
 export function logOperation(operationType, data) {
@@ -100,11 +107,13 @@ export function logOperation(operationType, data) {
     const resolvedEmployeeId = employeeId || employee_id
     const resolvedEmployeeName = employeeName || employee_name
 
+    const moscowTime = new Date().toLocaleString('sv-SE', { timeZone: 'Europe/Moscow' }).replace(' ', 'T')
+
     const stmt = db.prepare(`
       INSERT INTO operation_logs (
         operation_type, employee_id, employee_name, order_id, order_number,
-        product_id, product_name, qr_code_id, qr_code, details, status
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        product_id, product_name, qr_code_id, qr_code, details, status, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
 
     stmt.run(
@@ -118,7 +127,8 @@ export function logOperation(operationType, data) {
       qrCodeId,
       qrCode,
       details ? JSON.stringify(details) : null,
-      status
+      status,
+      moscowTime
     )
 
     console.log(`📝 [LOG] ${operationType} - ${employeeName || 'unknown'} - ${orderNumber || ''}`)

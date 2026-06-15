@@ -477,7 +477,6 @@ const handlePrintAll = async () => {
         <div class="product-name">${escapeHtml(code.productName || '')}</div>
         ${showInfo ? `<div class="info">${escapeHtml(info)}</div>` : ''}
       </div>
-      <div class="page-break"></div>
     `
   }))
 
@@ -507,7 +506,6 @@ const handlePrintAll = async () => {
                           word-break: break-word; }
           .info { font-size: 12pt; font-weight: 600; font-family: monospace; color: #444;
                   line-height: 1.15; word-break: break-all; }
-          .page-break { page-break-after: always; }
         </style>
       </head>
       <body>
@@ -572,7 +570,6 @@ const handlePrintLastGenerated = async () => {
         <div class="product-name">${escapeHtml(code.productName || '')}</div>
         ${showInfo ? `<div class="info">${escapeHtml(info)}</div>` : ''}
       </div>
-      <div class="page-break"></div>
     `
   }))
 
@@ -602,7 +599,6 @@ const handlePrintLastGenerated = async () => {
                           word-break: break-word; }
           .info { font-size: 12pt; font-weight: 600; font-family: monospace; color: #444;
                   line-height: 1.15; word-break: break-all; }
-          .page-break { page-break-after: always; }
         </style>
       </head>
       <body>

@@ -187,6 +187,7 @@
               <th class="text-left!">Наименование</th>
               <th class="w-40 text-center!">Выполнено</th>
               <th class="w-32 text-right!">Кол-во</th>
+              <th class="w-24 text-center!">Резерв</th>
               <th v-if="userStore.canSeePrices" class="w-40 text-right!">Сумма</th>
             </tr>
           </thead>
@@ -216,6 +217,12 @@
                 <span v-else class="text-gray-400">—</span>
               </td>
               <td class="text-right! px-4">{{ item.quantity }} {{ item.unit }}</td>
+              <td class="text-center!">
+                <n-tag v-if="getOrderItemReserve(item)" size="small" type="info">
+                  {{ getOrderItemReserve(item) }}
+                </n-tag>
+                <span v-else class="text-gray-500">0</span>
+              </td>
               <td v-if="userStore.canSeePrices" class="text-right! font-mono px-4">{{ formatCurrency(item.totalPrice || 0) }}</td>
             </tr>
           </tbody>
@@ -268,6 +275,7 @@ import { useOrdersStore } from '@/stores/orders'
 import { useQRCodesStore } from '@/stores/qrCodes'
 import { useUserStore } from '@/stores/user'
 import type { Order } from '@/types'
+import { useInventoryStore } from '@/stores/inventory'
 import { syncEvents } from '@/utils/syncEvents'
 import {
   NButton,
@@ -323,6 +331,7 @@ const ordersStore = useOrdersStore()
 const integrationStore = useIntegrationStore()
 const qrCodesStore = useQRCodesStore()
 const userStore = useUserStore()
+const inventoryStore = useInventoryStore()
 const message = useMessage()
 // Состояние синхронизации
 const isSyncingOrders = ref(false)
@@ -435,9 +444,7 @@ const filteredOrders = computed(() => {
 })
 
 const revenueInWork = computed(() => {
-  return filteredOrders.value
-    .filter(o => o.status !== 'completed')
-    .reduce((sum, o) => sum + (Number(o.totalAmount) || 0), 0)
+  return filteredOrders.value.reduce((sum, o) => sum + (Number(o.totalAmount) || 0), 0)
 })
 
 const orderStatusOptions = computed(() => {
@@ -504,6 +511,9 @@ const handleShowQR = async (order: Order) => {
 const handleRowClick = async (row: Order) => {
   selectedOrderForInvoices.value = row
   viewMode.value = 'invoices'
+  if (inventoryStore.items.length === 0) {
+    await inventoryStore.loadStocksFromApi()
+  }
   expandedInvoiceKeys.value = []
 
   // Если у заказа нет позиций, подгружаем их из 1С
@@ -519,6 +529,16 @@ const handleRowClick = async (row: Order) => {
       loadingDetails.value = false
     }
   }
+}
+
+const getOrderItemReserve = (item: any): number => {
+  const matched = inventoryStore.items.find(
+    (s: any) => s.name === item.productName
+  )
+  if (matched && selectedOrderForInvoices.value) {
+    return matched.reserveDetails?.get(selectedOrderForInvoices.value.id) || 0
+  }
+  return 0
 }
 
 const getItemQRProgress = (orderId: string, productId: string): { scanned: number, total: number, percent: number, scannedWarehouse: number } => {

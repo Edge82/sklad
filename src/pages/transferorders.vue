@@ -35,7 +35,7 @@
     <!-- Список заказов -->
     <div v-if="!selectedOrderId">
       <!-- Статистика -->
-      <n-grid :cols="5" :x-gap="12" :y-gap="12" class="mb-6 items-stretch py-2">
+      <n-grid :cols="6" :x-gap="12" :y-gap="12" class="mb-6 items-stretch py-2">
         <n-gi>
           <n-card
             size="small"
@@ -51,6 +51,26 @@
               <div>
                 <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">Всего заказов</n-text>
                 <n-h3 class="m-0 leading-none">{{ orders.length }}</n-h3>
+              </div>
+            </div>
+          </n-card>
+        </n-gi>
+
+        <n-gi>
+          <n-card
+            size="small"
+            hoverable
+            class="metric-card h-full flex flex-col justify-center"
+            :class="{ 'active': filterStatus === 'locals' }"
+            @click="filterStatus = 'locals'"
+          >
+            <div class="flex items-center gap-3 py-1">
+              <n-icon size="28" color="#805ad5">
+                <DocumentsOutline />
+              </n-icon>
+              <div>
+                <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">Черновики</n-text>
+                <n-h3 class="m-0 leading-none">{{ localsCount }}</n-h3>
               </div>
             </div>
           </n-card>
@@ -89,7 +109,7 @@
                 <TimeOutline />
               </n-icon>
               <div>
-                <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">В работе (списание)</n-text>
+                <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">В работе (к списанию)</n-text>
                 <n-h3 class="m-0 leading-none">{{ activeWriteoffCount }}</n-h3>
               </div>
             </div>
@@ -229,12 +249,46 @@
           </n-card>
 
           <!-- Товары для сканирования -->
-          <n-card v-if="!scanningMode" size="small" title="Товары для сканирования">
+          <n-card v-if="!scanningMode" size="small" :title="isLocalOrder ? 'Товары в заказе' : 'Товары для сканирования'">
+            <template v-if="isLocalOrder">
+              <div class="flex gap-2 mb-4" style="position: relative;">
+                <n-input
+                  ref="orderDetailBarcodeInputRef"
+                  v-model:value="orderDetailBarcodeBuffer"
+                  placeholder="Отсканируйте штрихкод (повторное сканирование увеличит количество)"
+                  @keydown.enter.prevent="handleOrderDetailScan"
+                  :disabled="syncing"
+                >
+                  <template #prefix>
+                    <n-icon><CameraOutline /></n-icon>
+                  </template>
+                </n-input>
+                <div
+                  v-if="orderDetailSearchOptions.length > 0"
+                  style="position: absolute; top: 100%; left: 0; right: 0; z-index: 100; max-height: 240px; overflow-y: auto"
+                >
+                  <n-card size="small" content-style="padding: 4px 0">
+                    <div
+                      v-for="opt in orderDetailSearchOptions"
+                      :key="opt.value || opt.label"
+                      style="padding: 8px 12px; cursor: pointer; border-bottom: 1px solid var(--n-border-color)"
+                      :style="{ color: opt.value ? 'inherit' : 'var(--n-text-color-disabled)' }"
+                      @click="handleOrderDetailSelect(opt)"
+                      @mouseenter="(e: MouseEvent) => (e.target as HTMLElement).style.background = 'var(--n-action-color)'"
+                      @mouseleave="(e: MouseEvent) => (e.target as HTMLElement).style.background = ''"
+                    >
+                      {{ opt.label }}
+                    </div>
+                  </n-card>
+                </div>
+              </div>
+            </template>
+
             <n-empty v-if="!selectedOrder.items || selectedOrder.items.length === 0" description="Нет товаров в заказе" />
 
             <div v-else class="space-y-3">
               <n-data-table
-                :columns="itemsColumns"
+                :columns="isLocalOrder ? localItemsColumns : itemsColumns"
                 :data="selectedOrder.items"
                 :bordered="false"
                 :single-line="false"
@@ -356,27 +410,37 @@
 
           <!-- Кнопки действий для нормального режима -->
           <div v-if="!scanningComplete" class="flex gap-2">
-            <n-button
-              v-if="!scanningMode && selectedOrder?.statusDescription !== 'Завершен'"
-              type="primary"
-              size="large"
-              @click="startScanning"
-            >
-              <template #icon><n-icon><CameraOutline /></n-icon></template>
-              Начать сканирование
-            </n-button>
-            <n-button
-              v-if="selectedOrder?.statusDescription === 'Завершен' && !scanningMode"
-              disabled
-              type="default"
-              size="large"
-            >
-              <template #icon><n-icon><CloseCircleOutline /></n-icon></template>
-              Заказ завершён
-            </n-button>
-            <n-button
-              v-else-if="scanningMode"
-              type="error"
+            <!-- Local order: send to 1C -->
+            <template v-if="isLocalOrder && !scanningMode">
+              <n-button type="primary" size="large" :loading="syncing" @click="sendTo1C">
+                <template #icon><n-icon><CloudUploadOutline /></n-icon></template>
+                Отправить в 1С
+              </n-button>
+              <n-button @click="openAddItemsModal" size="large">
+                <template #icon><n-icon><PencilOutline /></n-icon></template>
+                Редактировать товары
+              </n-button>
+            </template>
+
+            <!-- 1C order with 'В работе (ячейки)': scanning -->
+            <template v-else-if="!isLocalOrder && !scanningMode && selectedOrder?.statusDescription === 'В работе (ячейки)'">
+              <n-button type="primary" size="large" @click="startScanning">
+                <template #icon><n-icon><CameraOutline /></n-icon></template>
+                Начать сканирование
+              </n-button>
+            </template>
+
+            <!-- 1C order with other statuses: disabled -->
+            <template v-else-if="!isLocalOrder && !scanningMode">
+              <n-button disabled type="default" size="large">
+                <template #icon><n-icon><CloseCircleOutline /></n-icon></template>
+                {{ selectedOrder?.statusDescription === 'Завершен (ячейки)' || selectedOrder?.statusDescription === 'Завершен (списание)' ? 'Заказ завершён' : 'Недоступно' }}
+              </n-button>
+            </template>
+
+            <!-- Scanning mode buttons -->
+            <template v-if="scanningMode">
+              <n-button type="error"
               size="large"
               @click="stopScanning"
               style="color: white; font-weight: bold; font-size: 16px;"
@@ -384,6 +448,7 @@
               <template #icon><n-icon><CloseCircleOutline /></n-icon></template>
               Завершить сканирование (ESC)
             </n-button>
+            </template>
           </div>
         </div>
       </n-spin>
@@ -391,7 +456,7 @@
   </div>
 
   <!-- Модал создания нового заказа на перемещение -->
-  <n-modal v-model:show="showCreateModal" :mask-closable="false" :close-on-esc="false" preset="card" style="width: 800px; max-width: 95vw" title="Новый заказ на перемещение" :segmented="{ content: true }">
+  <n-modal v-model:show="showCreateModal" :mask-closable="false" :close-on-esc="false" preset="card" style="width: 800px; max-width: 95vw" :title="editingOrderRefKey ? 'Редактировать товары' : 'Новый заказ на перемещение'" :segmented="{ content: true }">
     <div class="space-y-4">
       <n-grid :cols="2" :x-gap="12">
         <n-gi>
@@ -406,12 +471,7 @@
         </n-gi>
       </n-grid>
 
-      <n-form-item label="Статус завершения" required>
-        <n-select v-model:value="createForm.statusName" :options="[
-          { label: 'Завершен (ячейки)', value: 'Завершен (ячейки)' },
-          { label: 'Завершен (списание)', value: 'Завершен (списание)' }
-        ]" />
-      </n-form-item>
+
 
       <n-grid :cols="2" :x-gap="12">
         <n-gi>
@@ -471,16 +531,17 @@
         <n-empty v-else description="Отсканируйте товары, они появятся в таблице" />
       </n-card>
 
-      <n-alert v-if="createResult" :type="createResult.success ? 'success' : 'warning'" :title="createResult.success ? 'Заказ создан' : 'Заказ сохранён локально'">
+      <n-alert v-if="createResult" :type="'success'" title="Заказ сохранён локально">
         {{ createResult.message }}
-        <template v-if="createResult.details" #default>
-          <br><small>{{ createResult.details }}</small>
-        </template>
       </n-alert>
 
       <div class="flex justify-end gap-2 pt-2">
         <n-button @click="closeCreateModal" :disabled="createSaving">Отмена</n-button>
         <n-button type="primary" @click="saveCreateOrder" :loading="createSaving" :disabled="!canSaveCreate">
+          Сохранить локально
+        </n-button>
+        <n-button type="success" @click="saveCreateAndSendTo1C" :loading="createSaving" :disabled="!canSaveCreate">
+          <template #icon><n-icon><CloudUploadOutline /></n-icon></template>
           Сохранить и отправить в 1С
         </n-button>
       </div>
@@ -512,9 +573,12 @@ import {
   NFormItem,
   type InputInst
 } from 'naive-ui'
-import { ArrowBackOutline, CameraOutline, ReloadOutline, CloseCircleOutline, CubeOutline, PencilOutline, CheckmarkCircleOutline, TimeOutline, PrintOutline, AddOutline } from '@vicons/ionicons5'
+import { ArrowBackOutline, CameraOutline, ReloadOutline, CloseCircleOutline, CubeOutline, PencilOutline, CheckmarkCircleOutline, TimeOutline, PrintOutline, AddOutline, CloudUploadOutline, DocumentsOutline } from '@vicons/ionicons5'
 import type { DataTableColumns } from 'naive-ui'
 import { useOrdersStore } from '@/stores/orders'
+import { useUserStore } from '@/stores/user'
+import { useEmployeesStore } from '@/stores/employees'
+import type { MaterialInvoice } from '@/types'
 
 interface TransferOrder {
   Ref_Key: string
@@ -544,6 +608,8 @@ interface TransferOrder {
 
 const { fetchTransferOrders, fetchTransferOrderDetails, syncTransferOrders, completeTransferOrderInOneC, loadTransferOrderScans, saveTransferOrderScans } = useStockBalances()
 const ordersStore = useOrdersStore()
+const userStore = useUserStore()
+const employeesStore = useEmployeesStore()
 const message = useMessage()
 const loading = ref(false)
 const syncing = ref(false)
@@ -575,6 +641,7 @@ const scannedBarcodes = ref<Set<string>>(new Set())
 // Create order modal state
 const showCreateModal = ref(false)
 const createSaving = ref(false)
+const editingOrderRefKey = ref<string | null>(null)
 const createBarcodeBuffer = ref('')
 const createBarcodeInputRef = ref<InputInst | null>(null)
 const warehouseOptions = ref<Array<{ label: string; value: string }>>([])
@@ -592,13 +659,18 @@ interface CreateItem {
   sku: string
   unit: string
   unitKey: string
+  storageBin: string
+  price: number
   _qtyInput?: string
 }
+
+const isLocalOrder = computed(() =>
+  selectedOrder.value?.Ref_Key?.startsWith('LOCAL-') ?? false
+)
 
 const createForm = reactive({
   sourceWarehouseKey: '',
   destinationWarehouseKey: '',
-  statusName: 'Завершен (ячейки)',
   customerOrderKey: '',
   selectedProduct: '',
   items: [] as CreateItem[]
@@ -619,6 +691,13 @@ const selectedOrderProducts = computed(() => {
     value: item.productName || item.itemName || ''
   }))
 })
+
+// Order detail item add state
+const orderDetailBarcodeBuffer = ref('')
+const orderDetailSearchOptions = ref<Array<{ label: string; value: string }>>([])
+const orderDetailStockDataMap = ref<Map<string, any>>(new Map())
+const orderDetailBarcodeInputRef = ref<InputInst | null>(null)
+let orderDetailSearchTimer: ReturnType<typeof setTimeout> | null = null
 
 const canSaveCreate = computed(() =>
   !createResult.value &&
@@ -676,7 +755,9 @@ const handleProductSelectResult = (opt: { label: string; value: string }) => {
       quantity: 1,
       sku: stock.sku || '',
       unit: stock.unit || 'шт',
-      unitKey: stock.unit_key || ''
+      unitKey: stock.unit_key || '',
+      storageBin: stock.storageBin || '',
+      price: Number(stock.purchasePrice || stock.averagePrice || 0)
     })
     message.success(`✓ Добавлен: ${stock.name || stock.product}`)
   }
@@ -798,6 +879,12 @@ const createItemsColumns: DataTableColumns<CreateItem> = [
     render: (row) => h('code', {}, row.barcode || '-')
   },
   {
+    title: 'Место хранения',
+    key: 'storageBin',
+    width: 150,
+    render: (row) => row.storageBin || '-'
+  },
+  {
     title: 'Кол-во',
     key: 'quantity',
     width: 100,
@@ -834,6 +921,7 @@ const createItemsColumns: DataTableColumns<CreateItem> = [
 ]
 
 const openCreateModal = async () => {
+  editingOrderRefKey.value = null
   createForm.items = []
   createForm.customerOrderKey = ''
   createForm.selectedProduct = ''
@@ -887,20 +975,18 @@ const openCreateModal = async () => {
 const closeCreateModal = () => {
   showCreateModal.value = false
   createResult.value = null
+  editingOrderRefKey.value = null
 }
 
 const handleCreateScan = async () => {
   const raw = createBarcodeBuffer.value.trim()
   if (!raw) return
 
-  const barcode = convertRussianKeyboardToLatin(
-    raw.replace(/[\|\r\n\t]+/g, '').trim()
-  )
-
+  const barcode = normalizeBarcode(raw)
   if (!barcode) return
 
   // Check if already in list
-  const existing = createForm.items.find((i: CreateItem) => i.barcode.toLowerCase() === barcode.toLowerCase())
+  const existing = createForm.items.find((i: CreateItem) => normalizeBarcode(i.barcode) === barcode)
   if (existing) {
     existing.quantity++
     createBarcodeBuffer.value = ''
@@ -922,7 +1008,9 @@ const handleCreateScan = async () => {
         quantity: 1,
         sku: found.sku || '',
         unit: found.unit || 'шт',
-        unitKey: found.unit_key || ''
+        unitKey: found.unit_key || '',
+        storageBin: found.storageBin || '',
+        price: Number(found.purchasePrice || found.averagePrice || 0)
       })
       message.success(`✓ Добавлен: ${found.name}`)
     } else {
@@ -942,22 +1030,55 @@ const saveCreateOrder = async () => {
   createResult.value = null
 
   try {
+    const itemsPayload = createForm.items.map((item: CreateItem) => ({
+      nomenclatureKey: item.nomenclatureKey,
+      productName: item.productName,
+      barcode: item.barcode,
+      quantity: item.quantity,
+      unitKey: item.unitKey,
+      storageBin: item.storageBin,
+      price: item.price || 0
+    }))
+
+    // If editing existing local order, use PUT
+    if (editingOrderRefKey.value) {
+      const res = await fetch(`/sklad/api/transfer-orders/${editingOrderRefKey.value}/items`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('auth_token') || ''}`
+        },
+        body: JSON.stringify({ items: itemsPayload })
+      })
+      const result = await res.json()
+      if (result.success) {
+        message.success('✓ Товары обновлены')
+        closeCreateModal()
+        const data = await fetchTransferOrders()
+        orders.value = data
+        if (selectedOrderId.value) {
+          const details = await fetchTransferOrderDetails(selectedOrderId.value)
+          if (details) selectedOrder.value = details
+        }
+      } else {
+        message.error(result.error || 'Ошибка обновления')
+      }
+      return
+    }
+
+    // Create new local order
     const res = await fetch('/sklad/api/transfer-orders/create', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('auth_token') || ''}`
+      },
       body: JSON.stringify({
         sourceWarehouseKey: createForm.sourceWarehouseKey,
         sourceWarehouseName: warehouseOptions.value.find(o => o.value === createForm.sourceWarehouseKey)?.label || '',
         destinationWarehouseKey: createForm.destinationWarehouseKey,
         destinationWarehouseName: warehouseOptions.value.find(o => o.value === createForm.destinationWarehouseKey)?.label || '',
-        statusName: createForm.statusName,
-        items: createForm.items.map((item: CreateItem) => ({
-          nomenclatureKey: item.nomenclatureKey,
-          productName: item.productName,
-          barcode: item.barcode,
-          quantity: item.quantity,
-          unitKey: item.unitKey
-        })),
+        items: itemsPayload,
         customerOrderKey: createForm.customerOrderKey || undefined,
         customerOrderNumber: createForm.customerOrderKey
           ? ordersStore.orders.find(o => o.id === createForm.customerOrderKey)?.orderNumber
@@ -969,37 +1090,21 @@ const saveCreateOrder = async () => {
     const result = await res.json()
 
     if (result.success) {
-      if (result.onecResult?.success) {
-        message.success(`Заказ №${result.order.order_number} создан и отправлен в 1С`)
-        closeCreateModal()
-        // Refresh order list
-        const data = await fetchTransferOrders()
-        orders.value = data
-        return
-      } else {
-        createResult.value = {
-          success: true,
-          message: `Заказ №${result.order.order_number} сохранён локально`,
-          details: result.onecResult?.error ? `1С недоступна: ${result.onecResult.error}` : 'Будет синхронизирован с 1С при следующей синхронизации'
-        }
-      }
+      message.success(`Заказ №${result.order.order_number} сохранён локально`)
+      closeCreateModal()
+      const data = await fetchTransferOrders()
+      orders.value = data
     } else {
-      createResult.value = {
-        success: false,
-        message: 'Ошибка создания заказа',
-        details: result.error || 'Неизвестная ошибка'
-      }
+      message.error(result.error || 'Ошибка создания заказа')
     }
   } catch (err) {
-    createResult.value = {
-      success: false,
-      message: 'Ошибка создания заказа',
-      details: err instanceof Error ? err.message : 'Неизвестная ошибка'
-    }
+    message.error(err instanceof Error ? err.message : 'Ошибка создания заказа')
   } finally {
     createSaving.value = false
   }
 }
+
+
 
 // --- End create order modal functions ---
 
@@ -1022,14 +1127,220 @@ const convertRussianKeyboardToLatin = (text: string): string => {
   return text.split('').map(char => map[char] || char).join('')
 }
 
-// Функция нормализации штрихкода (удаляем пробелы, управляющие символы)
+// Функция нормализации штрихкода (удаляем пробелы, управляющие символы, конвертируем раскладку)
 const normalizeBarcode = (code: string): string => {
   return convertRussianKeyboardToLatin(
     code
       .trim()
-      .replace(/[\r\n\t]+/g, '')
-  )
+      .replace(/[\|\r\n\t]+/g, '')
+  ).replace(/[^\x20-\x7E]/g, '')
 }
+
+const saveCreateAndSendTo1C = async () => {
+  if (!canSaveCreate.value) return
+  createSaving.value = true
+  try {
+    const itemsPayload = createForm.items.map((item: CreateItem) => ({
+      nomenclatureKey: item.nomenclatureKey,
+      productName: item.productName,
+      barcode: item.barcode,
+      quantity: item.quantity,
+      unitKey: item.unitKey,
+      storageBin: item.storageBin,
+      price: item.price || 0
+    }))
+
+    const res = await fetch('/sklad/api/transfer-orders/create', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('auth_token') || ''}`
+      },
+      body: JSON.stringify({
+        sourceWarehouseKey: createForm.sourceWarehouseKey,
+        sourceWarehouseName: warehouseOptions.value.find(o => o.value === createForm.sourceWarehouseKey)?.label || '',
+        destinationWarehouseKey: createForm.destinationWarehouseKey,
+        destinationWarehouseName: warehouseOptions.value.find(o => o.value === createForm.destinationWarehouseKey)?.label || '',
+        items: itemsPayload,
+        customerOrderKey: createForm.customerOrderKey || undefined,
+        customerOrderNumber: createForm.customerOrderKey
+          ? ordersStore.orders.find(o => o.id === createForm.customerOrderKey)?.orderNumber
+          : undefined,
+        selectedProduct: createForm.selectedProduct || undefined
+      })
+    })
+
+    const result = await res.json()
+    if (!result.success) {
+      message.error(result.error || 'Ошибка создания заказа')
+      return
+    }
+
+    const refKey = result.order.ref_key
+    const sendRes = await fetch(`/sklad/api/transfer-orders/${refKey}/send-to-1c`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('auth_token') || ''}`
+      }
+    })
+    const sendResult = await sendRes.json()
+    if (sendResult.success) {
+      message.success(`✓ Заказ №${result.order.order_number} создан и отправлен в 1С (статус: ${sendResult.status})`)
+    } else {
+      message.warning(`Заказ сохранён локально, но ошибка отправки в 1С: ${sendResult.error}`)
+    }
+
+    closeCreateModal()
+    const data = await fetchTransferOrders()
+    orders.value = data
+  } catch (err) {
+    message.error(err instanceof Error ? err.message : 'Ошибка')
+  } finally {
+    createSaving.value = false
+  }
+}
+
+const handleOrderDetailSearch = () => {
+  const query = orderDetailBarcodeBuffer.value
+  if (!query || query.length < 2) {
+    orderDetailSearchOptions.value = []
+    return
+  }
+  if (orderDetailSearchTimer) clearTimeout(orderDetailSearchTimer)
+  orderDetailSearchTimer = setTimeout(async () => {
+    try {
+      const res = await fetch(`/sklad/api/onec/stocks?search=${encodeURIComponent(query)}`)
+      const data = await res.json()
+      const stocks = data.value || []
+      const options: Array<{ label: string; value: string }> = []
+      const map = new Map<string, any>()
+      stocks.slice(0, 30).forEach((s: any) => {
+        const label = `${s.name || s.product || 'Без названия'}${s.barcode ? ' [' + s.barcode + ']' : ''}`
+        options.push({ label, value: s.ref_key })
+        map.set(s.ref_key, s)
+      })
+      orderDetailSearchOptions.value = options.length > 0 ? options : [{ label: 'Ничего не найдено', value: '' }]
+      orderDetailStockDataMap.value = map
+    } catch {
+      orderDetailSearchOptions.value = [{ label: 'Ошибка поиска', value: '' }]
+    }
+  }, 300)
+}
+
+const handleOrderDetailSelect = async (opt: { label: string; value: string }) => {
+  if (!opt.value) {
+    orderDetailSearchOptions.value = []
+    return
+  }
+  const stock = orderDetailStockDataMap.value.get(opt.value)
+  if (!stock) return
+  await addItemToLocalOrder(stock)
+  orderDetailBarcodeBuffer.value = ''
+  orderDetailSearchOptions.value = []
+  nextTick(() => orderDetailBarcodeInputRef.value?.focus())
+}
+
+const handleOrderDetailScan = async () => {
+  const raw = orderDetailBarcodeBuffer.value.trim()
+  if (!raw) return
+
+  const barcode = normalizeBarcode(raw)
+  if (!barcode) return
+
+  const existing = selectedOrder.value?.items?.find(
+    (i: any) => normalizeBarcode(i.barcode || '') === barcode
+  )
+  if (existing) {
+    // Увеличиваем количество для существующего товара
+    existing.Количество = (existing.Количество || 0) + 1
+    message.success(`✓ ${existing.nomenclatureName}: количество = ${existing.Количество}`)
+    orderDetailBarcodeBuffer.value = ''
+    nextTick(() => orderDetailBarcodeInputRef.value?.focus())
+    return
+  }
+
+  try {
+    const res = await fetch(`/sklad/api/onec/stocks/by-barcode?barcode=${encodeURIComponent(barcode)}`)
+    const data = await res.json()
+    if (data.success && data.items.length > 0) {
+      const found = data.items[0]
+      await addItemToLocalOrder(found)
+    } else {
+      message.warning(`Товар со штрихкодом ${barcode} не найден`)
+    }
+  } catch {
+    message.error('Ошибка поиска штрихкода')
+  }
+
+  orderDetailBarcodeBuffer.value = ''
+  nextTick(() => orderDetailBarcodeInputRef.value?.focus())
+}
+
+const addItemToLocalOrder = async (stock: any) => {
+  if (!selectedOrder.value) return
+  const refKey = selectedOrder.value.Ref_Key
+
+  const currentItems = (selectedOrder.value.items || []).map((item: any) => ({
+    nomenclatureKey: item.Номенклатура_Key || item.nomenclatureKey,
+    productName: item.nomenclatureName || item.productName,
+    barcode: item.barcode || '',
+    quantity: item.Количество || item.quantity || 1,
+    unitKey: item.unitKey || '',
+    storageBin: item.storageBin || '',
+    price: Number(item.price || item.Цена || 0)
+  }))
+
+  if (currentItems.some((i: any) => i.nomenclatureKey === (stock.ref_key || stock.Ref_Key || stock.Номенклатура_Key))) {
+    message.info('Этот товар уже есть в заказе')
+    return
+  }
+
+  currentItems.push({
+    nomenclatureKey: stock.ref_key || stock.Ref_Key || '',
+    productName: stock.name || stock.product || stock.nomenclatureName || 'Без названия',
+    barcode: stock.barcode || '',
+    quantity: 1,
+    unitKey: stock.unit_key || '',
+    storageBin: stock.storageBin || '',
+    price: Number(stock.purchasePrice || stock.averagePrice || 0)
+  })
+
+  try {
+    const res = await fetch(`/sklad/api/transfer-orders/${refKey}/items`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('auth_token') || ''}`
+      },
+      body: JSON.stringify({ items: currentItems })
+    })
+    const result = await res.json()
+    if (result.success) {
+      message.success('✓ Товар добавлен в заказ')
+      const details = await fetchTransferOrderDetails(refKey)
+      if (details) selectedOrder.value = details
+    } else {
+      message.error(result.error || 'Ошибка добавления товара')
+    }
+  } catch (err) {
+    message.error(err instanceof Error ? err.message : 'Ошибка добавления товара')
+  }
+}
+
+watch(orderDetailBarcodeBuffer, (val) => {
+  if (!val) {
+    orderDetailSearchOptions.value = []
+    return
+  }
+  const trimmed = val.replace(/[\r\n]+/g, '')
+  if (trimmed.length < val.length) {
+    orderDetailBarcodeBuffer.value = trimmed
+    handleOrderDetailScan()
+    return
+  }
+  handleOrderDetailSearch()
+})
 
 const procesBarcode = (barcode: string) => {
   if (!selectedOrder.value?.items || !barcode.trim()) return
@@ -1048,6 +1359,20 @@ const procesBarcode = (barcode: string) => {
     return
   }
 
+  // Для локальных заказов увеличиваем Количество
+  if (isLocalOrder.value) {
+    foundItem.Количество = (foundItem.Количество || 0) + 1
+    scannedBarcodes.value.add(normalizedBarcode)
+
+    if (selectedOrder.value) {
+      selectedOrder.value.saved = false
+    }
+
+    message.success(`✓ ${foundItem.nomenclatureName}: количество = ${foundItem.Количество}`)
+    return
+  }
+
+  // Для 1С заказов - стандартная логика сканирования
   const currentQty = foundItem.scannedQty || 0
   const requiredQty = foundItem.Количество
 
@@ -1136,7 +1461,7 @@ const activeCellsCount = computed(() =>
 )
 
 const activeWriteoffCount = computed(() =>
-  orders.value.filter(o => (o.statusDescription || '') === 'В работе (списание)').length
+  orders.value.filter(o => (o.statusDescription || '') === 'В работе (к списанию)').length
 )
 
 const completedCellsCount = computed(() =>
@@ -1147,15 +1472,21 @@ const completedWriteoffCount = computed(() =>
   orders.value.filter(o => (o.statusDescription || '') === 'Завершен (списание)').length
 )
 
+const localsCount = computed(() =>
+  orders.value.filter(o => o.Ref_Key?.startsWith('LOCAL-')).length
+)
+
 // Отфильтрованные заказы для таблицы
 const filteredOrders = computed(() => {
   if (!filterStatus.value) return orders.value
 
   switch (filterStatus.value) {
+    case 'locals':
+      return orders.value.filter(o => o.Ref_Key?.startsWith('LOCAL-'))
     case 'active_cells':
       return orders.value.filter(o => (o.statusDescription || '') === 'В работе (ячейки)')
     case 'active_writeoff':
-      return orders.value.filter(o => (o.statusDescription || '') === 'В работе (списание)')
+      return orders.value.filter(o => (o.statusDescription || '') === 'В работе (к списанию)')
     case 'completed_cells':
       return orders.value.filter(o => (o.statusDescription || '') === 'Завершен (ячейки)')
     case 'completed_writeoff':
@@ -1208,15 +1539,6 @@ const columns: DataTableColumns<TransferOrder> = [
       })
     }
   },
-  {
-    title: 'Статус',
-    key: 'Posted',
-    width: 120,
-    render: (row) =>
-      h(NTag, { type: row.Posted ? 'success' : 'warning' }, {
-        default: () => row.Posted ? 'Проведен' : 'Черновик'
-      })
-  }
 ]
 
 const itemsColumns: DataTableColumns<any> = [
@@ -1264,16 +1586,27 @@ const itemsColumns: DataTableColumns<any> = [
           }
         }, { default: () => '−' }),
         h(NInput, {
-          value: String(scanned),
+          value: row._scannedQtyInput ?? String(scanned).replace('.', ','),
           type: 'text',
-          inputMode: 'numeric',
-          min: 0,
-          max: required,
           size: 'small',
-          style: { width: '60px', textAlign: 'center' },
+          style: { width: '80px', textAlign: 'center' },
           onInput: (val: string) => {
-            const num = parseInt(val) || 0
-            row.scannedQty = Math.max(0, Math.min(num, required + 5))
+            if (row) {
+              row._scannedQtyInput = val
+            }
+          },
+          onBlur: () => {
+            if (row._scannedQtyInput != null) {
+              const num = parseFloat(String(row._scannedQtyInput).replace(',', '.'))
+              row.scannedQty = isNaN(num) ? scanned : Math.max(0, Math.min(num, required + 5))
+              delete row._scannedQtyInput
+            }
+          },
+          onKeydown: (e: KeyboardEvent) => {
+            if (e.key === 'Enter') {
+              const target = e.target as HTMLInputElement
+              target?.blur()
+            }
           }
         }),
         h(NButton, {
@@ -1282,6 +1615,80 @@ const itemsColumns: DataTableColumns<any> = [
           size: 'small',
           onClick: () => {
             row.scannedQty = scanned + 1
+          }
+        }, { default: () => '+' })
+      ])
+    }
+  }
+]
+
+const localItemsColumns: DataTableColumns<any> = [
+  {
+    title: 'Товар',
+    key: 'nomenclatureName',
+    ellipsis: true
+  },
+  {
+    title: 'Штрих код',
+    key: 'barcode',
+    width: 120,
+    render: (row) => row.barcode || '-'
+  },
+  {
+    title: 'Место хранения',
+    key: 'storageBin',
+    width: 150,
+    render: (row) => row.storageBin || '-'
+  },
+  {
+    title: 'Количество',
+    key: 'Количество',
+    width: 180,
+    align: 'center',
+    render: (row, index) => {
+      const qty = row.Количество || 0
+
+      return h('div', { class: 'flex items-center gap-2 justify-center' }, [
+        h(NButton, {
+          text: true,
+          type: 'primary',
+          size: 'small',
+          onClick: () => {
+            if (qty > 0) {
+              row.Количество = qty - 1
+            }
+          }
+        }, { default: () => '−' }),
+        h(NInput, {
+          value: row._qtyInput ?? String(qty).replace('.', ','),
+          type: 'text',
+          size: 'small',
+          style: { width: '80px', textAlign: 'center' },
+          onInput: (val: string) => {
+            if (row) {
+              row._qtyInput = val
+            }
+          },
+          onBlur: () => {
+            if (row._qtyInput != null) {
+              const num = parseFloat(String(row._qtyInput).replace(',', '.'))
+              row.Количество = isNaN(num) ? qty : Math.max(0, num)
+              delete row._qtyInput
+            }
+          },
+          onKeydown: (e: KeyboardEvent) => {
+            if (e.key === 'Enter') {
+              const target = e.target as HTMLInputElement
+              target?.blur()
+            }
+          }
+        }),
+        h(NButton, {
+          text: true,
+          type: 'primary',
+          size: 'small',
+          onClick: () => {
+            row.Количество = qty + 1
           }
         }, { default: () => '+' })
       ])
@@ -1357,16 +1764,27 @@ const itemsScanColumns: DataTableColumns<any> = [
           }
         }, { default: () => '−' }),
         h(NInput, {
-          value: String(scanned),
+          value: row._scannedQtyInput ?? String(scanned).replace('.', ','),
           type: 'text',
-          inputMode: 'numeric',
-          min: 0,
-          max: required,
           size: 'small',
-          style: { width: '60px', textAlign: 'center' },
+          style: { width: '80px', textAlign: 'center' },
           onInput: (val: string) => {
-            const num = parseInt(val) || 0
-            row.scannedQty = Math.max(0, Math.min(num, required + 5))
+            if (row) {
+              row._scannedQtyInput = val
+            }
+          },
+          onBlur: () => {
+            if (row._scannedQtyInput != null) {
+              const num = parseFloat(String(row._scannedQtyInput).replace(',', '.'))
+              row.scannedQty = isNaN(num) ? scanned : Math.max(0, Math.min(num, required + 5))
+              delete row._scannedQtyInput
+            }
+          },
+          onKeydown: (e: KeyboardEvent) => {
+            if (e.key === 'Enter') {
+              const target = e.target as HTMLInputElement
+              target?.blur()
+            }
           }
         }),
         h(NButton, {
@@ -1502,6 +1920,28 @@ const submitToOnec = async () => {
 
     message.success(`✓ Заказ "${selectedOrder.value.Number}" завершён в 1C, локальные данные удалены`)
 
+    // Add to user's material history
+    if (userStore.user?.id && selectedOrder.value.items) {
+      const historyItem: MaterialInvoice = {
+        id: `TO-COMPLETE-${Date.now()}`,
+        employeeId: userStore.user.id,
+        date: new Date(),
+        orderNumber: selectedOrder.value.Number,
+        destination: 'Перемещение (завершено)',
+        totalAmount: 0,
+        items: selectedOrder.value.items.map((item: any) => ({
+          productName: item.nomenclatureName || item.productName || '',
+          quantity: Number(item.Количество) || Number(item.quantity) || 0,
+          unit: 'шт',
+          article: item.barcode || '',
+          price: Number(item.price || item.Цена || 0),
+          scannedAt: new Date()
+        })),
+        createdBy: userStore.user.name || ''
+      }
+      employeesStore.addMaterialHistory(userStore.user.id, historyItem)
+    }
+
     const data = await fetchTransferOrders()
     orders.value = data
 
@@ -1516,6 +1956,79 @@ const submitToOnec = async () => {
   } finally {
     syncing.value = false
   }
+}
+
+const sendTo1C = async () => {
+  if (!selectedOrder.value) return
+  syncing.value = true
+  try {
+    const res = await fetch(`/sklad/api/transfer-orders/${selectedOrder.value.Ref_Key}/send-to-1c`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('auth_token') || ''}`
+      }
+    })
+    const result = await res.json()
+    if (result.success) {
+      message.success(`✓ Заказ отправлен в 1С (статус: ${result.status})`)
+
+      // Записываем в историю материалов пользователя
+      if (userStore.user?.id && selectedOrder.value?.items) {
+        const historyItem: MaterialInvoice = {
+          id: `TO-SEND-${Date.now()}`,
+          employeeId: userStore.user.id,
+          date: new Date(),
+          orderNumber: selectedOrder.value.Number,
+          destination: 'Перемещение',
+          totalAmount: selectedOrder.value.items.reduce((sum: number, item: any) =>
+            sum + (Number(item.price || item.Цена || 0) * (Number(item.Количество || item.quantity || 0))), 0),
+          items: selectedOrder.value.items.map((item: any) => ({
+            productName: item.nomenclatureName || item.productName || '',
+            quantity: Number(item.Количество) || Number(item.quantity) || 0,
+            unit: 'шт',
+            article: item.barcode || '',
+            price: Number(item.price || item.Цена || 0),
+          scannedAt: new Date()
+        })),
+        createdBy: userStore.user.name || ''
+      }
+      employeesStore.addMaterialHistory(userStore.user.id, historyItem)
+    }
+
+    const data = await fetchTransferOrders()
+    orders.value = data
+    selectedOrder.value = null
+    selectedOrderId.value = null
+  } else {
+    message.error(result.error || 'Ошибка отправки в 1С')
+  }
+} catch (err) {
+  message.error(err instanceof Error ? err.message : 'Ошибка отправки в 1С')
+} finally {
+  syncing.value = false
+}
+}
+
+const openAddItemsModal = () => {
+  editingOrderRefKey.value = selectedOrder.value?.Ref_Key || null
+  showCreateModal.value = true
+  if (selectedOrder.value?.items) {
+    createForm.items = selectedOrder.value.items.map((item: any) => ({
+      nomenclatureKey: item.Номенклатура_Key || item.nomenclatureKey,
+      productName: item.nomenclatureName || item.productName,
+      barcode: item.barcode,
+      quantity: item.Количество || item.quantity,
+      sku: item.sku || '',
+      unit: item.unit || 'шт',
+      unitKey: item.unitKey || '',
+      storageBin: item.storageBin || '',
+      price: Number(item.price || item.Цена || 0)
+    }))
+  }
+  createForm.sourceWarehouseKey = selectedOrder.value?.sourceWarehouseKey || ''
+  createForm.destinationWarehouseKey = selectedOrder.value?.destinationWarehouseKey || ''
+  createForm.customerOrderKey = selectedOrder.value?.customerOrderKey || ''
 }
 
 const continueScanningAfterCompletion = () => {
@@ -1654,7 +2167,43 @@ let saveTimeout: NodeJS.Timeout | null = null
 watch(
   () => selectedOrder.value?.items,
   async (items) => {
-    if (!selectedOrder.value || !items || scanningMode.value === false) return
+    if (!selectedOrder.value || !items) return
+
+    // Для локальных заказов - сохраняем изменения в items
+    if (isLocalOrder.value) {
+      // Отменяем предыдущий таймер если есть
+      if (saveTimeout) clearTimeout(saveTimeout)
+
+      // Ставим новый с задержкой в 500ms чтобы не спамить запросы
+      saveTimeout = setTimeout(async () => {
+        try {
+          const itemsPayload = items.map((item: any) => ({
+            nomenclatureKey: item.Номенклатура_Key || item.nomenclatureKey,
+            productName: item.nomenclatureName || item.productName,
+            barcode: item.barcode || '',
+            quantity: item.Количество || item.quantity || 0,
+            unitKey: item.unitKey || '',
+            storageBin: item.storageBin || '',
+            price: Number(item.price || item.Цена || 0)
+          }))
+          await fetch(`/sklad/api/transfer-orders/${selectedOrder.value!.Ref_Key}/items`, {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${localStorage.getItem('auth_token') || ''}`
+            },
+            body: JSON.stringify({ items: itemsPayload })
+          })
+          selectedOrder.value!.saved = true
+        } catch {
+          // Тихо игнорируем ошибки автосохранения
+        }
+      }, 500)
+      return
+    }
+
+    // Для 1С заказов - стандартная логика сканирования
+    if (scanningMode.value === false) return
 
     // Сбрасываем флаг saved при любых изменениях в сканировании
     selectedOrder.value.saved = false

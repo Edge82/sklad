@@ -44,19 +44,19 @@ export const useUserStore = defineStore('user', () => {
   }
 
   const isAuthenticated = computed(() => token.value !== null && user.value !== null)
-  const isDirector = computed(() => user.value?.role === 'director')
+  const isAdmin = computed(() => user.value?.role === 'admin')
   const isManager = computed(() => user.value?.role === 'manager')
   const isStorekeeper = computed(() => user.value?.role === 'storekeeper')
   const isWorker = computed(() => user.value?.role === 'worker')
-  const isAdminOrManager = computed(() => ['admin', 'director', 'manager'].includes(user.value?.role || ''))
-  const isWarehouseStaff = computed(() => ['director', 'manager', 'storekeeper'].includes(user.value?.role || ''))
+  const isAdminOrManager = computed(() => ['admin', 'manager'].includes(user.value?.role || ''))
+  const isWarehouseStaff = computed(() => ['admin', 'manager', 'storekeeper'].includes(user.value?.role || ''))
   const canSeePrices = computed(() => {
     const role = user.value?.role || ''
-    // Показываем цены для director и manager, скрываем для остальных
-    return ['director', 'manager'].includes(role)
+    // Показываем цены для admin и manager, скрываем для остальных
+    return ['admin', 'manager'].includes(role)
   })
-  // Доступ к управлению сотрудниками для админа, директора и менеджера
-  const canManageEmployees = computed(() => ['admin', 'director', 'manager'].includes(user.value?.role || ''))
+  // Доступ к управлению сотрудниками для админа и менеджера
+  const canManageEmployees = computed(() => ['admin', 'manager'].includes(user.value?.role || ''))
 
   // Логин с API
   const login = async (login: string, password: string) => {
@@ -123,7 +123,7 @@ export const useUserStore = defineStore('user', () => {
   // Быстрая смена роли для разработки (удалить в продакшене)
   const setUserForDev = (role: User['role']) => {
     const names: Record<User['role'], string> = {
-      director: 'Александр',
+      admin: 'Александр',
       manager: 'Сергей',
       storekeeper: 'Дмитрий',
       worker: 'Андрей'
@@ -145,7 +145,7 @@ export const useUserStore = defineStore('user', () => {
         id: '1',
         email: 'admin@warehouse.com',
         name: 'Александр Иванов',
-        role: 'director',
+        role: 'admin',
         department: 'Управление',
         isActive: true,
         permissions: ['all'],
@@ -171,7 +171,7 @@ export const useUserStore = defineStore('user', () => {
     error,
     settings,
     isAuthenticated,
-    isDirector,
+    isAdmin,
     isManager,
     isStorekeeper,
     isWorker,

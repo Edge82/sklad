@@ -255,9 +255,8 @@ export const useEmployeesStore = defineStore('employees', () => {
     const roleMap: Record<Employee['role'], string> = {
       'admin': 'Администратор',
       'manager': 'Менеджер',
-      'worker': 'Рабочий',
-      'warehouse': 'Кладовщик',
-      'production': 'Производство'
+      'storekeeper': 'Кладовщик',
+      'worker': 'Рабочий'
     }
     return roleMap[role] || role
   }

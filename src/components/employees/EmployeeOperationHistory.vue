@@ -15,69 +15,32 @@
 
       <n-empty v-else-if="!operations || operations.length === 0" description="Нет операций" />
 
-      <n-timeline v-else>
-        <n-timeline-item
-          v-for="operation in operations.slice(0, 5)"
-          :key="operation.id"
-          :type="getOperationType(operation.operation_type)"
-          :title="getOperationLabel(operation.operation_type)"
-          :time="formatDateTime(operation.created_at)"
-        >
-          <template #icon>
-            <n-icon>
-              <component :is="getOperationIcon(operation.operation_type)" />
-            </n-icon>
-          </template>
+      <n-data-table
+        v-else
+        :columns="columns"
+        :data="operations.slice(0, 10)"
+        :bordered="false"
+        :bottom-bordered="true"
+        size="small"
+      />
 
-          <div class="text-sm text-gray-600 dark:text-gray-400 space-y-2">
-            <!-- Заказ -->
-            <div v-if="operation.order_number" class="flex items-center gap-2">
-              <n-text depth="3">Заказ:</n-text>
-              <n-text strong>{{ operation.order_number }}</n-text>
-            </div>
-
-            <!-- Товар -->
-            <div v-if="operation.product_name" class="flex items-center gap-2">
-              <n-text depth="3">Товар:</n-text>
-              <n-text strong>{{ operation.product_name }}</n-text>
-            </div>
-
-            <!-- QR Код -->
-            <div v-if="operation.qr_code" class="flex items-center gap-2">
-              <n-text depth="3">QR код:</n-text>
-              <n-tag size="small" type="info" round>{{ operation.qr_code }}</n-tag>
-            </div>
-
-            <!-- Дополнительные детали -->
-            <div v-if="operation.details" class="text-xs text-gray-500 dark:text-gray-500 pl-4 border-l border-gray-300 dark:border-gray-700">
-              <div v-for="(value, key) in parsedDetails(operation.details)" :key="key" class="py-0.5">
-                <span class="font-medium">{{ key }}:</span> {{ value }}
-              </div>
-            </div>
-
-            <!-- Статус операции -->
-            <div v-if="operation.status !== 'success'" class="flex items-center gap-2">
-              <n-tag :type="operation.status === 'success' ? 'success' : 'error'" size="small">
-                {{ operation.status }}
-              </n-tag>
-            </div>
-          </div>
-        </n-timeline-item>
-      </n-timeline>
+      <div v-if="canLoadMore" class="flex justify-center pt-4">
+        <n-button text type="primary" @click="loadMoreOperations">
+          Показать ещё
+        </n-button>
+      </div>
     </n-card>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, h, onMounted } from 'vue'
 import {
   NCard,
   NButton,
   NIcon,
   NEmpty,
   NSpin,
-  NTimeline,
-  NTimelineItem,
   NText,
   NTag
 } from 'naive-ui'
@@ -115,34 +78,6 @@ const currentLimit = ref(props.limit || 5)
 
 const canLoadMore = computed(() => operations.value.length < totalOperations.value)
 
-const parsedDetails = (detailsStr?: string) => {
-  if (!detailsStr) return {}
-  try {
-    const parsed = JSON.parse(detailsStr)
-    return typeof parsed === 'object' ? parsed : { value: detailsStr }
-  } catch {
-    return { value: detailsStr }
-  }
-}
-
-const getOperationType = (operationType: string): 'success' | 'error' | 'warning' | 'info' | 'default' => {
-  const typeMap: Record<string, 'success' | 'error' | 'warning' | 'info' | 'default'> = {
-    'qr_code_generated': 'success',
-    'qr_code_scanned': 'info',
-    'qr_code_deleted': 'error',
-    'order_painting_updated': 'warning',
-    'transfer_order_created': 'success',
-    'transfer_order_completed': 'info',
-    'tool_issued': 'warning',
-    'tool_returned': 'success',
-    'invoice_Производство': 'info',
-    'invoice_Клиент': 'warning',
-    'invoice_Перемещение': 'info',
-    'invoice_Инструмент': 'info'
-  }
-  return typeMap[operationType] || 'default'
-}
-
 const getOperationLabel = (operationType: string) => {
   const labelMap: Record<string, string> = {
     'qr_code_generated': 'QR код сгенерирован',
@@ -151,32 +86,18 @@ const getOperationLabel = (operationType: string) => {
     'order_painting_updated': 'Окраска обновлена',
     'transfer_order_created': 'Заказ на перемещение создан',
     'transfer_order_completed': 'Заказ на перемещение завершен',
-    'tool_issued': 'Выдан инструмент',
-    'tool_returned': 'Сдан инструмент',
+    'tool_issued': 'Выдача инструмента',
+    'tool_returned': 'Возврат инструмента',
+    'material_issued': 'Выдача инструмента',
+    'material_returned': 'Возврат инструмента',
+    'material_created': 'Создание инструмента',
     'invoice_Производство': 'Поступление материалов',
     'invoice_Клиент': 'Отгрузка клиенту',
     'invoice_Перемещение': 'Перемещение',
-    'invoice_Инструмент': 'Операция с инструментом'
+    'invoice_Инструмент': 'Операция с инструментом',
+    'transfer_order': 'Перемещение между складами'
   }
   return labelMap[operationType] || operationType
-}
-
-const getOperationIcon = (operationType: string) => {
-  const iconMap: Record<string, any> = {
-    'qr_code_generated': CheckmarkCircleOutline,
-    'qr_code_scanned': SwapHorizontalOutline,
-    'qr_code_deleted': TrashOutline,
-    'order_painting_updated': CreateOutline,
-    'transfer_order_created': CreateOutline,
-    'transfer_order_completed': CheckmarkCircleOutline,
-    'tool_issued': SwapHorizontalOutline,
-    'tool_returned': CheckmarkCircleOutline,
-    'invoice_Производство': SwapHorizontalOutline,
-    'invoice_Клиент': TrashOutline,
-    'invoice_Перемещение': SwapHorizontalOutline,
-    'invoice_Инструмент': SwapHorizontalOutline
-  }
-  return iconMap[operationType] || CheckmarkCircleOutline
 }
 
 const formatDateTime = (dateStr: string) => {
@@ -189,6 +110,32 @@ const formatDateTime = (dateStr: string) => {
     minute: '2-digit'
   }).format(date)
 }
+
+const columns: any[] = [
+  {
+    title: 'Дата',
+    key: 'created_at',
+    render: (row: OperationLog) => formatDateTime(row.created_at)
+  },
+  {
+    title: 'Тип',
+    key: 'operation_type',
+    ellipsis: { tooltip: true },
+    render: (row: OperationLog) => getOperationLabel(row.operation_type)
+  },
+  {
+    title: 'Описание',
+    key: 'description',
+    ellipsis: { tooltip: true },
+    render: (row: OperationLog) => {
+      const parts: string[] = []
+      if (row.order_number) parts.push(`Заказ: ${row.order_number}`)
+      if (row.product_name) parts.push(`Товар: ${row.product_name}`)
+      if (row.qr_code) parts.push(`QR: ${row.qr_code}`)
+      return parts.join(', ') || '-'
+    }
+  }
+]
 
 const loadOperations = async (limit: number) => {
   loading.value = true

@@ -7,64 +7,52 @@
         </template>
       </n-button>
       <div>
-        <n-text strong class="text-xl">Инструменты в работе</n-text>
+        <n-text strong class="text-xl">Материалы в работе</n-text>
         <div class="text-xs text-gray-500 mt-1">
-          Выдано: {{ issuedTools.length }} шт.
+          Выдано: {{ issuedTools.length }} позиций
         </div>
       </div>
     </div>
 
     <div class="p-6">
-      <n-empty v-if="issuedTools.length === 0" size="large" description="Вам не выданы инструменты" />
+      <n-empty v-if="issuedTools.length === 0" size="large" description="Вам не выданы материалы" />
 
       <n-grid v-else :cols="1" :x-gap="16" :y-gap="16">
-        <n-gi v-for="tool in issuedTools" :key="tool.id">
+        <n-gi v-for="item in issuedTools" :key="item.id">
           <n-card class="w-full">
             <div class="flex items-start justify-between mb-4">
               <div>
-                <n-h3 class="m-0 mb-1">{{ tool.name }}</n-h3>
-                <n-tag :type="getTypeColor(tool.type)" size="small">
-                  {{ getTypeLabel(tool.type) }}
+                <n-h3 class="m-0 mb-1">{{ item.name }}</n-h3>
+                <n-tag type="success" size="small">
+                  {{ item.sku || 'Хоз. инвентарь' }}
                 </n-tag>
               </div>
               <n-popconfirm
                 positive-text="Сдать"
                 negative-text="Отмена"
-                @positive-click="handleReturnTool(tool.id)"
+                @positive-click="handleReturnItem(item.id)"
               >
                 <template #trigger>
-                  <n-button type="warning" size="small">Сдать инструмент</n-button>
+                  <n-button type="warning" size="small">Сдать</n-button>
                 </template>
-                Вы уверены, что хотите сдать этот инструмент?
+                Вернуть {{ item.checkedOut }} {{ item.unit || 'шт' }} на склад?
               </n-popconfirm>
             </div>
 
             <n-descriptions :columns="2" size="small" bordered label-placement="left" class="w-full">
-              <n-descriptions-item label="Инвентарный №">
-                {{ tool.inventoryNumber }}
+              <n-descriptions-item label="Количество">
+                {{ item.checkedOut }} {{ item.unit || 'шт' }}
               </n-descriptions-item>
-              <n-descriptions-item label="Серийный №">
-                {{ tool.serialNumber || '—' }}
+              <n-descriptions-item label="Артикул">
+                {{ item.inventoryNumber || '—' }}
               </n-descriptions-item>
-              <n-descriptions-item label="Модель">
-                {{ tool.model || '—' }}
-              </n-descriptions-item>
-              <n-descriptions-item label="Производитель">
-                {{ tool.manufacturer || '—' }}
-              </n-descriptions-item>
-              <n-descriptions-item label="Место хранения">
-                {{ tool.location || '—' }}
-              </n-descriptions-item>
-              <n-descriptions-item label="QR-код">
-                {{ tool.qrCode || '—' }}
-              </n-descriptions-item>
-              <n-descriptions-item label="Выдан">
+              <n-descriptions-item label="Дата получения">
                 <n-text type="info">
-                  {{ formatDateTime(tool.issuedAt) }}
+                  {{ formatDateTime(item.issuedAt) }}
                 </n-text>
               </n-descriptions-item>
-              <n-descriptions-item label="Стоимость">
-                {{ tool.price ? formatCurrency(tool.price) : '—' }}
+              <n-descriptions-item label="QR-код / Штрихкод">
+                {{ item.qrCode || '—' }}
               </n-descriptions-item>
             </n-descriptions>
           </n-card>
@@ -101,28 +89,9 @@ const employeesStore = useEmployeesStore()
 const toolsStore = useToolsStore()
 const message = useMessage()
 
-const typeLabelMap: Record<string, string> = {
-  power_tool: 'Электроинструмент',
-  hand_tool: 'Ручной инструмент',
-  measuring: 'Измерительный прибор',
-  fixture: 'Оснастка/Шаблон',
-  container: 'Контейнер/Тара'
-}
-
-const typeColorMap: Record<string, 'success' | 'warning' | 'info' | 'default'> = {
-  power_tool: 'warning',
-  hand_tool: 'success',
-  measuring: 'info',
-  fixture: 'default',
-  container: 'default'
-}
-
-const getTypeLabel = (type: string) => typeLabelMap[type] || type
-const getTypeColor = (type: string) => typeColorMap[type] || 'default'
-
-const formatDateTime = (date?: Date | string | null) => {
+const formatDateTime = (date?: string | null) => {
   if (!date) return '—'
-  const d = typeof date === 'string' ? new Date(date) : date
+  const d = new Date(date)
   if (isNaN(d.getTime())) return '—'
   return new Intl.DateTimeFormat('ru-RU', {
     day: '2-digit',
@@ -131,14 +100,6 @@ const formatDateTime = (date?: Date | string | null) => {
     hour: '2-digit',
     minute: '2-digit'
   }).format(d)
-}
-
-const formatCurrency = (amount: number) => {
-  return new Intl.NumberFormat('ru-RU', {
-    style: 'currency',
-    currency: 'RUB',
-    minimumFractionDigits: 0
-  }).format(amount)
 }
 
 const issuedTools = computed(() => {
@@ -153,28 +114,22 @@ const issuedTools = computed(() => {
   return toolsStore.getToolsIssuedToEmployee(employee.id)
 })
 
-const handleReturnTool = async (toolId: string) => {
+const handleReturnItem = async (itemId: string) => {
   try {
-    await toolsStore.returnTool(toolId)
-    message.success('Инструмент успешно сдан')
-
-    // Обновляем список операций на странице профиля
+    await toolsStore.returnTool(itemId)
+    message.success('Материал успешно сдан на склад')
     if (window.location.pathname === '/profile') {
       window.dispatchEvent(new CustomEvent('refreshToolOperations'))
     }
   } catch (err) {
-    message.error('Ошибка при сдаче инструмента')
+    message.error('Ошибка при сдаче материала')
     console.error(err)
   }
 }
 
-onMounted(() => {
-  if (toolsStore.tools.length === 0) {
-    toolsStore.loadToolsFromApi()
-  }
-  if (employeesStore.employees.length === 0) {
-    employeesStore.loadEmployeesFromApi()
-  }
+onMounted(async () => {
+  await toolsStore.loadToolsFromApi()
+  await employeesStore.loadEmployeesFromApi()
 })
 </script>
 
@@ -184,4 +139,3 @@ onMounted(() => {
   margin: 0 auto;
 }
 </style>
-

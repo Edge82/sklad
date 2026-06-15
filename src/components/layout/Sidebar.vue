@@ -106,11 +106,14 @@ const menuOptions = computed<MenuOption[]>(() => {
     icon: renderIcon(PeopleOutline)
   })
 
-  options.push({
-    label: 'Движение материалов',
-    key: '/shipment',
-    icon: renderIcon(SyncOutline)
-  })
+  // Операции пользователей — только менеджеру и директору
+  if (userStore.isAdminOrManager) {
+    options.push({
+      label: 'Операции пользователей',
+      key: '/shipment',
+      icon: renderIcon(SyncOutline)
+    })
+  }
 
   // Отчеты видны только Менеджеру и Директору
   if (userStore.isAdminOrManager) {

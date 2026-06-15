@@ -32,7 +32,7 @@ function getUserRoleFromRequest(req) {
   }
 }
 
-import { sendJSON, _readBody, writeSyncLog, logOperation, mapMaterialInvoiceRows } from './helpers.js'
+import { sendJSON, _readBody, writeSyncLog, logOperation, mapMaterialInvoiceRows, moscowNow } from './helpers.js'
 import { cache, unitsCache, lastSyncTime, updateLastSyncTime } from './cache.js'
 import {
   fetch1COData, fetch1CUnits, fetch1CCategories, fetch1CWarehouses,
@@ -43,7 +43,8 @@ import {
 import {
   syncWith1C, syncUnitsIncremental, syncCategoriesIncremental,
   syncWarehousesIncremental, syncStocksIncremental,
-  syncOrdersIncremental, syncTransferOrdersIncremental
+  syncOrdersIncremental, syncTransferOrdersIncremental,
+  syncTransferOrderItems, syncTransferOrderStatuses
 } from './sync.js'
 import db, { testUsers } from './db.js'
 
@@ -322,7 +323,12 @@ const server = http.createServer(async (req, res) => {
   if (pathname === '/sklad/api/onec/stocks' && req.method === 'GET') {
     try {
       const search = url.searchParams.get('search')
+      const category = url.searchParams.get('category')
       let allStocks = db.prepare('SELECT * FROM onec_stocks ORDER BY name').all()
+
+      if (category) {
+        allStocks = allStocks.filter(s => (s.category || '') === category)
+      }
 
       if (search) {
         const q = search.toLowerCase()
@@ -369,6 +375,7 @@ const server = http.createServer(async (req, res) => {
           warehouseId: warehouseRecord?.ref_key || '',
           type: (stock.category === 'Готовая продукция' || stock.warehouse === 'Готовая продукция') ? 'product' : 'material',
           lastReceipt: stock.last_receipt || null
+          // onecImageUrl — disabled: 1CFresh OData does not expose binary data from ValueStore attributes
         }
       })
       sendJSON(res, 200, { value: enrichedStocks })
@@ -376,6 +383,61 @@ const server = http.createServer(async (req, res) => {
       console.error('Error fetching stocks:', err)
       sendJSON(res, 500, { error: 'Failed to fetch stocks' })
     }
+    return
+  }
+
+  // Proxy endpoint: serve 1C image by ref_key
+  const imageMatch = pathname.match(/^\/sklad\/api\/onec\/stocks\/([^/]+)\/image$/)
+  if (imageMatch && req.method === 'GET') {
+    const refKey = imageMatch[1]
+    const stock = db.prepare('SELECT * FROM onec_stocks WHERE ref_key = ?').get(refKey)
+
+    if (!stock) {
+      sendJSON(res, 404, { error: 'Stock not found' })
+      return
+    }
+
+    // If 1C image key exists, fetch from 1C OData
+    if (stock.onec_image_key) {
+      const authHeader = getBasicAuthHeader()
+      const baseUrl = ONEC_CONFIG.baseUrl.replace(/\/$/, '')
+      const imageUrl = `${baseUrl}/Catalog_НоменклатураПрисоединенныеФайлы(guid'${stock.onec_image_key}')/ФайлХранилище/$value`
+
+      try {
+        const response = await fetch(imageUrl, {
+          headers: { 'Authorization': authHeader }
+        })
+
+        if (response.ok) {
+          const buffer = Buffer.from(await response.arrayBuffer())
+          if (buffer.length > 0) {
+            const contentType = response.headers.get('content-type') || 'image/png'
+            res.writeHead(200, { 'Content-Type': contentType, 'Cache-Control': 'public, max-age=3600' })
+            res.end(buffer)
+            return
+          }
+        }
+        // If 1C fetch returns empty, fall through to local image
+        console.warn(`⚠️ 1C image fetch failed/empty for ${refKey}, falling back to local image`)
+      } catch (err) {
+        console.warn(`⚠️ 1C image fetch error for ${refKey}: ${err.message}`)
+      }
+    }
+
+    // Fallback: serve local (user-uploaded) image
+    if (stock.image) {
+      const base64Data = stock.image.replace(/^data:image\/\w+;base64,/, '')
+      const imageBuffer = Buffer.from(base64Data, 'base64')
+      // Determine content type from the data URL prefix
+      const contentType = stock.image.startsWith('data:image/')
+        ? stock.image.split(';')[0].split(':')[1]
+        : 'image/png'
+      res.writeHead(200, { 'Content-Type': contentType, 'Cache-Control': 'public, max-age=3600' })
+      res.end(imageBuffer)
+      return
+    }
+
+    sendJSON(res, 404, { error: 'No image available' })
     return
   }
 
@@ -423,7 +485,7 @@ const server = http.createServer(async (req, res) => {
         return
       }
       const stocks = db.prepare(
-        'SELECT * FROM onec_stocks WHERE barcode LIKE ? COLLATE NOCASE LIMIT 50'
+        'SELECT * FROM onec_stocks WHERE barcode LIKE ? LIMIT 50'
       ).all(`%${barcode}%`)
 
       sendJSON(res, 200, {
@@ -434,16 +496,179 @@ const server = http.createServer(async (req, res) => {
           product: s.product,
           sku: s.sku || '',
           barcode: s.barcode || '',
+          storageBin: s.storageBin || '',
           warehouse: s.warehouse || '',
           quantity: s.quantity || 0,
           unit: s.unit || 'шт',
           unit_key: s.unit_key || '',
-          category: s.category || ''
+          category: s.category || '',
+          purchasePrice: s.purchasePrice || 0,
+          averagePrice: s.averagePrice || 0
         }))
       })
     } catch (err) {
       sendJSON(res, 500, { error: err.message })
     }
+    return
+  }
+
+  // Material checkouts (issue/return tracking for household items)
+  if (pathname === '/sklad/api/onec/stock-checkouts' && req.method === 'GET') {
+    try {
+      const employeeId = url.searchParams.get('employeeId')
+      let checkouts
+      if (employeeId) {
+        checkouts = db.prepare('SELECT * FROM material_checkouts WHERE employee_id = ? ORDER BY created_at DESC').all(employeeId)
+      } else {
+        checkouts = db.prepare('SELECT * FROM material_checkouts ORDER BY created_at DESC').all()
+      }
+      sendJSON(res, 200, { success: true, checkouts })
+    } catch (err) {
+      console.error('Error getting checkouts:', err)
+      sendJSON(res, 500, { error: err.message })
+    }
+    return
+  }
+
+  // Issue material to employee (create checkout + reduce stock)
+  if (pathname.match(/^\/sklad\/api\/onec\/stocks\/[^/]+\/issue$/) && req.method === 'POST') {
+    let body = ''
+    req.on('data', chunk => { body += chunk })
+    req.on('end', () => {
+      try {
+        const refKey = pathname.split('/')[5]
+        const { employeeId, employeeName, quantity = 1, performedBy } = JSON.parse(body)
+
+        if (!employeeId || !employeeName) {
+          sendJSON(res, 400, { error: 'employeeId and employeeName are required' })
+          return
+        }
+
+        const stock = db.prepare('SELECT * FROM onec_stocks WHERE ref_key = ?').get(refKey)
+        if (!stock) {
+          sendJSON(res, 404, { error: 'Stock item not found' })
+          return
+        }
+
+        const currentQty = Number(stock.current_stock || 0)
+        if (currentQty < quantity) {
+          sendJSON(res, 400, { error: 'Недостаточно остатка на складе' })
+          return
+        }
+
+        const now = moscowNow()
+        db.prepare('UPDATE onec_stocks SET current_stock = current_stock - ? WHERE ref_key = ?')
+          .run(quantity, refKey)
+
+        const checkoutId = Math.random().toString(36).substr(2, 9)
+        db.prepare(`
+          INSERT INTO material_checkouts (id, material_ref_key, material_name, sku, employee_id, employee_name, quantity, date, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `).run(checkoutId, refKey, stock.name, stock.sku || '', employeeId, employeeName, quantity, now, now)
+
+        logOperation('material_issued', {
+          productName: stock.name,
+          productId: refKey,
+          orderNumber: stock.sku || '',
+          employee_id: employeeId,
+          employee_name: employeeName,
+          details: JSON.stringify({ quantity, sku: stock.sku, checkoutId })
+        })
+
+        sendJSON(res, 200, {
+          success: true,
+          message: `Выдано ${quantity} ${stock.unit || 'шт'}`,
+          checkout: {
+            id: checkoutId,
+            materialRefKey: refKey,
+            materialName: stock.name,
+            sku: stock.sku,
+            employeeId,
+            employeeName,
+            quantity,
+            date: now
+          },
+          remainingStock: currentQty - quantity
+        })
+      } catch (err) {
+        console.error('Error issuing material:', err)
+        sendJSON(res, 500, { error: err.message })
+      }
+    })
+    return
+  }
+
+  // Return material from employee (remove checkout + increase stock)
+  if (pathname.match(/^\/sklad\/api\/onec\/stocks\/[^/]+\/return$/) && req.method === 'POST') {
+    let body = ''
+    req.on('data', chunk => { body += chunk })
+    req.on('end', () => {
+      try {
+        const refKey = pathname.split('/')[5]
+        const { employeeId, quantity = 1 } = JSON.parse(body)
+
+        if (!employeeId) {
+          sendJSON(res, 400, { error: 'employeeId is required' })
+          return
+        }
+
+        // Find and delete matching checkout records
+        const checkouts = db.prepare(
+          'SELECT * FROM material_checkouts WHERE material_ref_key = ? AND employee_id = ? ORDER BY created_at ASC'
+        ).all(refKey, employeeId)
+
+        if (checkouts.length === 0) {
+          sendJSON(res, 404, { error: 'Нет выданных записей для возврата' })
+          return
+        }
+
+        let remaining = quantity
+        const deletedIds = []
+        for (const checkout of checkouts) {
+          if (remaining <= 0) break
+          const checkoutQty = Number(checkout.quantity)
+          if (checkoutQty <= remaining) {
+            db.prepare('DELETE FROM material_checkouts WHERE id = ?').run(checkout.id)
+            deletedIds.push(checkout.id)
+            remaining -= checkoutQty
+          } else {
+            db.prepare('UPDATE material_checkouts SET quantity = quantity - ? WHERE id = ?')
+              .run(remaining, checkout.id)
+            remaining = 0
+            deletedIds.push(checkout.id)
+          }
+        }
+
+        if (remaining > 0) {
+          sendJSON(res, 400, { error: `Недостаточно выданных записей, не хватает ${remaining}` })
+          return
+        }
+
+        const now = moscowNow()
+        db.prepare('UPDATE onec_stocks SET current_stock = current_stock + ? WHERE ref_key = ?')
+          .run(quantity, refKey)
+
+        const stock = db.prepare('SELECT * FROM onec_stocks WHERE ref_key = ?').get(refKey)
+
+        logOperation('material_returned', {
+          productName: stock?.name || '',
+          productId: refKey,
+          orderNumber: stock?.sku || '',
+          employee_id: employeeId,
+          details: JSON.stringify({ quantity, deletedCheckoutIds: deletedIds })
+        })
+
+        sendJSON(res, 200, {
+          success: true,
+          message: `Возвращено ${quantity} ${stock?.unit || 'шт'}`,
+          deletedCheckoutIds: deletedIds,
+          remainingStock: Number(stock?.current_stock || 0) + quantity
+        })
+      } catch (err) {
+        console.error('Error returning material:', err)
+        sendJSON(res, 500, { error: err.message })
+      }
+    })
     return
   }
 
@@ -536,67 +761,27 @@ const server = http.createServer(async (req, res) => {
   // TRANSFER ORDERS ROUTES
   // -------------------------------------------------------
 
-  // Transfer Orders list
+  // Transfer Orders list (from local DB)
   if (pathname === '/sklad/api/onec/transfer-orders' && req.method === 'GET') {
     try {
-      const orders = db.prepare('SELECT * FROM transfer_orders ORDER BY order_number DESC, date DESC').all()
-      const baseUrl = ONEC_CONFIG.baseUrl.replace(/\/$/, '')
+      const orders = db.prepare('SELECT ref_key, order_number, date, source_warehouse_key, source_warehouse_name, destination_warehouse_key, destination_warehouse_name, customer_order_key, customer_order_number, posted, status_key, status_description FROM transfer_orders ORDER BY date DESC').all()
 
-      const result = orders.map(async (order) => {
-        let statusDescription = 'В работе'
-        let statusKey = ''
+      const result = orders.map(order => ({
+        Ref_Key: order.ref_key,
+        Number: order.order_number,
+        Date: order.date,
+        sourceWarehouseKey: order.source_warehouse_key,
+        sourceWarehouseName: order.source_warehouse_name,
+        destinationWarehouseKey: order.destination_warehouse_key,
+        destinationWarehouseName: order.destination_warehouse_name,
+        customerOrderKey: order.customer_order_key,
+        customerOrderNumber: order.customer_order_number,
+        Posted: order.posted === 1,
+        statusKey: order.status_key || '',
+        statusDescription: order.ref_key?.startsWith?.('LOCAL-') ? 'Черновик' : (order.status_description || 'В работе')
+      }))
 
-        try {
-          const url = `${baseUrl}/Document_ЗаказНаПеремещение(guid'${order.ref_key}')?$format=json&$select=СостояниеЗаказа_Key,СостояниеЗаказа____Presentation`
-          const response = await fetch(url, {
-            headers: {
-              'Authorization': getBasicAuthHeader(),
-              'Content-Type': 'application/json'
-            }
-          })
-
-          if (response.ok) {
-            const orderData = await response.json()
-            statusKey = orderData.СостояниеЗаказа_Key || ''
-
-            if (orderData.СостояниеЗаказа____Presentation) {
-              statusDescription = orderData.СостояниеЗаказа____Presentation
-            } else if (statusKey) {
-              const statusUrl = `${baseUrl}/Catalog_СостоянияЗаказовНаПеремещение(guid'${statusKey}')?$format=json&$select=Description`
-              const statusResponse = await fetch(statusUrl, {
-                headers: {
-                  'Authorization': getBasicAuthHeader(),
-                  'Content-Type': 'application/json'
-                }
-              })
-              if (statusResponse.ok) {
-                const statusData = await statusResponse.json()
-                statusDescription = statusData.Description || 'В работе'
-              }
-            }
-          }
-        } catch (err) {
-          console.warn(`⚠️ Error fetching status for order ${order.ref_key}:`, err.message)
-        }
-
-        return {
-          Ref_Key: order.ref_key,
-          Number: order.order_number,
-          Date: order.date,
-          sourceWarehouseKey: order.source_warehouse_key,
-          sourceWarehouseName: order.source_warehouse_name,
-          destinationWarehouseKey: order.destination_warehouse_key,
-          destinationWarehouseName: order.destination_warehouse_name,
-          customerOrderKey: order.customer_order_key,
-          customerOrderNumber: order.customer_order_number,
-          Posted: order.posted === 1,
-          statusKey: statusKey,
-          statusDescription: statusDescription
-        }
-      })
-
-      const resolvedResult = await Promise.all(result)
-      sendJSON(res, 200, { value: resolvedResult })
+      sendJSON(res, 200, { value: result })
     } catch (err) {
       console.error('Error fetching transfer orders from DB:', err)
       sendJSON(res, 500, { error: 'Failed to fetch transfer orders' })
@@ -604,133 +789,82 @@ const server = http.createServer(async (req, res) => {
     return
   }
 
-  // Transfer Order Details
-  if (pathname.match(/^\/sklad\/api\/onec\/transfer-orders\/[a-f0-9\-]+$/) && req.method === 'GET') {
+  // Transfer Order Details (from local DB)
+  if (pathname.match(/^\/sklad\/api\/onec\/transfer-orders\/[^/]+$/) && req.method === 'GET') {
     try {
       const orderId = pathname.split('/').pop()
-      const baseUrl = ONEC_CONFIG.baseUrl.replace(/\/$/, '')
 
-      let url = `${baseUrl}/Document_ЗаказНаПеремещение(guid'${orderId}')?$format=json`
+      const order = db.prepare('SELECT * FROM transfer_orders WHERE ref_key = ?').get(orderId)
 
-      const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 30000)
-
-      console.log('[1C] Fetching order:', url)
-      const response = await fetch(url, {
-        headers: {
-          'Authorization': getBasicAuthHeader(),
-          'Content-Type': 'application/json'
-        },
-        signal: controller.signal
-      })
-
-      clearTimeout(timeoutId)
-
-      const responseText = await response.text()
-      console.log('[1C] Response status:', response.status, 'Body length:', responseText.length)
-
-      if (!response.ok) {
-        console.error('[1C] Error response:', responseText.substring(0, 500))
-        throw new Error(`1C API error: ${response.status} - ${responseText.substring(0, 200)}`)
-      }
-
-      let order
-      try {
-        order = JSON.parse(responseText)
-      } catch (parseErr) {
-        console.error('[1C] JSON parse error. Response:', responseText.substring(0, 500))
-        throw new Error(`Invalid JSON from 1C: ${parseErr.message}`)
+      if (!order) {
+        sendJSON(res, 404, { error: 'Transfer order not found' })
+        return
       }
 
       let items = []
       try {
-        const itemsUrl = `${baseUrl}/Document_ЗаказНаПеремещение(guid'${orderId}')/Запасы?$format=json`
-        const itemsResponse = await fetch(itemsUrl, {
-          headers: {
-            'Authorization': getBasicAuthHeader(),
-            'Content-Type': 'application/json'
-          }
-        })
+        items = JSON.parse(order.items || '[]')
+      } catch (e) { /* ignore */ }
 
-        if (itemsResponse.ok) {
-          const itemsData = await itemsResponse.json()
-          items = itemsData.value || []
-        }
-      } catch (err) {
-        console.warn(`⚠️ Error fetching items:`, err.message)
-      }
-
-      const nomMap = new Map()
-      if (cache.stocks && cache.stocks.length > 0) {
-        cache.stocks.forEach((stock) => {
-          if (stock.ref_key) {
-            nomMap.set(stock.ref_key, stock.name || stock.product)
-          }
-        })
-      }
-
-      const sourceKey = order.СтруктурнаяЕдиницаРезерв_Key
-      const destKey = order.СтруктурнаяЕдиницаПолучатель_Key
-
-      const sourceWarehouse = cache.warehouses?.find(w => w.ref_key === sourceKey)
-      const destWarehouse = cache.warehouses?.find(w => w.ref_key === destKey)
-
-      let statusDescription = 'В работе'
-      if (order.СостояниеЗаказа_Key) {
+      // Обогащаем items данными из onec_stocks (barcode, storageBin, price) и нормализуем формат
+      const enrichedItems = items.map((item, idx) => {
+        let stock = null
+        let stockPrice = 0
         try {
-          const statusKey = order.СостояниеЗаказа_Key
-          if (order.СостояниеЗаказа____Presentation) {
-            statusDescription = order.СостояниеЗаказа____Presentation
-          } else {
-            const statusUrl = `${baseUrl}/Catalog_СостоянияЗаказовНаПеремещение(guid'${statusKey}')?$format=json&$select=Description`
-            const statusResponse = await fetch(statusUrl, {
-              headers: {
-                'Authorization': getBasicAuthHeader(),
-                'Content-Type': 'application/json'
+          const refKey = item.Номенклатура_Key || item.nomenclatureKey || ''
+          if (refKey) {
+            stock = db.prepare('SELECT barcode, storageBin, name, purchasePrice, averagePrice FROM onec_stocks WHERE ref_key = ?').get(refKey)
+          }
+          // Fallback 1: ищем по названию товара
+          if (!stock) {
+            const name = item.nomenclatureName || item.productName || ''
+            if (name) {
+              stock = db.prepare('SELECT barcode, storageBin, name, purchasePrice, averagePrice FROM onec_stocks WHERE name = ? LIMIT 1').get(name)
+              if (!stock) {
+                stock = db.prepare('SELECT barcode, storageBin, name, purchasePrice, averagePrice FROM onec_stocks WHERE name LIKE ? LIMIT 1').get(name + '%')
               }
-            })
-            if (statusResponse.ok) {
-              const statusData = await statusResponse.json()
-              statusDescription = statusData.Description || 'В работе'
             }
           }
-        } catch (err) {
-          console.warn(`⚠️ Error fetching status:`, err.message)
+          // Fallback 2: ищем по штрихкоду/артикулу
+          if (!stock) {
+            const barcode = item.barcode || item.sku || ''
+            if (barcode) {
+              stock = db.prepare('SELECT barcode, storageBin, name, purchasePrice, averagePrice FROM onec_stocks WHERE barcode LIKE ? LIMIT 1').get(`%${barcode}%`)
+            }
+          }
+          if (stock) {
+            stockPrice = Number(stock.purchasePrice || stock.averagePrice || 0)
+          }
+        } catch (err) { /* ignore enrichment errors */ }
+
+        const itemPrice = Number(item.Цена || item.price || 0)
+
+        // Нормализация: поддержка старого формата (productName, quantity) -> новый (nomenclatureName, Количество)
+        return {
+          LineNumber: item.LineNumber || idx + 1,
+          Номенклатура_Key: item.Номенклатура_Key || item.nomenclatureKey || stock?.name || item.barcode || '',
+          nomenclatureName: item.nomenclatureName || item.productName || 'Без названия',
+          Количество: item.Количество || item.quantity || 0,
+          scannedQty: item.scannedQty || 0,
+          barcode: stock?.barcode || stock?.sku || item.barcode || item.Номенклатура_Key || item.nomenclatureKey || '',
+          storageBin: stock?.storageBin || item.storageBin || '',
+          Цена: itemPrice || stockPrice,
+          price: itemPrice || stockPrice
         }
-      }
+      })
 
       const result = {
-        Ref_Key: order.Ref_Key,
-        Number: order.Number,
-        Date: order.Date,
-        Posted: order.Posted,
-        statusKey: order.СостояниеЗаказа_Key || '',
-        statusDescription: statusDescription,
-        sourceWarehouseKey: sourceKey,
-        destinationWarehouseKey: destKey,
-        sourceWarehouseName: order.СтруктурнаяЕдиницаРезерв____Presentation || sourceWarehouse?.description || 'Unknown',
-        destinationWarehouseName: order.СтруктурнаяЕдиницаПолучатель____Presentation || destWarehouse?.description || 'Unknown',
-        items: items.map((item, idx) => {
-          const prodId = item.Номенклатура_Key || ''
-          let prodName = nomMap.get(prodId) || 'Неизвестный товар'
-
-          let stock = null
-          try {
-            stock = db.prepare('SELECT barcode, storageBin FROM onec_stocks WHERE ref_key = ?').get(prodId)
-          } catch (err) {
-            // ignore
-          }
-
-          return {
-            LineNumber: item.LineNumber || idx + 1,
-            Номенклатура_Key: prodId,
-            nomenclatureName: prodName,
-            Количество: item.Количество || 0,
-            scannedQty: item.КоличествоСобрано || 0,
-            barcode: stock?.barcode || '',
-            storageBin: stock?.storageBin || ''
-          }
-        })
+        Ref_Key: order.ref_key,
+        Number: order.order_number,
+        Date: order.date,
+        Posted: order.posted === 1,
+        statusKey: order.status_key || '',
+        statusDescription: order.ref_key?.startsWith?.('LOCAL-') ? 'Черновик' : (order.status_description || 'В работе'),
+        sourceWarehouseKey: order.source_warehouse_key,
+        destinationWarehouseKey: order.destination_warehouse_key,
+        sourceWarehouseName: order.source_warehouse_name || 'Unknown',
+        destinationWarehouseName: order.destination_warehouse_name || 'Unknown',
+        items: enrichedItems
       }
 
       sendJSON(res, 200, result)
@@ -838,14 +972,28 @@ const server = http.createServer(async (req, res) => {
         let employeeName = 'System'
         let employeeId = null
         try {
-          const cookies = req.headers.cookie || ''
-          const m = cookies.match(/auth_token=([^;]+)/)
-          if (m) {
-            const payload = jwt.verify(decodeURIComponent(m[1]), JWT_SECRET)
+          const authHeader = req.headers.authorization || ''
+          if (authHeader.startsWith('Bearer ')) {
+            const payload = jwt.verify(authHeader.substring(7), JWT_SECRET, { algorithms: ['HS256'] })
             employeeName = payload?.login || 'System'
             employeeId = payload?.userId || null
+          } else {
+            const cookies = req.headers.cookie || ''
+            const m = cookies.match(/auth_token=([^;]+)/)
+            if (m) {
+              const payload = jwt.verify(decodeURIComponent(m[1]), JWT_SECRET)
+              employeeName = payload?.login || 'System'
+              employeeId = payload?.userId || null
+            }
           }
         } catch {}
+
+        // Если у заказа нет ответственного — проставляем того, кто завершил
+        const currentOrder = db.prepare('SELECT created_by FROM transfer_orders WHERE ref_key = ?').get(orderId)
+        if (currentOrder && (!currentOrder.created_by || currentOrder.created_by === '')) {
+          db.prepare('UPDATE transfer_orders SET created_by = ? WHERE ref_key = ?')
+            .run(employeeName, orderId)
+        }
 
         const order = db.prepare('SELECT * FROM transfer_orders WHERE ref_key = ?').get(orderId)
         logOperation('transfer_order_completed', {
@@ -925,25 +1073,73 @@ const server = http.createServer(async (req, res) => {
   // Get all transfer orders
   if (pathname === '/sklad/api/transfer-orders' && req.method === 'GET') {
     try {
+      // Пробуем подтянуть состав из 1С для заказов с пустыми items
+      try { await syncTransferOrderItems() } catch (e) { /* ignore */ }
+
       const orders = db.prepare(`
-        SELECT ref_key, order_number, date, source_warehouse_name, destination_warehouse_name, customer_order_number, posted, items, selected_product, created_by
+        SELECT ref_key, order_number, date, source_warehouse_key, source_warehouse_name, destination_warehouse_key, destination_warehouse_name, customer_order_key, customer_order_number, posted, items, selected_product, created_by, status_description
         FROM transfer_orders ORDER BY date DESC
       `).all()
-      sendJSON(res, 200, { success: true, orders })
+
+      // Обогащаем items ценами из onec_stocks
+      const enrichedOrders = orders.map(order => {
+        let items = []
+        try { items = JSON.parse(order.items || '[]') } catch { /* ignore */ }
+
+        const enrichedItems = items.map(item => {
+          let stockPrice = 0
+          try {
+            const refKey = item.nomenclatureKey || item.Номенклатура_Key || ''
+            let stock = null
+            if (refKey) {
+              stock = db.prepare('SELECT purchasePrice, averagePrice FROM onec_stocks WHERE ref_key = ?').get(refKey)
+            }
+            if (!stock) {
+              const name = item.productName || item.nomenclatureName || ''
+              if (name) {
+                stock = db.prepare('SELECT purchasePrice, averagePrice FROM onec_stocks WHERE name = ? LIMIT 1').get(name)
+              }
+            }
+            if (!stock) {
+              const barcode = item.barcode || ''
+              if (barcode) {
+                stock = db.prepare('SELECT purchasePrice, averagePrice FROM onec_stocks WHERE barcode LIKE ? LIMIT 1').get(`%${barcode}%`)
+              }
+            }
+            if (stock) {
+              stockPrice = Number(stock.purchasePrice || stock.averagePrice || 0)
+            }
+          } catch { /* ignore price enrichment errors */ }
+
+          const itemPrice = Number(item.price || item.Цена || 0)
+
+          return {
+            ...item,
+            price: itemPrice || stockPrice
+          }
+        })
+
+        return {
+          ...order,
+          items: JSON.stringify(enrichedItems)
+        }
+      })
+
+      sendJSON(res, 200, { success: true, orders: enrichedOrders })
     } catch (err) {
       sendJSON(res, 500, { error: err.message })
     }
     return
   }
 
-  // Create new transfer order (local + try 1C)
-      if (pathname === '/sklad/api/transfer-orders/create' && req.method === 'POST') {
+  // Create new transfer order (local only)
+  if (pathname === '/sklad/api/transfer-orders/create' && req.method === 'POST') {
     let body = ''
     req.on('data', chunk => { body += chunk })
     req.on('end', async () => {
       try {
         const data = JSON.parse(body)
-        const { sourceWarehouseKey, sourceWarehouseName, destinationWarehouseKey, destinationWarehouseName, items, customerOrderKey, customerOrderNumber, statusName, selectedProduct } = data
+        const { sourceWarehouseKey, sourceWarehouseName, destinationWarehouseKey, destinationWarehouseName, items, customerOrderKey, customerOrderNumber, selectedProduct } = data
 
         if (!sourceWarehouseKey || !destinationWarehouseKey) {
           sendJSON(res, 400, { error: 'sourceWarehouseKey and destinationWarehouseKey are required' })
@@ -970,11 +1166,11 @@ const server = http.createServer(async (req, res) => {
 
         const localRefKey = `LOCAL-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`
         const orderNumber = `LOCAL-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.random().toString(36).substr(2, 4).toUpperCase()}`
-        const now = new Date().toISOString()
+        const now = moscowNow()
         const itemsJson = JSON.stringify(items || [])
 
-        // Save locally first
-        const localResult = db.prepare(`
+        // Save locally only
+        db.prepare(`
           INSERT INTO transfer_orders (ref_key, order_number, date, source_warehouse_key, source_warehouse_name,
             destination_warehouse_key, destination_warehouse_name, customer_order_key, customer_order_number, posted, items, synced_at, selected_product, created_by)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
@@ -982,146 +1178,6 @@ const server = http.createServer(async (req, res) => {
           destinationWarehouseKey, destinationWarehouseName || '', customerOrderKey || null,
           customerOrderNumber || null, itemsJson, now, selectedProduct || null, creatorName)
 
-        let onecResult = null
-        let onecRefKey = null
-
-        // Try to create in 1C via OData
-        try {
-          const authHeader = getBasicAuthHeader()
-          const baseUrl = ONEC_CONFIG.baseUrl.replace(/\/$/, '')
-          const url = `${baseUrl}/Document_ЗаказНаПеремещение`
-
-          const debugItems = (items || []).map(i => ({ nomenclatureKey: i.nomenclatureKey, unitKey: i.unitKey, unit: i.unit, productName: i.productName }))
-          console.log('[1C CREATE TRANSFER ORDER] Items before enrich:', JSON.stringify(debugItems, null, 2))
-
-          // Enrich items with unit keys from DB
-          const enrichedItems = await Promise.all((items || []).map(async (item) => {
-            if (!item.unitKey && item.nomenclatureKey) {
-              const stock = db.prepare('SELECT unit_key FROM onec_stocks WHERE ref_key = ?').get(item.nomenclatureKey)
-              if (stock?.unit_key) {
-                item.unitKey = stock.unit_key
-              }
-            }
-            return item
-          }))
-
-          // Look up operation type key for 'Перемещение'
-          let operationKey = null
-          try {
-            const opUrl = `${baseUrl}/Catalog_ХозяйственныеОперации?$format=json&$select=Ref_Key,Description&$filter=Description eq 'Перемещение'`
-            const opResponse = await fetch(opUrl, {
-              headers: { 'Authorization': authHeader, 'Accept': 'application/json' }
-            })
-            if (opResponse.ok) {
-              const opData = await opResponse.json()
-              const opItems = opData.value || []
-              if (opItems.length > 0) {
-                operationKey = opItems[0].Ref_Key
-              }
-            }
-          } catch { /* ignore */ }
-
-          // Look up status key
-          let statusKey = null
-          try {
-            const targetStatus = statusName || 'Завершен'
-            const stUrl = `${baseUrl}/Catalog_СостоянияЗаказовНаПеремещение?$format=json&$select=Ref_Key,Description`
-            const stResponse = await fetch(stUrl, {
-              headers: { 'Authorization': authHeader, 'Accept': 'application/json' }
-            })
-            if (stResponse.ok) {
-              const stData = await stResponse.json()
-              const stItems = stData.value || []
-              console.log(`[1C CREATE] Available statuses: ${stItems.map((i) => i.Description).join(', ')}`)
-              console.log(`[1C CREATE] Looking for: "${targetStatus}"`)
-              let found = stItems.find(item => {
-                const desc = String(item.Description || '').trim()
-                return desc === targetStatus
-              })
-              if (!found) {
-                found = stItems.find(item => {
-                  const desc = String(item.Description || '').trim()
-                  return desc.startsWith(targetStatus) || desc.includes(targetStatus)
-                })
-              }
-              if (!found) {
-                found = stItems.find(item => {
-                  const desc = String(item.Description || '').trim().toLowerCase()
-                  return desc.includes(targetStatus.toLowerCase())
-                })
-              }
-              if (found) {
-                statusKey = found.Ref_Key
-                console.log(`[1C CREATE] Found status: "${found.Description}" -> ${statusKey}`)
-              } else if (stItems.length > 1) {
-                statusKey = stItems[1].Ref_Key
-              } else if (stItems.length === 1) {
-                statusKey = stItems[0].Ref_Key
-              }
-            }
-            if (statusKey) console.log(`[1C] Using status key: ${statusKey}`)
-          } catch (err) {
-            console.warn(`⚠️ Error looking up status: ${err.message}`)
-          }
-
-          const docPayload = {
-            Date: (() => {
-              const d = new Date()
-              const pad = (n) => String(n).padStart(2, '0')
-              return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
-            })(),
-            СтруктурнаяЕдиницаРезерв_Key: sourceWarehouseKey,
-            СтруктурнаяЕдиницаПолучатель_Key: destinationWarehouseKey,
-            ...(operationKey ? { ХозяйственнаяОперация_Key: operationKey } : {}),
-            ...(statusKey ? { СостояниеЗаказа_Key: statusKey } : {}),
-            ...(customerOrderKey ? { ЗаказПокупателя_Key: customerOrderKey } : {}),
-            Posted: false,
-            Запасы: enrichedItems.map((item, idx) => ({
-              LineNumber: idx + 1,
-              Номенклатура_Key: item.nomenclatureKey || '',
-              Количество: Number(item.quantity) || 1,
-              ...(item.unitKey
-                ? { ЕдиницаИзмерения: item.unitKey, ЕдиницаИзмерения_Type: 'StandardODATA.Catalog_КлассификаторЕдиницИзмерения' }
-                : {})
-            }))
-          }
-
-          console.log('[1C CREATE TRANSFER ORDER] Sending payload:', JSON.stringify(docPayload, null, 2))
-
-          const controller = new AbortController()
-          const timeoutId = setTimeout(() => controller.abort(), 30000)
-
-          const response = await fetch(url, {
-            method: 'POST',
-            signal: controller.signal,
-            headers: {
-              'Authorization': authHeader,
-              'Content-Type': 'application/json',
-              'Accept': 'application/json'
-            },
-            body: JSON.stringify(docPayload)
-          })
-
-          clearTimeout(timeoutId)
-
-          if (response.ok) {
-            const result = await response.json()
-            onecRefKey = result['Ref_Key'] || null
-            onecResult = { success: true, refKey: onecRefKey }
-
-            if (onecRefKey) {
-              db.prepare('UPDATE transfer_orders SET ref_key = ?, posted = 1 WHERE ref_key = ?')
-                .run(onecRefKey, localRefKey)
-            }
-          } else {
-            const errorText = await response.text()
-            onecResult = { success: false, error: `1C Error: ${response.status}: ${errorText.substring(0, 200)}` }
-          }
-        } catch (err) {
-          onecResult = { success: false, error: err.message }
-        }
-
-        // Get user info from JWT
         let employeeName = 'System'
         let employeeId = null
         try {
@@ -1141,15 +1197,14 @@ const server = http.createServer(async (req, res) => {
           details: {
             sourceWarehouse: sourceWarehouseName,
             destinationWarehouse: destinationWarehouseName,
-            itemsCount: (items || []).length,
-            syncedTo1C: !!onecRefKey
+            itemsCount: (items || []).length
           }
         })
 
         sendJSON(res, 201, {
           success: true,
           order: {
-            ref_key: onecRefKey || localRefKey,
+            ref_key: localRefKey,
             order_number: orderNumber,
             date: now,
             sourceWarehouseKey,
@@ -1159,10 +1214,162 @@ const server = http.createServer(async (req, res) => {
             customerOrderKey: customerOrderKey || null,
             customerOrderNumber: customerOrderNumber || null,
             items: items || [],
-            posted: !!onecRefKey
-          },
-          onecResult
+            posted: false
+          }
         })
+      } catch (err) {
+        sendJSON(res, 500, { error: err.message })
+      }
+    })
+    return
+  }
+
+  // Send local transfer order to 1C with status 'В работе (к списанию)'
+  const sendMatch = pathname.match(/^\/sklad\/api\/transfer-orders\/([^/]+)\/send-to-1c$/)
+  if (sendMatch && req.method === 'POST') {
+    const localRefKey = sendMatch[1]
+    let body = ''
+    req.on('data', chunk => { body += chunk })
+    req.on('end', async () => {
+      try {
+        const order = db.prepare('SELECT * FROM transfer_orders WHERE ref_key = ?').get(localRefKey)
+        if (!order) {
+          sendJSON(res, 404, { error: 'Order not found' })
+          return
+        }
+
+        const authHeader = getBasicAuthHeader()
+        const baseUrl = ONEC_CONFIG.baseUrl.replace(/\/$/, '')
+        const url = `${baseUrl}/Document_ЗаказНаПеремещение`
+
+        const items = JSON.parse(order.items || '[]')
+
+        // Enrich items with unit keys
+        const enrichedItems = await Promise.all(items.map(async (item) => {
+          if (!item.unitKey && item.nomenclatureKey) {
+            const stock = db.prepare('SELECT unit_key FROM onec_stocks WHERE ref_key = ?').get(item.nomenclatureKey)
+            if (stock?.unit_key) {
+              item.unitKey = stock.unit_key
+            }
+          }
+          return item
+        }))
+
+        // Look up operation type key for 'Перемещение'
+        let operationKey = null
+        try {
+          const opUrl = `${baseUrl}/Catalog_ХозяйственныеОперации?$format=json&$select=Ref_Key,Description&$filter=Description eq 'Перемещение'`
+          const opResponse = await fetch(opUrl, {
+            headers: { 'Authorization': authHeader, 'Accept': 'application/json' }
+          })
+          if (opResponse.ok) {
+            const opData = await opResponse.json()
+            const opItems = opData.value || []
+            if (opItems.length > 0) {
+              operationKey = opItems[0].Ref_Key
+            }
+          }
+        } catch { /* ignore */ }
+
+        // Look up 'В работе (к списанию)' status key
+        let statusKey = null
+        let statusDescription = ''
+        try {
+          const targetStatus = 'В работе (к списанию)'
+          const stUrl = `${baseUrl}/Catalog_СостоянияЗаказовНаПеремещение?$format=json&$select=Ref_Key,Description`
+          const stResponse = await fetch(stUrl, {
+            headers: { 'Authorization': authHeader, 'Accept': 'application/json' }
+          })
+          if (stResponse.ok) {
+            const stData = await stResponse.json()
+            const stItems = stData.value || []
+            let found = stItems.find(item => String(item.Description || '').trim() === targetStatus)
+            if (!found) {
+              found = stItems.find(item => String(item.Description || '').trim().startsWith('В работе'))
+            }
+            if (!found && stItems.length > 0) {
+              found = stItems[0]
+            }
+            if (found) {
+              statusKey = found.Ref_Key
+              statusDescription = found.Description
+            }
+          }
+        } catch (err) {
+          console.warn(`⚠️ Error looking up status: ${err.message}`)
+        }
+
+        const docPayload = {
+          Date: (() => {
+            const d = new Date()
+            const pad = (n) => String(n).padStart(2, '0')
+            return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+          })(),
+          СтруктурнаяЕдиницаРезерв_Key: order.source_warehouse_key,
+          СтруктурнаяЕдиницаПолучатель_Key: order.destination_warehouse_key,
+          ...(operationKey ? { ХозяйственнаяОперация_Key: operationKey } : {}),
+          ...(statusKey ? { СостояниеЗаказа_Key: statusKey } : {}),
+          ...(order.customer_order_key ? { ЗаказПокупателя_Key: order.customer_order_key } : {}),
+          Posted: false,
+          Запасы: enrichedItems.map((item, idx) => ({
+            LineNumber: idx + 1,
+            Номенклатура_Key: item.nomenclatureKey || '',
+            Количество: Number(item.quantity) || 1,
+            ...(item.unitKey
+              ? { ЕдиницаИзмерения: item.unitKey, ЕдиницаИзмерения_Type: 'StandardODATA.Catalog_КлассификаторЕдиницИзмерения' }
+              : {})
+          }))
+        }
+
+        const controller = new AbortController()
+        const timeoutId = setTimeout(() => controller.abort(), 30000)
+
+        const response = await fetch(url, {
+          method: 'POST',
+          signal: controller.signal,
+          headers: {
+            'Authorization': authHeader,
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          },
+          body: JSON.stringify(docPayload)
+        })
+
+        clearTimeout(timeoutId)
+
+        if (response.ok) {
+          const result = await response.json()
+          const onecRefKey = result['Ref_Key'] || null
+
+          if (onecRefKey) {
+            db.prepare('UPDATE transfer_orders SET ref_key = ?, posted = 1, status_key = ?, status_description = ? WHERE ref_key = ?')
+              .run(onecRefKey, statusKey || '', statusDescription || 'В работе (к списанию)', localRefKey)
+          }
+
+          sendJSON(res, 200, { success: true, refKey: onecRefKey, status: statusDescription || 'В работе (к списанию)' })
+        } else {
+          const errorText = await response.text()
+          sendJSON(res, 502, { success: false, error: `1C Error: ${response.status}: ${errorText.substring(0, 200)}` })
+        }
+      } catch (err) {
+        sendJSON(res, 500, { error: err.message })
+      }
+    })
+    return
+  }
+
+  // Update local transfer order items
+  const updateMatch = pathname.match(/^\/sklad\/api\/transfer-orders\/(LOCAL-.+)\/items$/)
+  if (updateMatch && req.method === 'PUT') {
+    const localRefKey = updateMatch[1]
+    let body = ''
+    req.on('data', chunk => { body += chunk })
+    req.on('end', () => {
+      try {
+        const data = JSON.parse(body)
+        const itemsJson = JSON.stringify(data.items || [])
+        db.prepare('UPDATE transfer_orders SET items = ? WHERE ref_key = ?').run(itemsJson, localRefKey)
+        sendJSON(res, 200, { success: true })
       } catch (err) {
         sendJSON(res, 500, { error: err.message })
       }
@@ -1275,6 +1482,8 @@ const server = http.createServer(async (req, res) => {
     try {
       const transferOrders1C = await fetch1CTransferOrders()
       const transferOrderStats = syncTransferOrdersIncremental(transferOrders1C)
+      await syncTransferOrderItems()
+      await syncTransferOrderStatuses()
       loadCacheFromDB()
       updateLastSyncTime({ lastSyncByType: { ...lastSyncTime.lastSyncByType, transfer_orders: new Date().toISOString() } })
 
@@ -1390,7 +1599,7 @@ const server = http.createServer(async (req, res) => {
           return
         }
 
-        const now = new Date().toISOString()
+        const now = moscowNow()
         const result = []
 
         // Generate QR codes
@@ -1486,7 +1695,7 @@ const server = http.createServer(async (req, res) => {
           return
         }
 
-        const now = new Date().toISOString()
+        const now = moscowNow()
         const result = []
 
         // Delete old QR codes for this order and product combinations
@@ -1729,7 +1938,7 @@ const server = http.createServer(async (req, res) => {
           return
         }
 
-        const now = new Date().toISOString()
+        const now = moscowNow()
 
         // Determine new status
         let newStatus = qrCode.status
@@ -1814,7 +2023,7 @@ const server = http.createServer(async (req, res) => {
           return
         }
 
-        const now = new Date().toISOString()
+        const now = moscowNow()
 
         // Determine new status
         let statusToSet = newStatus || qrCode.status
@@ -1999,7 +2208,7 @@ const server = http.createServer(async (req, res) => {
   // Create employee
   if (pathname === '/sklad/api/employees' && req.method === 'POST') {
     const userRole = getUserRoleFromRequest(req)
-    if (!userRole || !['admin', 'director', 'manager'].includes(userRole)) {
+    if (!userRole || !['admin', 'manager'].includes(userRole)) {
       sendJSON(res, 403, { error: 'Forbidden: insufficient permissions' })
       return
     }
@@ -2012,9 +2221,13 @@ const server = http.createServer(async (req, res) => {
               role = 'worker', status = 'active', salary = 0, hireDate,
               birthDate, address, skills, notes, createdBy } = data
 
-        if (!id || !name || !phone || !position || !department || !hireDate) {
+        if (!id || !name || !position || !department || !hireDate) {
           sendJSON(res, 400, { error: 'Missing required fields' })
           return
+        }
+
+        if (!phone) {
+          phone = ''
         }
 
         if (!email) {
@@ -2033,7 +2246,7 @@ const server = http.createServer(async (req, res) => {
 
         const temporaryPassword = '12345678'
         const passwordHash = hashSync(temporaryPassword, 10)
-        const now = new Date().toISOString()
+        const now = moscowNow()
 
         const userInsert = db.prepare(`
           INSERT INTO users (login, password_hash, full_name, role, is_active, needs_password_change, created_at, updated_at)
@@ -2067,7 +2280,7 @@ const server = http.createServer(async (req, res) => {
   // Update employee
   if (pathname.match(/^\/sklad\/api\/employees\/[^\/]+$/) && req.method === 'PUT') {
     const userRole = getUserRoleFromRequest(req)
-    if (!userRole || !['admin', 'director', 'manager'].includes(userRole)) {
+    if (!userRole || !['admin', 'manager'].includes(userRole)) {
       sendJSON(res, 403, { error: 'Forbidden: insufficient permissions' })
       return
     }
@@ -2078,7 +2291,7 @@ const server = http.createServer(async (req, res) => {
         const employeeId = pathname.split('/')[4]
         const data = JSON.parse(body)
 
-        const now = new Date().toISOString()
+        const now = moscowNow()
         const updates = []
         const values = []
 
@@ -2100,6 +2313,16 @@ const server = http.createServer(async (req, res) => {
         values.push(employeeId)
 
         db.prepare(`UPDATE employees SET ${updates.join(', ')} WHERE id = ?`).run(...values)
+
+        // Синхронизируем роль в таблицу users, если она изменилась
+        if (data.role) {
+          const emp = db.prepare('SELECT user_id FROM employees WHERE id = ?').get(employeeId)
+          if (emp && emp.user_id) {
+            const uid = parseFloat(String(emp.user_id))
+            db.prepare('UPDATE users SET role = ? WHERE id = ?').run(data.role, uid)
+          }
+        }
+
         sendJSON(res, 200, { success: true })
       } catch (err) {
         console.error('Error updating employee:', err)
@@ -2112,7 +2335,7 @@ const server = http.createServer(async (req, res) => {
   // Delete employee
   if (pathname.match(/^\/sklad\/api\/employees\/[^\/]+$/) && req.method === 'DELETE') {
     const userRole = getUserRoleFromRequest(req)
-    if (!userRole || !['admin', 'director', 'manager'].includes(userRole)) {
+    if (!userRole || !['admin', 'manager'].includes(userRole)) {
       sendJSON(res, 403, { error: 'Forbidden: insufficient permissions' })
       return
     }
@@ -2157,12 +2380,12 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'PUT') {
       const userRole = getUserRoleFromRequest(req)
-      console.log(`🔑 [CREDENTIALS] User role: ${userRole}, allowed: admin/director/manager`)
-      if (!userRole || !['admin', 'director', 'manager'].includes(userRole)) {
-        sendJSON(res, 403, { error: 'Forbidden: insufficient permissions' })
-        return
-      }
-      let body = ''
+      console.log(`🔑 [CREDENTIALS] User role: ${userRole}, allowed: admin/manager`)
+    if (!userRole || !['admin', 'manager'].includes(userRole)) {
+      sendJSON(res, 403, { error: 'Forbidden: insufficient permissions' })
+      return
+    }
+    let body = ''
       req.on('data', chunk => { body += chunk })
       req.on('end', () => {
         try {
@@ -2192,7 +2415,7 @@ const server = http.createServer(async (req, res) => {
             return
           }
 
-          const now = new Date().toISOString()
+          const now = moscowNow()
           const passwordHash = hashSync(password, 10)
 
           db.prepare(`
@@ -2263,7 +2486,23 @@ const server = http.createServer(async (req, res) => {
         LIMIT ?
       `).all(...searchIds, ...searchIds, limit)
 
-      const mixed = [...operationLogs, ...toolOps, ...invoices]
+      // Resolve login for transfer_orders search (created_by stores login, not user_id)
+      const userForLogin = db.prepare('SELECT login FROM users WHERE id = ?').get(employee.user_id)
+      const loginForSearch = userForLogin ? userForLogin.login : ''
+
+      const transferOrders = db.prepare(`
+        SELECT ref_key as id, 'transfer_order' as operation_type,
+               COALESCE(synced_at, date, '') as created_at,
+               created_by as employee_id, created_by as employee_name,
+               order_number, NULL as product_name,
+               NULL as qr_code, '' as details, 'success' as status
+        FROM transfer_orders
+        WHERE created_by = ? OR created_by IN (${placeholders}) OR CAST(created_by AS TEXT) IN (${placeholders})
+        ORDER BY created_at DESC
+        LIMIT ?
+      `).all(loginForSearch, ...searchIds, ...searchIds, limit * 2)
+
+      const mixed = [...operationLogs, ...toolOps, ...invoices, ...transferOrders]
         .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
         .slice(0, limit)
 
@@ -2279,9 +2518,15 @@ const server = http.createServer(async (req, res) => {
   if (pathname.match(/^\/sklad\/api\/employees\/[^\/]+\/material-invoices$/) && req.method === 'GET') {
     try {
       const employeeId = pathname.split('/')[4]
+      // Resolve user_id since material_invoices stores numeric user_id, not employee UUID
+      const emp = db.prepare(`
+        SELECT id, user_id FROM employees WHERE id = ? OR user_id = ? OR CAST(user_id AS TEXT) = ? LIMIT 1
+      `).get(employeeId, employeeId, String(employeeId))
+      const resolvedId = emp ? (emp.user_id || emp.id) : employeeId
+
       const invoices = db.prepare(`
         SELECT * FROM material_invoices WHERE employee_id = ? ORDER BY date DESC
-      `).all(employeeId)
+      `).all(resolvedId)
 
       sendJSON(res, 200, { success: true, invoices: mapMaterialInvoiceRows(invoices) })
     } catch (err) {
@@ -2338,7 +2583,7 @@ const server = http.createServer(async (req, res) => {
         }
 
         const operationId = Math.random().toString(36).substr(2, 9)
-        const now = new Date().toISOString()
+        const now = moscowNow()
         const date = data.date || now
 
         db.prepare(`
@@ -2425,24 +2670,35 @@ const server = http.createServer(async (req, res) => {
                 status = 'in_stock', location, price = 0, qrCode, issuedTo, issuedToName, issuedAt,
                 breakdownDescription, createdBy } = data
 
-        if (!id || !name || !inventoryNumber || !type) {
+        if (!id || !name || !type) {
           sendJSON(res, 400, { error: 'Missing required fields' })
           return
         }
 
-        const now = new Date().toISOString()
+        // Если инвентарный номер не указан, используем ID инструмента
+        const invNumber = inventoryNumber || id
+
+        const now = moscowNow()
         db.prepare(`
           INSERT INTO tools (id, name, inventory_number, serial_number, type, model, manufacturer,
             status, location, price, qr_code, issued_to, issued_to_name, issued_at,
             breakdown_description, created_at, updated_at, created_by)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(id, name, inventoryNumber, serialNumber, type, model, manufacturer,
+        `).run(id, name, invNumber, serialNumber, type, model, manufacturer,
           status, location, price, qrCode, issuedTo, issuedToName, issuedAt,
           breakdownDescription, now, now, createdBy || 'System')
 
+        if (status === 'issued' && issuedTo) {
+          const opId = Math.random().toString(36).substr(2, 9)
+          db.prepare(`
+            INSERT INTO tool_operations (id, tool_id, tool_name, inventory_number, employee_id, action, date, performed_by, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `).run(opId, id, name, invNumber, issuedTo, 'issued', now, issuedToName || 'System', now)
+        }
+
         logOperation('tool_created', { tool_id: id, tool_name: name, tool_type: type, created_by: createdBy || 'System' })
 
-        sendJSON(res, 201, { success: true, tool: { id, name, inventoryNumber, serialNumber, type, model, manufacturer,
+        sendJSON(res, 201, { success: true, tool: { id, name, inventoryNumber: invNumber, serialNumber, type, model, manufacturer,
           status, location, price, qrCode, issuedTo, issuedToName, issuedAt, breakdownDescription, createdAt: now, updatedAt: now, createdBy: createdBy || 'System' } })
       } catch (err) {
         console.error('Error creating tool:', err)
@@ -2461,7 +2717,7 @@ const server = http.createServer(async (req, res) => {
         const toolId = pathname.split('/')[4]
         const data = JSON.parse(body)
 
-        const now = new Date().toISOString()
+        const now = moscowNow()
         const setClause = []
         const values = []
 
@@ -2506,6 +2762,22 @@ const server = http.createServer(async (req, res) => {
           } else if (!wasIssued && nowIssued) {
             toolAction = 'issued'
             employeeId = nowIssued
+          } else if (wasIssued && nowIssued && wasIssued !== nowIssued) {
+            // Сначала возврат от предыдущего сотрудника
+            const opId1 = Math.random().toString(36).substr(2, 9)
+            const toolName = data.name || oldTool.name
+            const invNumber = data.inventoryNumber || oldTool.inventory_number
+            db.prepare(`
+              INSERT INTO tool_operations (id, tool_id, tool_name, inventory_number, employee_id, action, date, performed_by, created_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `).run(opId1, toolId, toolName, invNumber, wasIssued, 'returned', now, 'System', now)
+            // Затем выдача новому сотруднику
+            const opId2 = Math.random().toString(36).substr(2, 9)
+            db.prepare(`
+              INSERT INTO tool_operations (id, tool_id, tool_name, inventory_number, employee_id, action, date, performed_by, created_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `).run(opId2, toolId, toolName, invNumber, nowIssued, 'issued', now, data.issuedToName || 'System', now)
+            toolAction = null // уже записали
           }
 
           if (toolAction && employeeId) {
@@ -2578,7 +2850,7 @@ const server = http.createServer(async (req, res) => {
         }
 
         const breakdownId = Math.random().toString(36).substr(2, 9)
-        const now = new Date().toISOString()
+        const now = moscowNow()
 
         db.prepare(`
           INSERT INTO tool_breakdowns (id, tool_id, status, description, reported_by, reported_at, created_at)
@@ -2604,15 +2876,51 @@ const server = http.createServer(async (req, res) => {
   // Get tool operations for the movement page
   if (pathname === '/sklad/api/tool-operations' && req.method === 'GET') {
     try {
-      const operations = db.prepare(`
+      const toolOps = db.prepare(`
         SELECT to2.id, to2.tool_id, to2.tool_name, to2.inventory_number, to2.employee_id,
-               to2.action, to2.date, to2.created_at, e.name as employee_name
+               to2.action, to2.date, to2.created_at, e.name as employee_name,
+               COALESCE(t.price, 0) as price
         FROM tool_operations to2
         LEFT JOIN employees e ON to2.employee_id = e.id
+        LEFT JOIN tools t ON to2.tool_id = t.id
         ORDER BY to2.date DESC
       `).all()
+
+      const materialIssues = db.prepare(`
+        SELECT mc.id, mc.material_ref_key as tool_id, mc.material_name as tool_name, mc.sku as inventory_number,
+               mc.employee_id, 'issued' as action, mc.date, mc.created_at, mc.employee_name,
+               COALESCE(os.purchasePrice, 0) as price
+        FROM material_checkouts mc
+        LEFT JOIN onec_stocks os ON mc.material_ref_key = os.ref_key
+        ORDER BY mc.date DESC
+      `).all()
+
+      const materialReturns = db.prepare(`
+        SELECT ol.id, COALESCE(ol.product_id, '') as tool_id, COALESCE(ol.product_name, '') as tool_name,
+               COALESCE(ol.order_number, '') as inventory_number, ol.employee_id,
+               'returned' as action, ol.created_at as date, ol.created_at,
+               COALESCE(ol.employee_name, '') as employee_name, 0 as price
+        FROM operation_logs ol
+        WHERE ol.operation_type = 'material_returned'
+        ORDER BY ol.created_at DESC
+      `).all()
+
+      const creationOps = db.prepare(`
+        SELECT ol.id, COALESCE(ol.product_id, '') as tool_id, COALESCE(ol.product_name, '') as tool_name,
+               COALESCE(ol.order_number, '') as inventory_number, ol.employee_id,
+               'created' as action, ol.created_at as date, ol.created_at,
+               COALESCE(ol.employee_name, '') as employee_name, 0 as price
+        FROM operation_logs ol
+        WHERE ol.operation_type IN ('tool_created', 'material_created', 'qr_codes_generated')
+        ORDER BY ol.created_at DESC
+      `).all()
+
+      const operations = [...toolOps, ...materialIssues, ...materialReturns, ...creationOps]
+        .sort((a, b) => new Date(b.date || b.created_at).getTime() - new Date(a.date || a.created_at).getTime())
+
       sendJSON(res, 200, { success: true, operations })
     } catch (err) {
+      console.error('Error getting operations:', err)
       sendJSON(res, 500, { error: err.message })
     }
     return
@@ -2649,7 +2957,7 @@ const server = http.createServer(async (req, res) => {
         }
 
         const invoiceId = Math.random().toString(36).substr(2, 9)
-        const now = new Date().toISOString()
+        const now = moscowNow()
 
         db.prepare(`
           INSERT INTO material_invoices (id, employee_id, date, order_number, destination, total_amount, created_at, updated_at, created_by)
@@ -2887,6 +3195,34 @@ const server = http.createServer(async (req, res) => {
     return
   }
 
+  // Operation logs by employee name (login)
+  if (pathname === '/sklad/api/operation-logs/by-name' && req.method === 'GET') {
+    try {
+      const employeeName = url.searchParams.get('name') || ''
+      const limit = parseInt(url.searchParams.get('limit') || '50', 10)
+
+      if (!employeeName) {
+        sendJSON(res, 200, { logs: [] })
+        return
+      }
+
+      const logs = db.prepare(`
+        SELECT id, operation_type, created_at, employee_id, employee_name,
+               order_number, product_name, qr_code, details, status
+        FROM operation_logs
+        WHERE employee_name = ?
+        ORDER BY created_at DESC
+        LIMIT ?
+      `).all(employeeName, limit)
+
+      sendJSON(res, 200, { logs })
+    } catch (err) {
+      console.error('Error fetching operation logs by name:', err)
+      sendJSON(res, 500, { error: err.message })
+    }
+    return
+  }
+
   // Write-off report (списание на изделия)
   if (pathname === '/sklad/api/reports/write-off' && req.method === 'GET') {
     try {
@@ -2943,8 +3279,12 @@ const server = http.createServer(async (req, res) => {
   if (pathname === '/sklad/api/reports/top-employees' && req.method === 'GET') {
     try {
       const employees = db.prepare(`
-        SELECT e.*, COUNT(mi.id) as operations_count
-        FROM employees e LEFT JOIN material_invoices mi ON e.id = mi.employee_id
+        SELECT e.*,
+          (COUNT(DISTINCT mi.id) + COUNT(DISTINCT ol.id)) as operations_count
+        FROM employees e
+        LEFT JOIN material_invoices mi ON e.id = mi.employee_id
+        LEFT JOIN users u ON e.user_id = u.id
+        LEFT JOIN operation_logs ol ON LOWER(u.login) = LOWER(ol.employee_name) OR LOWER(u.full_name) = LOWER(ol.employee_name)
         GROUP BY e.id ORDER BY operations_count DESC LIMIT 5
       `).all()
 
@@ -2990,7 +3330,24 @@ const server = http.createServer(async (req, res) => {
       }
       sql += ` ORDER BY date DESC`
 
-      const allOrders = db.prepare(sql).all(...params)
+      let allOrders = db.prepare(sql).all(...params)
+
+      // Если данных нет локально — пробуем забрать из 1С (новая БД без синка)
+      if (allOrders.length === 0) {
+        const totalCount = db.prepare('SELECT COUNT(*) as cnt FROM transfer_orders').get()
+        if (totalCount.cnt === 0) {
+          try {
+            const transferOrders1C = await fetch1CTransferOrders()
+            if (transferOrders1C && transferOrders1C.length > 0) {
+              syncTransferOrdersIncremental(transferOrders1C)
+              await syncTransferOrderItems()
+              allOrders = db.prepare(sql).all(...params)
+            }
+          } catch (e) {
+            console.error('Failed to fetch transfer orders from 1C:', e)
+          }
+        }
+      }
 
       const orderMap = new Map()
 
@@ -3020,9 +3377,9 @@ const server = http.createServer(async (req, res) => {
         try { items = JSON.parse(order.items || '[]') } catch { /* ignore */ }
 
         const mappedMaterials = items.map((item) => ({
-          name: item.productName || 'Без названия',
+          name: item.nomenclatureName || item.productName || item.Номенклатура____Presentation || item.Номенклатура_Presentation || 'Без названия',
           barcode: item.barcode || '',
-          quantity: item.quantity || 1
+          quantity: item.quantity || item.Количество || 1
         }))
 
         const productName = order.selected_product
@@ -3107,7 +3464,7 @@ const server = http.createServer(async (req, res) => {
           console.log('⚠️ [RECEIVE-FP] WARNING: orderNumber is missing!')
         }
 
-        const timestamp = new Date().toISOString()
+        const timestamp = moscowNow()
         const invoiceId = `RECV-FP-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
         const itemId = `ITEM-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
 
@@ -3131,7 +3488,7 @@ const server = http.createServer(async (req, res) => {
           const user = db.prepare('SELECT id, full_name, role FROM users WHERE id = ?').get(requestEmployeeId)
           console.log('📦 [RECEIVE-FP] Found user:', user)
           if (user) {
-            const now = new Date().toISOString()
+            const now = moscowNow()
             const newEmpId = `emp-${requestEmployeeId}-${Date.now()}`
             console.log('📦 [RECEIVE-FP] Creating employee:', newEmpId, 'for user:', user)
             db.prepare(`
@@ -3247,6 +3604,8 @@ server.listen(PORT, '0.0.0.0', async () => {
       const transferOrders1C = await fetch1CTransferOrders()
       if (transferOrders1C && transferOrders1C.length > 0) {
         const stats = syncTransferOrdersIncremental(transferOrders1C)
+        await syncTransferOrderItems()
+        await syncTransferOrderStatuses()
         loadCacheFromDB()
         updateLastSyncTime({ lastSyncByType: { ...lastSyncTime.lastSyncByType, transfer_orders: new Date().toISOString() } })
         console.log(`📡 [HOURLY SYNC] Transfer Orders: +${stats.added} ~${stats.updated} -${stats.deleted} at ${new Date().toLocaleTimeString()}`)

@@ -3,15 +3,18 @@
     <div class="flex justify-between items-center mb-6">
       <div>
         <n-h1>Учёт инструментов</n-h1>
-        <n-text depth="3">Реестр, выдача и ремонт инструментов</n-text>
+        <n-text depth="3">Инвентарь, МБП, хоз.принадлежности</n-text>
       </div>
-      <n-button type="primary" @click="handleAddTool">Добавить инструмент</n-button>
+      <n-button v-if="!userStore.isWorker" type="primary" @click="handleSync">
+        <template #icon><n-icon><SyncOutline /></n-icon></template>
+        Синхронизировать
+      </n-button>
     </div>
 
     <n-grid :cols="5" :x-gap="12" :y-gap="12" class="mb-6 items-stretch py-2">
       <n-gi>
         <n-card
-          size="small" 
+          size="small"
           hoverable
           class="metric-card h-full flex flex-col justify-center"
           :class="{ 'active': filters.status === 'all' }"
@@ -22,15 +25,15 @@
               <HammerOutline />
             </n-icon>
             <div>
-              <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">Всего ед.</n-text>
-              <n-h3 class="m-0 leading-none">{{ toolsStore.tools.length }}</n-h3>
+              <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">Всего позиций</n-text>
+              <n-h3 class="m-0 leading-none">{{ items.length }}</n-h3>
             </div>
           </div>
         </n-card>
       </n-gi>
       <n-gi>
         <n-card
-          size="small" 
+          size="small"
           hoverable
           class="metric-card h-full flex flex-col justify-center"
           :class="{ 'active': filters.status === 'in_stock' }"
@@ -42,14 +45,14 @@
             </n-icon>
             <div>
               <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">В наличии</n-text>
-              <n-h3 class="m-0 leading-none">{{ toolsStore.inStockTools.length }}</n-h3>
+              <n-h3 class="m-0 leading-none">{{ inStockItems.length }}</n-h3>
             </div>
           </div>
         </n-card>
       </n-gi>
       <n-gi>
         <n-card
-          size="small" 
+          size="small"
           hoverable
           class="metric-card h-full flex flex-col justify-center"
           :class="{ 'active': filters.status === 'issued' }"
@@ -61,26 +64,26 @@
             </n-icon>
             <div>
               <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">Выдано</n-text>
-              <n-h3 class="m-0 leading-none">{{ toolsStore.issuedTools.length }}</n-h3>
+              <n-h3 class="m-0 leading-none">{{ issuedItems.length }}</n-h3>
             </div>
           </div>
         </n-card>
       </n-gi>
       <n-gi>
         <n-card
-          size="small" 
+          size="small"
           hoverable
           class="metric-card h-full flex flex-col justify-center"
-          :class="{ 'active': filters.status === 'repair' }"
-          @click="filters.status = 'repair'"
+          :class="{ 'active': filters.status === 'out_of_stock' }"
+          @click="filters.status = 'out_of_stock'"
         >
           <div class="flex items-center gap-3 py-1">
-            <n-icon size="28" color="#f0a020">
-              <BuildOutline />
+            <n-icon size="28" color="#d03050">
+              <CloseCircleOutline />
             </n-icon>
             <div>
-              <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">В ремонте</n-text>
-              <n-h3 class="m-0 leading-none">{{ toolsStore.repairTools.length }}</n-h3>
+              <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">Нет в наличии</n-text>
+              <n-h3 class="m-0 leading-none">{{ outOfStockItems.length }}</n-h3>
             </div>
           </div>
         </n-card>
@@ -90,8 +93,8 @@
           <div class="flex items-center gap-3 py-1">
             <n-icon size="28" color="#18a058" :component="CashOutline" />
             <div>
-              <n-text depth="3" class="revenue-label block mb-1">Стоимость инстр.</n-text>
-              <n-h3 class="m-0 leading-none revenue-value text-[22px]">{{ userStore.canSeePrices ? formatCurrency(totalToolsCost) : '-' }}</n-h3>
+              <n-text depth="3" class="revenue-label block mb-1">Общая стоимость</n-text>
+              <n-h3 class="m-0 leading-none revenue-value text-[22px]">{{ userStore.canSeePrices ? formatCurrency(totalStockValue) : '-' }}</n-h3>
             </div>
           </div>
         </n-card>
@@ -102,7 +105,7 @@
       <n-space align="center" :size="[16, 12]">
         <n-input
           v-model:value="filters.search"
-          placeholder="Поиск инструмента..."
+          placeholder="Поиск материала..."
           clearable
           class="w-96!"
         >
@@ -110,62 +113,72 @@
             <n-icon><SearchOutline /></n-icon>
           </template>
         </n-input>
-        
-        <n-select 
-          v-model:value="filters.status" 
-          placeholder="Все статусы" 
+
+        <n-select
+          v-model:value="filters.status"
+          placeholder="Все статусы"
           :options="[
-            { label: 'Все инструменты', value: 'all' },
+            { label: 'Все позиции', value: 'all' },
             { label: 'В наличии', value: 'in_stock' },
             { label: 'Выдано', value: 'issued' },
-            { label: 'В ремонте', value: 'repair' }
-          ]" 
+            { label: 'Нет в наличии', value: 'out_of_stock' }
+          ]"
           clearable
-          class="w-56!" 
+          class="w-56!"
         />
-        
-        <n-button @click="() => { filters.search = ''; filters.status = 'all'; }" quaternary type="warning">
+
+        <n-button @click="resetFilters" quaternary type="warning">
           Сбросить фильтры
         </n-button>
 
         <n-tag v-if="filters.status !== 'all'" closable @close="filters.status = 'all'">
-          Активен статус: {{ getStatusLabel(filters.status) }}
+          {{ statusLabel(filters.status) }}
         </n-tag>
       </n-space>
     </n-card>
 
     <n-card size="small">
-    <div class="flex justify-between items-center mb-4">
-      <n-text depth="3">Всего: {{ filteredTools.length }}</n-text>
-      <div class="flex items-center gap-2">
-        <n-text>Показывать:</n-text>
-        <n-select v-model:value="itemsPerPage" :options="pageSizeOptions" class="w-24!" />
+      <div class="flex justify-between items-center mb-4">
+        <n-text depth="3">Всего: {{ filteredItems.length }}</n-text>
+        <div class="flex items-center gap-2">
+          <n-text>Показывать:</n-text>
+          <n-select v-model:value="itemsPerPage" :options="pageSizeOptions" class="w-24!" />
+        </div>
       </div>
-    </div>
-    <n-data-table 
-      :columns="columns" 
-      :data="filteredTools" 
-      :pagination="pagination"
-      :row-props="(row: Tool) => ({
-        class: 'cursor-pointer',
-        onClick: () => handleEditTool(row.id)
-      })"
-    />
-  </n-card>
-
-    <ToolModal 
-      v-model:show="showModal" 
-      :tool-id="selectedToolId"
-      @submit="handleToolSubmit" 
-    />
-
-    <QRPrintModal
-      v-model:show="showPrintModal"
-      :title="printData.title"
-      :code="printData.code"
-      :description="printData.description"
-    />
+      <n-data-table
+        :columns="columns"
+        :data="filteredItems"
+        :pagination="pagination"
+        :row-props="() => ({})"
+      />
+    </n-card>
   </div>
+
+  <n-modal v-model:show="showIssueModal" preset="card" title="Выдача материала" class="w-md!">
+    <n-form v-if="selectedItem" :model="issueForm" label-placement="top">
+      <n-form-item label="Материал">
+        <n-text strong>{{ selectedItem.name }}</n-text>
+        <n-text depth="3" class="block text-sm">{{ selectedItem.sku }}</n-text>
+      </n-form-item>
+      <n-form-item label="Доступно на складе">
+        <n-text type="success">{{ selectedItem.availableStock }} {{ selectedItem.unit || 'шт' }}</n-text>
+      </n-form-item>
+      <n-form-item label="Кому выдать" path="employeeId" required>
+        <n-select
+          v-model:value="issueForm.employeeId"
+          :options="employeeOptions"
+          placeholder="Выберите сотрудника"
+          filterable
+        />
+      </n-form-item>
+    </n-form>
+    <template #footer>
+      <div class="flex justify-end gap-2">
+        <n-button @click="showIssueModal = false">Отмена</n-button>
+        <n-button type="primary" @click="confirmIssue" :loading="issuing">Выдать</n-button>
+      </div>
+    </template>
+  </n-modal>
 </template>
 
 <script setup lang="ts">
@@ -175,19 +188,23 @@ import {
   NButton,
   NSpace,
   NIcon,
-  useDialog,
-  useMessage,
   NText,
   NGrid,
   NGi,
   NCard,
   NDataTable,
   NInput,
+  NSelect,
+  NModal,
+  NForm,
+  NFormItem,
+  useDialog,
+  useMessage,
   type DataTableColumns
 } from 'naive-ui'
 import { useToolsStore } from '@/stores/tools'
+import { useEmployeesStore } from '@/stores/employees'
 import { useUserStore } from '@/stores/user'
-import { convertRussianKeyboardToLatin } from '@/utils/translit'
 import {
   TrashOutline,
   QrCodeOutline,
@@ -196,51 +213,68 @@ import {
   HammerOutline,
   ConstructOutline,
   CheckmarkCircleOutline,
-  SearchOutline
+  CloseCircleOutline,
+  SearchOutline,
+  SyncOutline,
+  LogInOutline,
+  LogOutOutline
 } from '@vicons/ionicons5'
-import ToolModal from '@/components/tools/ToolModal.vue'
-import QRPrintModal from '@/components/common/QRPrintModal.vue'
-import type { Tool } from '@/types'
 
 const toolsStore = useToolsStore()
 const userStore = useUserStore()
-const dialog = useDialog()
+const employeesStore = useEmployeesStore()
 const message = useMessage()
 
-// Фильтры
+const items = computed(() => toolsStore.tools)
+
+const inStockItems = computed(() =>
+  items.value.filter(i => i.availableStock > 0)
+)
+
+const issuedItems = computed(() =>
+  items.value.filter(i => i.checkedOut > 0)
+)
+
+const outOfStockItems = computed(() =>
+  items.value.filter(i => i.currentStock <= 0 && i.checkedOut <= 0)
+)
+
 const filters = reactive({
   search: '',
-  status: 'all' as 'all' | 'in_stock' | 'issued' | 'repair'
+  status: 'all' as string
 })
 
-// Транслитерация русского текста в поле поиска (для сканера)
-watch(() => filters.search, (val) => {
-  if (val) {
-    const translit = convertRussianKeyboardToLatin(val)
-    if (translit !== val) {
-      filters.search = translit
-    }
-  }
-})
+watch(filters, () => { currentPage.value = 1 })
 
-watch(filters, () => {
-  currentPage.value = 1
-})
-
-const filteredTools = computed(() => {
-  return toolsStore.tools.filter(tool => {
+const filteredItems = computed(() => {
+  return items.value.filter(item => {
     const q = filters.search.toLowerCase()
-    const qTranslit = convertRussianKeyboardToLatin(q)
-    const matchesSearch = tool.name.toLowerCase().includes(q) ||
-                        tool.name.toLowerCase().includes(qTranslit) ||
-                        tool.inventoryNumber.toLowerCase().includes(q) ||
-                        tool.inventoryNumber.toLowerCase().includes(qTranslit) ||
-                        (tool.qrCode && (tool.qrCode.toLowerCase().includes(q) || tool.qrCode.toLowerCase().includes(qTranslit)))
-    
+    const matchesSearch = !q ||
+      item.name.toLowerCase().includes(q) ||
+      item.inventoryNumber.toLowerCase().includes(q) ||
+      item.sku.toLowerCase().includes(q)
+
     if (filters.status === 'all') return matchesSearch
-    return matchesSearch && tool.status === filters.status
+    if (filters.status === 'in_stock') return matchesSearch && item.availableStock > 0
+    if (filters.status === 'issued') return matchesSearch && item.checkedOut > 0
+    if (filters.status === 'out_of_stock') return matchesSearch && item.currentStock <= 0 && item.checkedOut <= 0
+    return matchesSearch
   })
 })
+
+const statusLabel = (s: string) => {
+  const map: Record<string, string> = {
+    'in_stock': 'В наличии',
+    'issued': 'Выдано',
+    'out_of_stock': 'Нет в наличии'
+  }
+  return map[s] || s
+}
+
+const resetFilters = () => {
+  filters.search = ''
+  filters.status = 'all'
+}
 
 const currentPage = ref(1)
 const itemsPerPage = ref(10)
@@ -255,113 +289,115 @@ const pageSizeOptions = [
 const pagination = computed(() => ({
   pageSize: itemsPerPage.value,
   page: currentPage.value,
-  pageCount: Math.ceil(filteredTools.value.length / itemsPerPage.value),
+  pageCount: Math.ceil(filteredItems.value.length / itemsPerPage.value),
   showSizePicker: true,
   pageSizes: [10, 25, 50, 100],
-  onChange: (page: number) => {
-    currentPage.value = page
-  },
+  onChange: (page: number) => { currentPage.value = page },
   onUpdatePageSize: (pageSize: number) => {
     itemsPerPage.value = pageSize
     currentPage.value = 1
   }
 }))
 
-const getStatusLabel = (status: string) => {
-  switch (status) {
-    case 'in_stock': return 'В наличии'
-    case 'issued': return 'Выдано'
-    case 'repair': return 'В ремонте'
-    default: return 'Все'
-  }
-}
-
 const formatCurrency = (amount: number) => {
-  return new Intl.NumberFormat('ru-RU', {
-    style: 'currency',
-    currency: 'RUB',
-    minimumFractionDigits: 0
-  }).format(amount)
+  return new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', minimumFractionDigits: 0 }).format(amount)
 }
 
-const totalToolsCost = computed(() => {
-  return filteredTools.value.reduce((sum, tool) => sum + (Number(tool.price) || 0), 0)
+const totalStockValue = computed(() => {
+  return filteredItems.value.reduce((sum, i) => sum + (Number(i.price) || 0) * (i.currentStock || 0), 0)
 })
 
-const showModal = ref(false)
-const selectedToolId = ref<string | null>(null)
+// Issue/Return state
+const showIssueModal = ref(false)
+const selectedItem = ref<any>(null)
+const issuing = ref(false)
 
-const showPrintModal = ref(false)
-const printData = reactive({
-  title: '',
-  code: '',
-  description: ''
+const issueForm = reactive({
+  employeeId: null as string | null
 })
 
-const handleAddTool = () => {
-  selectedToolId.value = null
-  showModal.value = true
+const employeeOptions = computed(() =>
+  employeesStore.employees.map(e => ({ label: e.name, value: e.id }))
+)
+
+const handleIssue = (item: any) => {
+  selectedItem.value = item
+  issueForm.employeeId = null
+  showIssueModal.value = true
 }
 
-const handleEditTool = (id: string) => {
-  selectedToolId.value = id
-  showModal.value = true
-}
+const confirmIssue = async () => {
+  if (!selectedItem.value || !issueForm.employeeId) {
+    message.warning('Выберите сотрудника')
+    return
+  }
+  const employee = employeesStore.employees.find(e => e.id === issueForm.employeeId)
+  if (!employee) return
 
-const handlePrintQR = (tool: Tool) => {
-  printData.title = tool.name
-  printData.code = tool.qrCode || tool.inventoryNumber
-  printData.description = `Инв. №: ${tool.inventoryNumber}`
-  showPrintModal.value = true
-}
-
-const handleDeleteTool = (id: string) => {
-  dialog.warning({
-    title: 'Удалить инструмент',
-    content: 'Вы уверены, что хотите удалить этот инструмент?',
-    positiveText: 'Удалить',
-    negativeText: 'Отмена',
-    onPositiveClick: async () => {
-      try {
-        await toolsStore.deleteTool(id)
-        message.success('Инструмент удален')
-      } catch (err) {
-        message.error('Ошибка при удалении инструмента')
-      }
-    }
-  })
-}
-
-const handleToolSubmit = async (toolData: Partial<Tool>) => {
+  issuing.value = true
   try {
-    if (selectedToolId.value) {
-      await toolsStore.updateTool(selectedToolId.value, toolData)
-      message.success('Данные инструмента обновлены')
-    } else {
-      await toolsStore.addTool(toolData as Omit<Tool, 'id'>)
-      message.success('Инструмент добавлен в реестр')
-    }
-  } catch (err) {
-    message.error('Ошибка при сохранении инструмента')
+    await toolsStore.issueTool(selectedItem.value.refKey, employee.id, employee.name)
+    message.success(`Выдано: ${employee.name}`)
+    showIssueModal.value = false
+  } catch (err: any) {
+    message.error(err.message || 'Ошибка при выдаче')
+  } finally {
+    issuing.value = false
   }
 }
 
-const columns: DataTableColumns<Tool> = [
-  { title: 'Инв. №', key: 'inventoryNumber', width: 120 },
-  { title: 'Наименование', key: 'name' },
-  { 
-    title: 'Тип', 
-    key: 'type',
-    width: 120,
+const handleReturn = async (item: any) => {
+  if (item.checkedOut <= 0) {
+    message.warning('Нет выданных единиц для возврата')
+    return
+  }
+  try {
+    // Find the first checkout for this material
+    const checkout = toolsStore.checkouts.find((c: any) => c.material_ref_key === item.refKey)
+    if (!checkout) {
+      message.warning('Не найдена запись о выдаче')
+      return
+    }
+    await toolsStore.returnTool(checkout.id)
+    message.success('Возвращено на склад')
+  } catch (err: any) {
+    message.error(err.message || 'Ошибка при возврате')
+  }
+}
+
+const columns: DataTableColumns<any> = [
+  {
+    title: 'Артикул',
+    key: 'inventoryNumber',
+    width: 140,
     render(row) {
-      const typeMap: Record<string, string> = {
-        'power_tool': 'Электро',
-        'hand_tool': 'Ручной',
-        'measuring': 'Измерит.',
-        'fixture': 'Оснастка',
-        'container': 'Тара'
-      }
-      return typeMap[row.type] || row.type
+      return h('span', { class: 'font-mono text-gray-400 text-xs' }, row.inventoryNumber || '—')
+    }
+  },
+  { title: 'Наименование', key: 'name' },
+  {
+    title: 'Ед. изм.',
+    key: 'unit',
+    width: 80,
+    render(row) { return row.unit || 'шт' }
+  },
+  {
+    title: 'На складе',
+    key: 'currentStock',
+    width: 100,
+    render(row) {
+      const color = row.availableStock > 0 ? '#18a058' : row.currentStock > 0 ? '#f0a020' : '#d03050'
+      return h('span', { style: { color, fontWeight: 'bold' } }, `${row.currentStock}`)
+    }
+  },
+  {
+    title: 'Выдано',
+    key: 'checkedOut',
+    width: 80,
+    render(row) {
+      return row.checkedOut > 0
+        ? h('span', { style: { color: '#2080f0' } }, `${row.checkedOut}`)
+        : h('span', { class: 'text-gray-600' }, '0')
     }
   },
   {
@@ -369,62 +405,85 @@ const columns: DataTableColumns<Tool> = [
     key: 'price',
     width: 120,
     render(row) {
-      return row.price ? formatCurrency(row.price) : '-'
+      return userStore.canSeePrices && row.price ? formatCurrency(row.price) : '-'
     }
   },
-  { 
-    title: 'Статус', 
+  {
+    title: 'Статус',
     key: 'status',
     width: 120,
     render(row) {
-      const statusMap: Record<string, { label: string, type: 'success' | 'info' | 'warning' | 'error' | 'default' }> = {
-        'in_stock': { label: 'На складе', type: 'success' },
-        'issued': { label: 'Выдано', type: 'info' },
-        'repair': { label: 'В ремонте', type: 'warning' },
-        'written_off': { label: 'Списано', type: 'error' }
+      let label = 'На складе'
+      let type: 'success' | 'warning' | 'info' | 'error' = 'success'
+      if (row.currentStock <= 0 && row.checkedOut <= 0) {
+        label = 'Нет в наличии'
+        type = 'error'
+      } else if (row.checkedOut > 0 && row.availableStock <= 0) {
+        label = 'Всё выдано'
+        type = 'info'
+      } else if (row.checkedOut > 0) {
+        label = 'Частично выдано'
+        type = 'warning'
       }
-      const s = statusMap[row.status] || { label: row.status, type: 'default' }
-      return h(NTag, { type: s.type }, { default: () => s.label })
+      return h(NTag, { type, size: 'small' }, { default: () => label })
     }
   },
-  { title: 'Где/У кого', key: 'issuedToName', render(row) { return row.issuedToName || row.location || '-' } },
+  {
+    title: 'Место хранения',
+    key: 'location',
+    render(row) {
+      if (row.checkedOut > 0) {
+        const checkout = toolsStore.checkouts.find((c: any) => c.material_ref_key === row.refKey)
+        if (checkout) {
+          return h('span', { style: { color: '#2080f0' } }, `Выдан: ${checkout.employee_name}`)
+        }
+      }
+      return row.location || '—'
+    }
+  },
   {
     title: 'Действия',
     key: 'actions',
-    width: 100,
+    width: 120,
     render(row) {
-      return h(NSpace, { wrap: false }, {
-        default: () => [
-          h(NButton, {
-            size: 'small',
-            quaternary: true,
-            onClick: (e) => { e.stopPropagation(); handlePrintQR(row) }
-          }, { icon: () => h(NIcon, null, { default: () => h(QrCodeOutline) }) }),
-          h(NButton, {
-            size: 'small',
-            quaternary: true,
-            type: 'error',
-            onClick: (e) => { e.stopPropagation(); handleDeleteTool(row.id) }
-          }, { icon: () => h(NIcon, null, { default: () => h(TrashOutline) }) })
-        ]
-      })
+      if (userStore.isWorker) return null
+      const buttons: any[] = []
+      if (row.availableStock > 0) {
+        buttons.push(h(NButton, {
+          size: 'tiny',
+          type: 'primary',
+          ghost: true,
+          onClick: (e: MouseEvent) => { e.stopPropagation(); handleIssue(row) }
+        }, { icon: () => h(NIcon, null, { default: () => h(LogInOutline) }), default: () => 'Выдать' }))
+      }
+      if (row.checkedOut > 0) {
+        buttons.push(h(NButton, {
+          size: 'tiny',
+          type: 'warning',
+          ghost: true,
+          onClick: (e: MouseEvent) => { e.stopPropagation(); handleReturn(row) }
+        }, { icon: () => h(NIcon, null, { default: () => h(LogOutOutline) }), default: () => 'Сдать' }))
+      }
+      return h(NSpace, { wrap: false, size: 4 }, { default: () => buttons })
     }
   }
 ]
 
-// Load tools from API on component mount
-onMounted(() => {
-  toolsStore.loadToolsFromApi()
-})
+const handleSync = async () => {
+  try {
+    await toolsStore.loadToolsFromApi()
+    message.success('Данные синхронизированы')
+  } catch {
+    message.error('Ошибка синхронизации')
+  }
+}
 
-// Watch for changes in tools store to ensure table updates
-watch(
-  () => toolsStore.tools,
-  () => {
-    // This watch triggers computed property recalculation
-  },
-  { deep: false }
-)
+onMounted(async () => {
+  await Promise.all([
+    toolsStore.loadToolsFromApi(),
+    employeesStore.loadEmployeesFromApi()
+  ])
+})
 </script>
 
 <style scoped>
@@ -472,10 +531,6 @@ watch(
   font-size: 10px;
   line-height: 1;
   margin-bottom: 4px;
-}
-
-.line-height-1 {
-  line-height: 1;
 }
 
 .revenue-value {

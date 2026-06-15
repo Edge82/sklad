@@ -1,206 +1,215 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import type { Tool, ToolBreakdown } from '@/types'
 
 const API_BASE = '/sklad/api'
 
+interface MaterialItem {
+  id: string
+  name: string
+  inventoryNumber: string
+  type: string
+  price: number
+  status: string
+  issuedTo: string | null
+  issuedToName: string | null
+  issuedAt: string | null
+  location: string | null
+  qrCode: string
+  currentStock: number
+  availableStock: number
+  checkedOut: number
+  unit: string
+  sku: string
+  refKey: string
+  category: string
+  createdAt?: string
+  updatedAt?: string
+}
+
 export const useToolsStore = defineStore('tools', () => {
-  const tools = ref<Tool[]>([])
-  const breakdowns = ref<ToolBreakdown[]>([])
+  const items = ref<MaterialItem[]>([])
+  const checkouts = ref<any[]>([])
   const loading = ref(false)
   const error = ref<string | null>(null)
 
-  const inStockTools = computed(() => tools.value.filter(t => t.status === 'in_stock'))
-  const issuedTools = computed(() => tools.value.filter(t => t.status === 'issued'))
-  const repairTools = computed(() => tools.value.filter(t => t.status === 'repair'))
+  const tools = computed(() => items.value)
 
-  // Load all tools from API
+  const inStockTools = computed(() =>
+    items.value.filter(t => t.availableStock > 0)
+  )
+
+  const issuedTools = computed(() =>
+    items.value.filter(t => t.checkedOut > 0)
+  )
+
+  const repairTools = computed(() => [] as MaterialItem[])
+
   async function loadToolsFromApi() {
     loading.value = true
     error.value = null
     try {
-      const response = await fetch(`${API_BASE}/tools`)
-      if (!response.ok) throw new Error('Failed to load tools')
-      const data = await response.json()
-      tools.value = data.tools || []
+      const [stocksRes, checkoutsRes] = await Promise.all([
+        fetch(`${API_BASE}/onec/stocks?category=${encodeURIComponent('Инвентарь, МБП, хоз.принадлежности')}`),
+        fetch(`${API_BASE}/onec/stock-checkouts`)
+      ])
+
+      if (!stocksRes.ok) throw new Error('Failed to load materials')
+      const stocksData = await stocksRes.json()
+      const rawStocks = stocksData.value || []
+
+      let checkoutData: any[] = []
+      if (checkoutsRes.ok) {
+        const coData = await checkoutsRes.json()
+        checkoutData = coData.checkouts || []
+      }
+      checkouts.value = checkoutData
+
+      items.value = rawStocks.map((stock: any) => {
+        const itemCheckouts = checkoutData.filter((c: any) => c.material_ref_key === stock.ref_key)
+        const checkedOutQty = itemCheckouts.reduce((s: number, c: any) => s + Number(c.quantity || 0), 0)
+        const currentStock = Number(stock.currentStock || stock.quantity || 0)
+        const availableStock = currentStock - checkedOutQty
+
+        let status = 'in_stock'
+        if (currentStock <= 0) status = 'written_off'
+
+        const location = stock.location || stock.warehouse || ''
+        const issuedInfo = itemCheckouts.length > 0 ? itemCheckouts[0] : null
+
+        return {
+          id: stock.ref_key || stock.id,
+          name: stock.name || stock.product || 'Без названия',
+          inventoryNumber: stock.sku || stock.product || '',
+          type: 'hand_tool',
+          price: Number(stock.purchasePrice || 0),
+          status,
+          issuedTo: issuedInfo?.employee_id || null,
+          issuedToName: issuedInfo?.employee_name || null,
+          issuedAt: issuedInfo?.date || null,
+          location: location,
+          qrCode: stock.barcode || '',
+          currentStock,
+          availableStock,
+          checkedOut: checkedOutQty,
+          unit: stock.unit || 'шт',
+          sku: stock.sku || '',
+          refKey: stock.ref_key || stock.id,
+          category: stock.category || '',
+          createdAt: stock.synced_at || undefined,
+          updatedAt: stock.synced_at || undefined
+        }
+      })
     } catch (err) {
       error.value = err instanceof Error ? err.message : 'Unknown error'
-      console.error('Error loading tools:', err)
+      console.error('Error loading materials:', err)
     } finally {
       loading.value = false
     }
   }
 
-  // Add new tool
-  async function addTool(toolData: Omit<Tool, 'id' | 'createdAt' | 'updatedAt'>) {
+  async function issueTool(refKey: string, employeeId: string, employeeName: string) {
     try {
-      const tool: any = {
-        id: Math.random().toString(36).substr(2, 9),
-        ...toolData
-      }
-
-      const response = await fetch(`${API_BASE}/tools`, {
+      const response = await fetch(`${API_BASE}/onec/stocks/${refKey}/issue`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(tool)
+        body: JSON.stringify({ employeeId, employeeName, quantity: 1 })
       })
 
-      if (!response.ok) throw new Error('Failed to create tool')
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}))
+        throw new Error(errData.error || 'Failed to issue material')
+      }
+
       const data = await response.json()
-      if (data.tool) {
-        tools.value.unshift(data.tool as Tool)
-      }
-      return data.tool
+      await loadToolsFromApi()
+      return data
     } catch (err) {
       error.value = err instanceof Error ? err.message : 'Unknown error'
-      console.error('Error creating tool:', err)
+      console.error('Error issuing material:', err)
       throw err
     }
   }
 
-  // Update tool
-  async function updateTool(id: string, updates: Partial<Tool>) {
+  async function returnTool(id: string) {
     try {
-      const response = await fetch(`${API_BASE}/tools/${id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updates)
-      })
+      // If id is a checkout ID (from getToolsIssuedToEmployee), look up the checkout
+      const checkout = checkouts.value.find((c: any) => c.id === id)
+      const refKey = checkout?.material_ref_key || id
+      const employeeId = checkout?.employee_id || ''
 
-      if (!response.ok) throw new Error('Failed to update tool')
-
-      // Update local state
-      const index = tools.value.findIndex(t => t.id === id)
-      if (index !== -1) {
-        // Handle auto-clearing of employee info when status changes to repair/written_off
-        if (updates.status && (updates.status === 'repair' || updates.status === 'written_off')) {
-          tools.value[index] = {
-            ...tools.value[index],
-            ...updates,
-            issuedTo: null,
-            issuedToName: null,
-            issuedAt: null,
-            location: null
-          } as Tool
-        } else {
-          tools.value[index] = { ...tools.value[index], ...updates } as Tool
-        }
-      }
-
-      return true
-    } catch (err) {
-      error.value = err instanceof Error ? err.message : 'Unknown error'
-      console.error('Error updating tool:', err)
-      throw err
-    }
-  }
-
-  // Delete tool
-  async function deleteTool(id: string) {
-    try {
-      const response = await fetch(`${API_BASE}/tools/${id}`, {
-        method: 'DELETE'
-      })
-
-      if (!response.ok) throw new Error('Failed to delete tool')
-
-      const index = tools.value.findIndex(t => t.id === id)
-      if (index !== -1) {
-        tools.value.splice(index, 1)
-      }
-    } catch (err) {
-      error.value = err instanceof Error ? err.message : 'Unknown error'
-      console.error('Error deleting tool:', err)
-      throw err
-    }
-  }
-
-  // Issue tool to employee
-  async function issueTool(toolId: string, employeeId: string, employeeName: string) {
-    return updateTool(toolId, {
-      status: 'issued',
-      issuedTo: employeeId,
-      issuedToName: employeeName,
-      issuedAt: new Date()
-    })
-  }
-
-  // Return tool from employee
-  async function returnTool(toolId: string) {
-    const tool = tools.value.find(t => t.id === toolId)
-    return updateTool(toolId, {
-      status: 'in_stock',
-      issuedTo: null,
-      issuedToName: null,
-      issuedAt: null,
-      location: tool?.location || null
-    })
-  }
-
-  // Report breakdown
-  async function reportBreakdown(toolId: string, description: string) {
-    try {
-      const response = await fetch(`${API_BASE}/tools/${toolId}/breakdowns`, {
+      const response = await fetch(`${API_BASE}/onec/stocks/${refKey}/return`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          description,
-          reportedBy: 'System'
-        })
+        body: JSON.stringify({ employeeId, quantity: 1 })
       })
 
-      if (!response.ok) throw new Error('Failed to report breakdown')
-      const data = await response.json()
-
-      // Update local tool status to repair - replace entire object for proper reactivity
-      const index = tools.value.findIndex(t => t.id === toolId)
-      if (index !== -1) {
-        tools.value[index] = {
-          ...tools.value[index],
-          status: 'repair',
-          issuedTo: null,
-          issuedToName: null,
-          issuedAt: null,
-          breakdownDescription: description
-        } as Tool
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}))
+        throw new Error(errData.error || 'Failed to return material')
       }
 
-      return data.breakdown
+      const data = await response.json()
+      await loadToolsFromApi()
+      return data
     } catch (err) {
       error.value = err instanceof Error ? err.message : 'Unknown error'
-      console.error('Error reporting breakdown:', err)
+      console.error('Error returning material:', err)
       throw err
     }
   }
 
-  // Get tool by ID
   function getToolById(id: string) {
-    return tools.value.find(t => t.id === id)
+    return items.value.find(t => t.id === id)
   }
 
-  // Load breakdowns for a tool
-  async function loadBreakdowns(toolId: string) {
-    try {
-      const response = await fetch(`${API_BASE}/tools/${toolId}/breakdowns`)
-      if (!response.ok) throw new Error('Failed to load breakdowns')
-      const data = await response.json()
-      breakdowns.value = data.breakdowns || []
-      return breakdowns.value
-    } catch (err) {
-      error.value = err instanceof Error ? err.message : 'Unknown error'
-      console.error('Error loading breakdowns:', err)
-      throw err
-    }
-  }
-
-  // Get tools issued to a specific employee
   function getToolsIssuedToEmployee(employeeId: string) {
-    return tools.value.filter(t => t.issuedTo === employeeId && t.status === 'issued')
+    const empCheckouts = checkouts.value.filter((c: any) => c.employee_id === employeeId)
+    return empCheckouts.map((c: any) => ({
+      id: c.id,
+      name: c.material_name,
+      inventoryNumber: c.sku || '',
+      type: 'hand_tool',
+      price: 0,
+      status: 'issued',
+      issuedTo: c.employee_id,
+      issuedToName: c.employee_name,
+      issuedAt: c.date,
+      location: null,
+      qrCode: '',
+      currentStock: 0,
+      availableStock: 0,
+      checkedOut: Number(c.quantity || 0),
+      unit: 'шт',
+      sku: c.sku || '',
+      refKey: c.material_ref_key,
+      category: ''
+    }))
+  }
+
+  async function addTool() {
+    console.warn('addTool is disabled — materials are synced from 1C')
+  }
+
+  async function updateTool() {
+    console.warn('updateTool is disabled — materials are synced from 1C')
+  }
+
+  async function deleteTool() {
+    console.warn('deleteTool is disabled — materials are synced from 1C')
+  }
+
+  async function reportBreakdown() {
+    console.warn('reportBreakdown is not available for materials')
+  }
+
+  async function loadBreakdowns() {
+    return []
   }
 
   return {
     tools,
-    breakdowns,
+    items,
+    checkouts,
     loading,
     error,
     inStockTools,

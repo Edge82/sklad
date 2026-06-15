@@ -33,7 +33,7 @@
           </div>
         </n-form-item>
 
-        <n-form-item label="Телефон" path="phone" required>
+        <n-form-item label="Телефон" path="phone">
           <n-input v-model:value="formData.phone" placeholder="+7 (999) 999-99-99" />
         </n-form-item>
 
@@ -74,7 +74,7 @@
       <!-- Финансы и даты -->
       <n-gi>
         <n-h3>Финансы</n-h3>
-        <n-form-item label="Зарплата" path="salary" required>
+        <n-form-item label="Зарплата" path="salary">
           <n-input-number v-model:value="formData.salary" :min="0" :precision="0" placeholder="Введите зарплату"
             class="w-full">
             <template #suffix>₽/мес</template>
@@ -153,7 +153,7 @@ const loading = ref(false)
 const isReading = ref(false)
 
 // Админ, директор и менеджер могут менять роль при редактировании
-const canEditRole = computed(() => !props.employeeId || ['admin', 'director', 'manager'].includes(userStore.user?.role || ''))
+const canEditRole = computed(() => !props.employeeId || ['admin', 'manager'].includes(userStore.user?.role || ''))
 
 const handleFileListChange = (data: { fileList: UploadFileInfo[] }) => {
   const fileList = data.fileList
@@ -189,7 +189,7 @@ const formData = reactive({
   department: '',
   role: 'worker' as Employee['role'],
   status: 'active' as Employee['status'],
-  salary: 50000,
+  salary: 1000,
   hireDate: new Date().getTime(),
   birthDate: null as number | null,
   address: '',
@@ -212,7 +212,7 @@ watch(() => props.employeeId, (newId) => {
       formData.department = employee.department || ''
       formData.role = employee.role || 'worker'
       formData.status = employee.status || 'active'
-      formData.salary = employee.salary || 50000
+      formData.salary = employee.salary || 0
       formData.hireDate = employee.hireDate ? new Date(employee.hireDate).getTime() : Date.now()
       formData.birthDate = employee.birthDate ? new Date(employee.birthDate).getTime() : null
       formData.address = employee.address || ''
@@ -230,7 +230,7 @@ watch(() => props.employeeId, (newId) => {
     formData.department = ''
     formData.role = 'worker'
     formData.status = 'active'
-    formData.salary = 50000
+    formData.salary = 0
     formData.hireDate = Date.now()
     formData.birthDate = null
     formData.address = ''
@@ -251,9 +251,8 @@ const departmentOptions = [
 const roleOptions = [
   { label: 'Администратор', value: 'admin' },
   { label: 'Менеджер', value: 'manager' },
-  { label: 'Рабочий', value: 'worker' },
-  { label: 'Кладовщик', value: 'warehouse' },
-  { label: 'Производство', value: 'production' }
+  { label: 'Кладовщик', value: 'storekeeper' },
+  { label: 'Рабочий', value: 'worker' }
 ]
 
 const statusOptions = [
@@ -271,17 +270,11 @@ const rules: FormRules = {
   email: [
     { type: 'email', message: 'Некорректный email', trigger: 'blur', validator: (rule, value) => !value || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value) }
   ],
-  phone: [
-    { required: true, message: 'Введите телефон', trigger: 'blur' }
-  ],
   position: [
     { required: true, message: 'Введите должность', trigger: 'blur' }
   ],
   department: [
     { required: true, message: 'Выберите отдел', trigger: 'change' }
-  ],
-  salary: [
-    { required: true, type: 'number', min: 0, message: 'Зарплата должна быть положительной', trigger: 'blur' }
   ],
   hireDate: [
     { required: true, type: 'number', message: 'Выберите дату приема', trigger: 'change' }

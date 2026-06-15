@@ -297,7 +297,7 @@ export async function fetch1CStocks() {
   console.log('📦 Загружаем материалы: номенклатура + единицы + остатки...')
 
   const nomenclature = await fetch1COData('Catalog_Номенклатура', {
-    '$select': 'Ref_Key,Description,Артикул,ЕдиницаИзмерения_Key,КатегорияНоменклатуры_Key,DeletionMark',
+    '$select': 'Ref_Key,Description,Артикул,ЕдиницаИзмерения_Key,КатегорияНоменклатуры_Key,DeletionMark,ФайлКартинки_Key',
     '$top': '10000'
   })
 
@@ -414,6 +414,35 @@ export async function fetch1CStocks() {
     for (const c of categoryData) categoryMap.set(c.Ref_Key, c.Description)
   }
 
+  // Загружаем прикреплённые файлы номенклатуры (для картинок)
+  let attachedFilesMap = new Map()
+  try {
+    const attachedFiles = await fetch1COData('Catalog_НоменклатураПрисоединенныеФайлы', {
+      '$select': 'Ref_Key,ВладелецФайла_Key,ИндексКартинки,Расширение',
+      '$top': '10000'
+    })
+    if (attachedFiles && attachedFiles.length > 0) {
+      for (const f of attachedFiles) {
+        // Пропускаем если индекс картинки не задан (отрицательный/не число) и расширение не похоже на картинку
+        const idx = Number(f.ИндексКартинки)
+        const ext = (f.Расширение || '').toLowerCase()
+        const isImage = !isNaN(idx) && idx >= 0
+          || ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.svg', '.tiff'].includes(ext)
+          || ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.svg', '.tiff'].includes('.' + ext.replace(/^\./, ''))
+        if (!isImage && (!f.ИндексКартинки || Number(f.ИндексКартинки) < 0)) continue
+
+        const ownerKey = f.ВладелецФайла_Key
+        // Сохраняем первую (основную) картинку
+        if (!attachedFilesMap.has(ownerKey)) {
+          attachedFilesMap.set(ownerKey, f.Ref_Key)
+        }
+      }
+      console.log(`  ✓ Найдено ${attachedFilesMap.size} номенклатур с картинками из ${attachedFiles.length} файлов`)
+    }
+  } catch (e) {
+    console.warn('⚠️ Не удалось загрузить прикреплённые файлы номенклатуры:', e.message)
+  }
+
   const balanceMap = new Map()
   const warehouseByNom = new Map()
   const lastReceiptMap = new Map()
@@ -471,6 +500,7 @@ export async function fetch1CStocks() {
       ref_key: n.Ref_Key,
       name: n.Description || 'Без названия',
       sku: n.Артикул || '',
+      onec_image_key: n.ФайлКартинки_Key || attachedFilesMap.get(n.Ref_Key) || '',
       product: n.Description || 'Без названия',
       warehouse: whName,
       location: '',

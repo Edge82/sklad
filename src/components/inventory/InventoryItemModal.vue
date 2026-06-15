@@ -1125,3 +1125,9 @@ const handleSubmit = async () => {
   margin-top: 8px;
 }
 </style>
+
+<style>
+.n-image-preview-container {
+  z-index: 100001 !important;
+}
+</style>

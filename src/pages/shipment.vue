@@ -9,7 +9,7 @@
           </template>
         </n-button>
         <div>
-          <n-h1 class="m-0">{{ selectedInvoice ? 'Детали накладной' : 'Движение материалов' }}</n-h1>
+          <n-h1 class="m-0">{{ selectedInvoice ? 'Детали накладной' : 'Операции пользователей' }}</n-h1>
           <n-text depth="3">
             {{ selectedInvoice ? `Накладная #${selectedInvoice.id.slice(-6).toUpperCase()}` : 'История приёма на склад и последующей отгрузки готовой продукции' }}
           </n-text>
@@ -379,21 +379,24 @@ const allInvoices = computed(() => {
           quantity: Number(i.quantity) || 0,
           unit: i.unit || 'шт',
           article: i.barcode || '',
+          price: Number(i.price) || 0,
         }))
       }
     } catch { /* ignore */ }
+    if (items.length === 0) return
+    const totalAmount = items.reduce((sum, i) => sum + (i.price || 0) * (i.quantity || 0), 0)
     invoices.push({
       id: order.ref_key,
       employeeId: '',
       date: order.date,
       orderNumber: order.order_number,
       destination: 'Перемещение',
-      totalAmount: 0,
+      totalAmount,
       items,
       createdAt: order.date,
       updatedAt: order.date,
-      createdBy: order.created_by || 'Система',
-      workerName: order.created_by || 'Система',
+      createdBy: order.created_by || '—',
+      workerName: order.created_by || '—',
       workerId: 'system',
       operationLabel: 'Перемещение между складами',
       movementType: 'transfer',
@@ -402,7 +405,12 @@ const allInvoices = computed(() => {
   })
 
   toolOperations.value.forEach(op => {
-    const label = op.action === 'issued' ? 'Выдан инструмент' : 'Возврат инструмента'
+    const actionLabels: Record<string, string> = {
+      issued: 'Выдан инструмент',
+      returned: 'Возврат инструмента',
+      created: 'Создание инструмента'
+    }
+    const label = actionLabels[op.action] || op.action || 'Операция'
     invoices.push({
       id: op.id,
       employeeId: op.employee_id,
@@ -415,6 +423,7 @@ const allInvoices = computed(() => {
         quantity: 1,
         unit: 'шт',
         article: op.inventory_number,
+        price: Number(op.price) || 0,
       }],
       createdAt: op.created_at,
       updatedAt: op.created_at,

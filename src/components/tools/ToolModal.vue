@@ -8,11 +8,11 @@
             <n-input v-model:value="formData.name" placeholder="Введите название" />
           </n-form-item>
 
-          <n-form-item label="Инвентарный номер" path="inventoryNumber" required>
+          <n-form-item label="Инвентарный номер" path="inventoryNumber">
             <n-input v-model:value="formData.inventoryNumber" placeholder="ИН-0000" />
           </n-form-item>
 
-          <n-form-item label="Тип инструмента" path="type" required>
+          <n-form-item label="Тип инструмента" path="type">
             <n-select v-model:value="formData.type" :options="typeOptions" placeholder="Выберите тип" />
           </n-form-item>
 
@@ -31,7 +31,7 @@
           </n-form-item>
 
           <n-form-item label="Статус" path="status" required>
-            <n-select v-model:value="formData.status" :options="statusOptions" placeholder="Выберите статус" />
+            <n-select v-model:value="formData.status" :options="statusOptions" placeholder="Выберите статус" :disabled="userStore.isWorker" />
           </n-form-item>
 
           <n-form-item label="Стоимость" path="price">
@@ -51,6 +51,7 @@
               :options="employeeOptions" 
               placeholder="Выберите сотрудника" 
               filterable
+              :disabled="userStore.isWorker"
               @update:value="handleEmployeeChange"
             />
           </n-form-item>
@@ -63,6 +64,7 @@
               type="textarea"
               placeholder="Опишите, что случилось с инструментом..."
               :rows="4"
+              :disabled="userStore.isWorker"
             />
           </n-form-item>
         </n-gi>
@@ -88,6 +90,7 @@ import { useMessage } from 'naive-ui'
 import type { FormInst, FormRules } from 'naive-ui'
 import { useToolsStore } from '@/stores/tools'
 import { useEmployeesStore } from '@/stores/employees'
+import { useUserStore } from '@/stores/user'
 import type { Tool } from '@/types'
 import {
   NModal,
@@ -114,6 +117,7 @@ const emit = defineEmits<{
 
 const toolsStore = useToolsStore()
 const employeesStore = useEmployeesStore()
+const userStore = useUserStore()
 const message = useMessage()
 const formRef = ref<FormInst | null>(null)
 const loading = ref(false)
@@ -174,12 +178,10 @@ const statusOptions = [
 
 const rules: FormRules = {
   name: [{ required: true, message: 'Введите название', trigger: 'blur' }],
-  inventoryNumber: [{ required: true, message: 'Введите инвентарный номер', trigger: 'blur' }],
-  type: [{ required: true, message: 'Выберите тип', trigger: 'change' }],
   status: [{ required: true, message: 'Выберите статус', trigger: 'change' }],
-  issuedTo: [{ 
-    required: true, 
-    message: 'Выберите сотрудника', 
+  issuedTo: [{
+    required: true,
+    message: 'Выберите сотрудника',
     renderMessage: () => formData.status === 'issued' ? 'Выберите сотрудника' : '',
     trigger: ['blur', 'change'],
     validator: (_, value) => {

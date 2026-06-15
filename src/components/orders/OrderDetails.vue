@@ -76,6 +76,7 @@
             <th v-if="userStore.canSeePrices">Цена за ед.</th>
             <th>Материалы</th>
             <th>Краски</th>
+            <th>Резерв</th>
             <th v-if="userStore.canSeePrices" class="text-right">Сумма</th>
           </tr>
         </thead>
@@ -104,13 +105,19 @@
             <td v-if="userStore.canSeePrices">{{ formatCurrency(item.unitPrice) }}</td>
             <td>{{ item.materialUsed || '-' }}</td>
             <td>{{ (item as any).paintUsed || '-' }}</td>
+            <td>
+              <n-tag v-if="getReserve(item)" size="small" type="info">
+                {{ getReserve(item) }}
+              </n-tag>
+              <span v-else class="text-gray-600">0</span>
+            </td>
             <td v-if="userStore.canSeePrices" class="text-right">{{ formatCurrency(item.totalPrice) }}</td>
           </tr>
         </tbody>
         <tfoot>
           <tr>
-            <td v-if="userStore.canSeePrices" colspan="6" class="text-right font-bold">Итого:</td>
-            <td v-else colspan="5" class="text-right font-bold">Итого:</td>
+            <td v-if="userStore.canSeePrices" colspan="8" class="text-right font-bold">Итого:</td>
+            <td v-else colspan="7" class="text-right font-bold">Итого:</td>
             <td v-if="userStore.canSeePrices" class="font-bold text-lg text-right">{{ formatCurrency(order.totalAmount) }}</td>
           </tr>
         </tfoot>
@@ -231,6 +238,7 @@ import {
 import { useQRCodesStore } from '@/stores/qrCodes'
 import { useOrdersStore } from '@/stores/orders'
 import { useUserStore } from '@/stores/user'
+import { useInventoryStore } from '@/stores/inventory'
 
 const props = defineProps<{
   order: Order
@@ -240,11 +248,14 @@ const props = defineProps<{
 const qrStore = useQRCodesStore()
 const ordersStore = useOrdersStore()
 const userStore = useUserStore()
+const inventoryStore = useInventoryStore()
 const message = useMessage()
 
-// Debug: log user role and canSeePrices
-onMounted(() => {
-  console.log('[OrderDetails] User role:', userStore.user?.role, 'canSeePrices:', userStore.canSeePrices)
+// Load inventory for reserve data
+onMounted(async () => {
+  if (inventoryStore.items.length === 0) {
+    await inventoryStore.loadStocksFromApi()
+  }
 })
 
 // Состояние редактирования окраски
@@ -329,6 +340,23 @@ const getQRStatusType = (item: OrderItem) => {
   if (percentage < 100) return 'warning'
   if (percentage === 100) return 'success'
   return 'error'
+}
+
+const orderReserves = computed(() => {
+  const map = new Map<string, number>()
+  const orderId = props.order.id
+  for (const stock of inventoryStore.items) {
+    const qty = stock.reserveDetails?.get(orderId)
+    if (qty && qty > 0) {
+      map.set(stock.name.toLowerCase().trim(), qty)
+    }
+  }
+  return map
+})
+
+const getReserve = (item: OrderItem) => {
+  const name = (item.productName || item.itemName || '').toLowerCase().trim()
+  return orderReserves.value.get(name) || 0
 }
 
 const isOverdue = computed(() => {

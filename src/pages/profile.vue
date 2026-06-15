@@ -64,53 +64,18 @@
 
         <! -- История операций -->
         <n-card title="Мои последние операции" class="mt-4">
-          <div v-if="invoicesLoading || toolOperationsLoading" class="flex items-center justify-center py-8">
+          <div v-if="operationsLoading" class="flex items-center justify-center py-8">
             <n-spin size="small" />
           </div>
-          <n-empty v-else-if="allOperations.length === 0" description="Вы еще не создавали накладных" />
-          <n-timeline v-else :collapse="true">
-            <n-timeline-item
-              v-for="op in allOperations.slice(0, 5)"
-              :key="op.id"
-              :type="getOperationType(op)"
-              :title="op.title"
-              :time="formatDateTime(op.date)"
-            >
-              <div class="text-sm space-y-2">
-                <!-- Показываем направление только если оно отличается от заголовка -->
-                <div v-if="op.destination && !op.title.includes(op.destination)" class="flex items-center gap-2">
-                  <n-text depth="3">Направление:</n-text>
-                  <n-text strong>{{ op.destination }}</n-text>
-                </div>
-
-                <n-card v-if="op.items && op.items.length > 0" size="small" class="mt-2">
-                  <n-table size="small" :single-line="false">
-                    <thead>
-                      <tr>
-                        <th>Наименование</th>
-                        <th>Артикул</th>
-                        <th>Кол-во</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr v-for="(item, idx) in op.items.slice(0, 5)" :key="idx">
-                        <td>{{ item.productName }}</td>
-                        <td><n-text depth="3">{{ item.article || '-' }}</n-text></td>
-                        <td>{{ item.quantity }} {{ item.unit }}</td>
-                      </tr>
-                    </tbody>
-                  </n-table>
-                  <n-text v-if="op.items.length > 5" depth="3" class="text-xs mt-2">
-                    + еще {{ op.items.length - 5 }} позиций...
-                  </n-text>
-                </n-card>
-
-                <n-text v-if="op.subtitle && op.items?.length === 0" depth="3" class="text-xs">
-                  {{ op.subtitle }}
-                </n-text>
-              </div>
-            </n-timeline-item>
-          </n-timeline>
+          <n-empty v-else-if="allOperations.length === 0" description="Операции не найдены" />
+          <n-data-table
+            v-else
+            :columns="operationsColumns"
+            :data="allOperations.slice(0, 5)"
+            :bordered="false"
+            :bottom-bordered="true"
+            size="small"
+          />
         </n-card>
       </n-gi>
 
@@ -226,9 +191,6 @@ import {
   NText,
   NStatistic,
   NEmpty,
-  NTable,
-  NTimeline,
-  NTimelineItem,
   useMessage
 } from 'naive-ui'
 import type { FormInst, FormRules } from 'naive-ui'
@@ -247,104 +209,13 @@ const toolsStore = useToolsStore()
 const formRef = ref<FormInst | null>(null)
 const message = useMessage()
 
-// Получаем историю накладных текущего пользователя
-const myInvoices = ref<any[]>([])
-const invoicesLoading = ref(false)
+// Операции пользователя (накладные, инструмент, перемещения)
+const allOperations = ref<any[]>([])
+const operationsLoading = ref(false)
 
-// История операций с инструментами
-const toolOperations = ref<any[]>([])
-const toolOperationsLoading = ref(false)
-
-// Загружаем историю операций с инструментами
-async function loadToolOperations() {
-  if (!userStore.user?.id) {
-    toolOperationsLoading.value = false
-    return
-  }
-
-  toolOperationsLoading.value = true
-
-  const currentUserId = parseFloat(String(userStore.user.id))
-  const employee = employeesStore.employees.find(e => {
-    if (!e.userId) return false
-    const empUserId = parseFloat(String(e.userId))
-    return !isNaN(empUserId) && empUserId === currentUserId
-  })
-
-  if (!employee) {
-    toolOperationsLoading.value = false
-    return
-  }
-
-  // Загружаем операции с инструментами
-  try {
-    const response = await fetch(`/sklad/api/employees/${employee.id}/tool-operations`)
-
-    if (response.ok) {
-      const data = await response.json()
-      if (data.success && data.operations) {
-        toolOperations.value = data.operations.map((op: any) => ({
-          id: op.id,
-          toolId: op.tool_id,
-          toolName: op.tool_name,
-          inventoryNumber: op.inventory_number,
-          action: op.action,
-          date: new Date(op.date),
-          performedBy: op.performed_by
-        }))
-      } else {
-        toolOperations.value = []
-      }
-    } else {
-      toolOperations.value = []
-    }
-  } catch {
-    toolOperations.value = []
-  } finally {
-    toolOperationsLoading.value = false
-  }
-}
-
-// История операций (объединяем накладные и операции с инструментами)
-const allOperations = computed(() => {
-  const operations: any[] = []
-
-  // Накладные
-  myInvoices.value.forEach(inv => {
-    operations.push({
-      type: 'invoice',
-      action: 'invoice',
-      id: inv.id,
-      title: inv.orderNumber || inv.destination ? `${inv.orderNumber || 'Без номера'}${inv.destination ? ` | ${inv.destination}` : ''}` : 'Готовая продукция',
-      date: new Date(inv.date),
-      subtitle: inv.items?.length ? `${inv.items.length} позиций` : '',
-      items: inv.items || [],
-      destination: inv.destination
-    })
-  })
-
-  // Операции с инструментами
-  toolOperations.value.forEach(op => {
-    operations.push({
-      type: 'tool',
-      id: op.id,
-      title: op.action === 'issued' ? `Получен инструмент: ${op.toolName}` : `Сдан инструмент: ${op.toolName}`,
-      date: new Date(op.date),
-      subtitle: op.inventoryNumber,
-      items: [],
-      action: op.action
-    })
-  })
-
-  // Сортируем по дате (сначала самые свежие)
-  return operations.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-})
-
-// Загружаем накладные для текущего пользователя
-async function loadMyInvoices() {
+async function loadAllOperations() {
   if (!userStore.user?.id) return
-
-  invoicesLoading.value = true
+  operationsLoading.value = true
   try {
     const currentUserId = parseFloat(String(userStore.user.id))
     const employee = employeesStore.employees.find(e => {
@@ -352,37 +223,136 @@ async function loadMyInvoices() {
       const empUserId = parseFloat(String(e.userId))
       return !isNaN(empUserId) && empUserId === currentUserId
     })
-
-    if (employee) {
-      const response = await fetch(`/sklad/api/employees/${employee.id}/material-invoices`)
-      const data = await response.json()
-
-      if (data.success && data.invoices) {
-        myInvoices.value = data.invoices.map((inv: any) => ({
-          id: inv.id,
-          employeeId: inv.employeeId,
-          date: new Date(inv.date),
-          orderNumber: inv.orderNumber,
-          destination: inv.destination,
-          totalAmount: inv.totalAmount,
-          items: inv.items || [],
-          createdBy: inv.createdBy
-        }))
-      }
+    if (!employee) {
+      console.log('[profile] employee not found for user id:', currentUserId)
+      return
     }
 
-    console.log('profile.vue: myInvoices loaded:', myInvoices.value.length, 'items')
+    const res = await fetch(`/sklad/api/employees/${employee.id}/operations?limit=50`)
+    if (!res.ok) return
+    const data = await res.json()
+
+    // Also fetch operation_logs directly by employee name (login)
+    const logsByLoginRes = await fetch(`/sklad/api/operation-logs/by-name?name=${encodeURIComponent(userStore.user?.login || '')}&limit=50`)
+    const logsByLogin = logsByLoginRes.ok ? await logsByLoginRes.json() : { logs: [] }
+
+    // Merge both sources, deduplicate by id
+    const seenIds = new Set()
+    const allRawLogs = [...(data.logs || []), ...(logsByLogin.logs || [])].filter((log: any) => {
+      const key = `${log.operation_type}-${log.id}`
+      if (seenIds.has(key)) return false
+      seenIds.add(key)
+      // Filter transfer_orders by current user's login
+      if (log.operation_type === 'transfer_order' && log.employee_name !== userStore.user?.login) return false
+      return true
+    })
+
+    console.log('[profile] raw logs:', data.logs?.length, 'byLogin:', logsByLogin.logs?.length, 'merged:', allRawLogs.length, 'types:', [...new Set(allRawLogs.map((l: any) => l.operation_type))])
+
+    const operations: any[] = []
+    const labelMap: Record<string, string> = {
+      transfer_order_completed: 'Заказ перемещения выполнен',
+      transfer_order_created: 'Создан заказ перемещения',
+      qr_code_shipped: 'Материал отгружен',
+      qr_code_scanned: 'QR-код отсканирован',
+      qr_codes_generated: 'Сгенерированы QR-коды',
+      transfer_order_updated: 'Заказ перемещения изменён',
+      tool_issued: 'Выдача инструмента',
+      tool_returned: 'Возврат инструмента',
+      material_issued: 'Выдача материала',
+      material_returned: 'Возврат материала'
+    }
+
+    allRawLogs.forEach((log: any) => {
+      const opType = log.operation_type
+      if (opType.startsWith('invoice_')) {
+        const dest = opType.replace('invoice_', '')
+        const destLabel = dest === 'workshop' ? 'Цех'
+          : dest === 'warehouse' ? 'Склад'
+          : dest === 'production' ? 'Производство'
+          : dest
+        operations.push({
+          type: 'invoice',
+          id: `inv-${log.id}`,
+          title: log.order_number ? `${log.order_number}${destLabel ? ` | ${destLabel}` : ''}` : destLabel || 'Готовая продукция',
+          date: new Date(log.created_at),
+          items: []
+        })
+      } else if (opType.startsWith('tool_')) {
+        const toolTitles: Record<string, string> = {
+          tool_issued: `Получен инструмент: ${log.product_name || ''}`,
+          tool_returned: `Сдан инструмент: ${log.product_name || ''}`,
+          tool_created: `Создан инструмент: ${log.product_name || ''}`
+        }
+        const toolActions: Record<string, string> = {
+          tool_issued: 'issued',
+          tool_returned: 'returned',
+          tool_created: 'created'
+        }
+        operations.push({
+          type: 'tool',
+          id: `tool-${log.id}`,
+          title: toolTitles[opType] || `Операция: ${log.product_name || ''}`,
+          date: new Date(log.created_at),
+          items: [],
+          action: toolActions[opType] || 'unknown',
+          subtitle: log.qr_code || ''
+        })
+      } else if (opType.startsWith('material_')) {
+        const matTitles: Record<string, string> = {
+          material_issued: `Получен материал: ${log.product_name || ''}`,
+          material_returned: `Сдан материал: ${log.product_name || ''}`,
+          material_created: `Создан материал: ${log.product_name || ''}`
+        }
+        const matActions: Record<string, string> = {
+          material_issued: 'issued',
+          material_returned: 'returned',
+          material_created: 'created'
+        }
+        operations.push({
+          type: 'tool',
+          id: `mat-${log.id}`,
+          title: matTitles[opType] || `Операция: ${log.product_name || ''}`,
+          date: new Date(log.created_at),
+          items: [],
+          action: matActions[opType] || 'unknown',
+          subtitle: log.qr_code || ''
+        })
+      } else if (opType === 'transfer_order') {
+        operations.push({
+          type: 'movement',
+          id: `to-${log.id}`,
+          title: `Перемещение${log.order_number ? ` | ${log.order_number}` : ''}`,
+          date: new Date(log.created_at),
+          items: [],
+          subtitle: typeof log.details === 'string' ? log.details : (log.details?.description || '')
+        })
+      } else {
+        const label = labelMap[opType] || opType
+        operations.push({
+          type: 'movement',
+          id: `log-${log.id}`,
+          title: log.order_number ? `${label} | ${log.order_number}` : label,
+          date: new Date(log.created_at),
+          items: [],
+          subtitle: log.product_name || log.details || ''
+        })
+      }
+    })
+
+    operations.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+    allOperations.value = operations
   } catch (err) {
-    console.error('Error loading invoices:', err)
-    myInvoices.value = []
+    console.error('Failed to load operations:', err)
+    allOperations.value = []
   } finally {
-    invoicesLoading.value = false
+    operationsLoading.value = false
   }
 }
 
 // Computed для статистики
 const stats = computed(() => {
-  const history = myInvoices.value
+  const history = allOperations.value
   const now = new Date()
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
   const weekAgo = todayStart - 7 * 24 * 60 * 60 * 1000
@@ -407,14 +377,6 @@ const issuedTools = computed(() => {
   return toolsStore.getToolsIssuedToEmployee(employee.id)
 })
 
-// Helper для определения типа операции timeline
-const getOperationType = (op: any) => {
-  if (op.type === 'tool' && op.action === 'returned') {
-    return 'success'
-  }
-  return 'info'
-}
-
 // Тип для формы (без служебных полей)
 type UserForm = Omit<User, 'id' | 'lastLogin' | 'createdAt' | 'avatar'>
 
@@ -429,7 +391,7 @@ const userForm = reactive<UserForm>({
 })
 
 const roleOptions = [
-  { label: 'Директор', value: 'director' },
+  { label: 'Администратор', value: 'admin' },
   { label: 'Менеджер', value: 'manager' },
   { label: 'Кладовщик', value: 'storekeeper' },
   { label: 'Рабочий', value: 'worker' }
@@ -451,7 +413,7 @@ const rules: FormRules = {
 
 const getRoleTagType = (role?: string) => {
   switch (role) {
-    case 'director': return 'error'
+    case 'admin': return 'error'
     case 'manager': return 'warning'
     case 'storekeeper': return 'info'
     case 'worker': return 'success'
@@ -461,7 +423,7 @@ const getRoleTagType = (role?: string) => {
 
 const getRoleLabel = (role?: string) => {
   switch (role) {
-    case 'director': return 'Директор'
+    case 'admin': return 'Администратор'
     case 'manager': return 'Менеджер'
     case 'storekeeper': return 'Кладовщик'
     case 'worker': return 'Рабочий'
@@ -489,6 +451,35 @@ const formatDateTime = (date?: Date | string) => {
   }).format(d)
 }
 
+// История операций (объединяем накладные, операции с инструментами и перемещения)
+const operationsColumns: any[] = [
+  {
+    title: 'Дата',
+    key: 'date',
+    render: (row: any) => formatDateTime(row.date)
+  },
+  {
+    title: 'Тип',
+    key: 'type',
+    ellipsis: { tooltip: true },
+    render: (row: any) => {
+      if (row.type === 'invoice') return 'Накладная'
+      if (row.type === 'tool') {
+        if (row.action === 'issued') return 'Выдача инструмента'
+        if (row.action === 'returned') return 'Возврат инструмента'
+        if (row.action === 'created') return 'Создание инструмента'
+        return 'Операция с инструментом'
+      }
+      return 'Перемещение'
+    }
+  },
+  {
+    title: 'Описание',
+    key: 'title',
+    ellipsis: { tooltip: true }
+  }
+]
+
 const handleSave = () => {
   formRef.value?.validate((errors) => {
     if (!errors) {
@@ -515,9 +506,9 @@ const resetForm = () => {
 onMounted(async () => {
   resetForm()
 
-  // Слушаем событие обновления операций с инструментами
+  // Слушаем событие обновления операций
   const refreshHandler = () => {
-    loadToolOperations()
+    loadAllOperations()
   }
   window.addEventListener('refreshToolOperations', refreshHandler)
 
@@ -528,8 +519,7 @@ onMounted(async () => {
 
   await employeesStore.loadEmployeesFromApi()
 
-  await loadMyInvoices()
-  await loadToolOperations()
+  await loadAllOperations()
 
   if (toolsStore.tools.length === 0) {
     toolsStore.loadToolsFromApi()

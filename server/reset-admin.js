@@ -22,7 +22,7 @@ try {
     db.prepare(`
       INSERT INTO users (login, password_hash, full_name, role, is_active, needs_password_change)
       VALUES (?, ?, ?, ?, 1, 1)
-    `).run('admin', passwordHash, 'Admin User', 'director')
+    `).run('admin', passwordHash, 'Admin User', 'admin')
 
     console.log('✅ Пользователь admin создан')
   } else {

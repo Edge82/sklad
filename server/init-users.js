@@ -41,25 +41,7 @@ const testUsers = [
     login: 'admin',
     password: 'admin',
     fullName: 'Александр Иванов',
-    role: 'director'
-  },
-  {
-    login: 'manager',
-    password: 'manager',
-    fullName: 'Сергей Петров',
-    role: 'manager'
-  },
-  {
-    login: 'storekeeper',
-    password: 'storekeeper',
-    fullName: 'Дмитрий Сидоров',
-    role: 'storekeeper'
-  },
-  {
-    login: 'worker',
-    password: 'worker',
-    fullName: 'Андрей Смирнов',
-    role: 'worker'
+    role: 'admin'
   }
 ]
 

@@ -568,9 +568,8 @@ const statusOptions: SelectOption[] = [
 const roleOptions: SelectOption[] = [
   { label: 'Администратор', value: 'admin' },
   { label: 'Менеджер', value: 'manager' },
-  { label: 'Рабочий', value: 'worker' },
-  { label: 'Кладовщик', value: 'warehouse' },
-  { label: 'Производство', value: 'production' }
+  { label: 'Кладовщик', value: 'storekeeper' },
+  { label: 'Рабочий', value: 'worker' }
 ]
 
 const pagination = reactive({

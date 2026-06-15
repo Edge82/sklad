@@ -11,6 +11,7 @@ import {
   calculateReserves, loadCacheFromDB
 } from './onec-client.js'
 import { transformOrderStatus } from './helpers.js'
+import { ONEC_CONFIG, getBasicAuthHeader } from './config.js'
 
 /**
  * Инкрементальная синхронизация единиц измерения
@@ -132,19 +133,29 @@ function syncStocksIncremental(stocks) {
     if (existingMap.has(stock.ref_key)) {
       const existing = existingMap.get(stock.ref_key)
 
-      const existingRecord = db.prepare('SELECT image FROM onec_stocks WHERE ref_key = ?').get(stock.ref_key)
+      const existingRecord = db.prepare('SELECT barcode, sku, image, onec_image_key FROM onec_stocks WHERE ref_key = ?').get(stock.ref_key)
       const imageToSave = existingRecord?.image || stock.image || null
+      const onecImageKey = existingRecord?.onec_image_key || stock.onec_image_key || null
+
+      const existingBarcode = existingRecord?.barcode || ''
+      const existingSku = existingRecord?.sku || ''
+
+      // Не затираем barcode при синхронизации, если его нет в 1С
+      const barcodeToSave = stock.barcode || (stock.sku !== existingSku ? stock.sku : existingBarcode) || existingBarcode
+      const skuToSave = stock.sku || existingSku
 
       db.prepare(`UPDATE onec_stocks SET
-        name = ?, product = ?, warehouse = ?,
+        name = ?, product = ?, warehouse = ?, sku = ?, barcode = ?,
         quantity = ?, current_stock = ?, unit = ?, unit_key = ?, category = ?,
       status = ?, reserved = ?, purchasePrice = ?, averagePrice = ?, reservesByOrder = ?, image = ?,
-      last_receipt = ?, local_only = COALESCE(local_only, 0)
+      last_receipt = ?, local_only = COALESCE(local_only, 0), onec_image_key = ?
         WHERE ref_key = ?`)
         .run(
           stock.name || stock.product,
           stock.product || stock.name,
           stock.warehouse || '',
+          skuToSave,
+          barcodeToSave,
           stock.quantity || 0,
           stock.current_stock || stock.quantity || 0,
           stock.unit || 'шт',
@@ -157,6 +168,7 @@ function syncStocksIncremental(stocks) {
           JSON.stringify(stock.reservesByOrder || {}),
           imageToSave,
           stock.lastReceipt || null,
+          onecImageKey,
           stock.ref_key
         )
       stats.updated++
@@ -172,13 +184,16 @@ function syncStocksIncremental(stocks) {
           unitValue = stock.unit
         }
 
+        const barcodeToSave = stock.barcode || stock.sku || ''
+
         db.prepare(`INSERT INTO onec_stocks
-          (ref_key, name, sku, product, warehouse, location, quantity, current_stock, unit, unit_key, category, status, reserved, purchasePrice, averagePrice, reservesByOrder, image, local_only, last_receipt)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+          (ref_key, name, sku, barcode, product, warehouse, location, quantity, current_stock, unit, unit_key, category, status, reserved, purchasePrice, averagePrice, reservesByOrder, image, local_only, last_receipt, onec_image_key)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
           .run(
             stock.ref_key || null,
             stock.name || stock.product,
-            '',
+            stock.sku || '',
+            barcodeToSave,
             stock.product || stock.name,
             stock.warehouse || '',
             '',
@@ -194,7 +209,8 @@ function syncStocksIncremental(stocks) {
             JSON.stringify(stock.reservesByOrder || {}),
             stock.image || null,
             stock.local_only || 0,
-            stock.lastReceipt || null
+            stock.lastReceipt || null,
+            stock.onec_image_key || null
           )
         stats.added++
       } catch (e) { /* ignore */ }
@@ -269,7 +285,7 @@ function syncTransferOrdersIncremental(orders) {
   }
 
   for (const [ref_key] of existingMap) {
-    if (!idsIn1C.has(ref_key)) {
+    if (!idsIn1C.has(ref_key) && !ref_key.startsWith('LOCAL-')) {
       db.prepare('DELETE FROM transfer_orders WHERE ref_key = ?').run(ref_key)
       stats.deleted++
     }
@@ -450,6 +466,20 @@ export async function syncWith1C() {
       syncLog.results.transfer_orders = { status: 'success', count: transferOrders1C.length, ...transferOrderStats }
       console.log(`✓ Transfer Orders: +${transferOrderStats.added} ~${transferOrderStats.updated} -${transferOrderStats.deleted}`)
       updateLastSyncTime({ lastSyncByType: { ...lastSyncTime.lastSyncByType, transfer_orders: new Date().toISOString() } })
+
+      // Подтягиваем состав заказов из 1С
+      const itemStats = await syncTransferOrderItems()
+      if (itemStats.fetched > 0) {
+        console.log(`  ✓ Transfer order items: ${itemStats.fetched} enriched`)
+        writeSyncLog(`Transfer order items enriched: ${itemStats.fetched} orders`)
+      }
+
+      // Подтягиваем статусы заказов из 1С
+      const statusStats = await syncTransferOrderStatuses()
+      if (statusStats.fetched > 0) {
+        console.log(`  ✓ Transfer order statuses: ${statusStats.fetched} updated`)
+        writeSyncLog(`Transfer order statuses updated: ${statusStats.fetched} orders`)
+      }
     }
 
     loadCacheFromDB()
@@ -482,7 +512,122 @@ export async function syncWith1C() {
   }
 }
 
+/**
+ * Подтягивает состав (items) из 1С для заказов на перемещение,
+ * у которых items пустые. Сохраняет результат локально.
+ */
+async function syncTransferOrderItems() {
+  const stats = { fetched: 0, failed: 0 }
+  const emptyOrders = db.prepare(`
+    SELECT ref_key FROM transfer_orders
+    WHERE (items IS NULL OR items = '[]')
+  `).all()
+
+  if (emptyOrders.length === 0) return stats
+
+  const baseUrl = ONEC_CONFIG.baseUrl.replace(/\/$/, '')
+  const authHeader = getBasicAuthHeader()
+
+  for (const order of emptyOrders) {
+    try {
+      const url = `${baseUrl}/Document_ЗаказНаПеремещение(guid'${order.ref_key}')/Запасы?$format=json`
+      const response = await fetch(url, {
+        headers: { 'Authorization': authHeader, 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(ONEC_CONFIG.timeout)
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        const items = (data.value || []).map((item, idx) => {
+          let productName = item.Номенклатура____Presentation || ''
+          if (!productName && item.Номенклатура_Key) {
+            const stock = (cache.stocks || []).find(s => s.ref_key === item.Номенклатура_Key)
+            productName = stock?.name || stock?.product || ''
+          }
+
+          let actualBarcode = ''
+          if (item.Номенклатура_Key) {
+            const stockRec = db.prepare('SELECT barcode, sku FROM onec_stocks WHERE ref_key = ?').get(item.Номенклатура_Key)
+            actualBarcode = stockRec?.barcode || stockRec?.sku || ''
+          }
+
+          return {
+            LineNumber: item.LineNumber || idx + 1,
+            Номенклатура_Key: item.Номенклатура_Key || '',
+            nomenclatureName: productName || 'Без названия',
+            Количество: Number(item.Количество) || 0,
+            scannedQty: 0,
+            barcode: actualBarcode,
+            storageBin: ''
+          }
+        })
+        db.prepare('UPDATE transfer_orders SET items = ? WHERE ref_key = ?')
+          .run(JSON.stringify(items), order.ref_key)
+        stats.fetched++
+      }
+    } catch (e) {
+      stats.failed++
+    }
+  }
+
+  return stats
+}
+
+async function syncTransferOrderStatuses() {
+  const stats = { fetched: 0, failed: 0 }
+  const orders = db.prepare('SELECT ref_key FROM transfer_orders').all()
+  if (orders.length === 0) return stats
+
+  const baseUrl = ONEC_CONFIG.baseUrl.replace(/\/$/, '')
+  const authHeader = getBasicAuthHeader()
+
+  const results = await Promise.allSettled(orders.map(async (order) => {
+    try {
+      const url = `${baseUrl}/Document_ЗаказНаПеремещение(guid'${order.ref_key}')?$format=json&$select=СостояниеЗаказа_Key,СостояниеЗаказа____Presentation`
+      const response = await fetch(url, {
+        headers: { 'Authorization': authHeader, 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(ONEC_CONFIG.timeout)
+      })
+      if (!response.ok) throw new Error(`Status ${response.status}`)
+
+      const orderData = await response.json()
+      let statusDescription = 'В работе'
+      const statusKey = orderData.СостояниеЗаказа_Key || ''
+
+      if (orderData.СостояниеЗаказа____Presentation) {
+        statusDescription = orderData.СостояниеЗаказа____Presentation
+      } else if (statusKey) {
+        try {
+          const statusUrl = `${baseUrl}/Catalog_СостоянияЗаказовНаПеремещение(guid'${statusKey}')?$format=json&$select=Description`
+          const statusResponse = await fetch(statusUrl, {
+            headers: { 'Authorization': authHeader, 'Content-Type': 'application/json' },
+            signal: AbortSignal.timeout(ONEC_CONFIG.timeout)
+          })
+          if (statusResponse.ok) {
+            const statusData = await statusResponse.json()
+            statusDescription = statusData.Description || 'В работе'
+          }
+        } catch (e) { /* ignore */ }
+      }
+
+      db.prepare('UPDATE transfer_orders SET status_key = ?, status_description = ? WHERE ref_key = ?')
+        .run(statusKey, statusDescription, order.ref_key)
+      return 'ok'
+    } catch (e) {
+      throw e
+    }
+  }))
+
+  for (const r of results) {
+    if (r.status === 'fulfilled') stats.fetched++
+    else stats.failed++
+  }
+
+  return stats
+}
+
 export {
   syncUnitsIncremental, syncCategoriesIncremental, syncWarehousesIncremental,
-  syncStocksIncremental, syncOrdersIncremental, syncTransferOrdersIncremental
+  syncStocksIncremental, syncOrdersIncremental, syncTransferOrdersIncremental,
+  syncTransferOrderItems, syncTransferOrderStatuses
 }

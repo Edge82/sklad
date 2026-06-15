@@ -71,21 +71,14 @@
                 v-model:value="ordersSearchQuery"
                 placeholder="Поиск по номеру заказа..."
                 clearable
-                class="w-56"
+                style="width: 500px"
               />
               <n-select
                 v-model:value="ordersStatusFilter"
                 placeholder="Статус заказа"
                 :options="ordersStatusOptions"
                 clearable
-                class="w-44"
-              />
-              <n-date-picker
-                v-model:value="dateRange"
-                type="daterange"
-                clearable
-                placeholder="Период"
-                class="w-65"
+                style="width: 250px"
               />
             </div>
           </div>
@@ -97,11 +90,7 @@
               :row-key="(row: OrderReportEntry) => row.orderNumber"
               v-model:expanded-row-keys="expandedOrderKeys"
               max-height="calc(100vh - 320px)"
-              :pagination="{
-                pageSize: 15,
-                showSizePicker: true,
-                pageSizes: [10, 15, 25, 50, 100]
-              }"
+              :pagination="ordersPagination"
               :row-props="(row: OrderReportEntry) => ({
                  style: 'cursor: pointer;',
                  onClick: () => handleOrderReportRowClick(row)
@@ -125,7 +114,12 @@
           </div>
 
           <n-card border-variant="dark" class="table-card shadow-sm">
-            <n-data-table :columns="toolsDetailedColumns" :data="filteredForgottenTools" :pagination="{ pageSize: 20 }" />
+            <n-data-table
+              :columns="toolsDetailedColumns"
+              :data="filteredForgottenTools"
+              max-height="calc(100vh - 320px)"
+              :pagination="toolsPagination"
+            />
           </n-card>
           <n-empty v-if="filteredForgottenTools.length === 0" description="Инструменты не найдены" class="mt-20" />
         </div>
@@ -140,30 +134,19 @@
                 type="text"
                 placeholder="Поиск по заказу или изделию..."
                 clearable
-                class="w-60"
-              />
-              <n-date-picker
-                v-model:value="productionDateRange"
-                type="daterange"
-                clearable
-                placeholder="Период"
-                class="w-65"
+                style="width: 500px"
               />
             </div>
           </div>
           <n-card border-variant="dark">
-            <n-data-table
-              :columns="productionColumns"
-              :data="productionReport"
-              :row-key="(row: any) => row.orderNumber"
-              v-model:expanded-row-keys="productionExpandedKeys"
-              max-height="calc(100vh - 320px)"
-              :pagination="{
-                pageSize: 20,
-                showSizePicker: true,
-                pageSizes: [10, 20, 50, 100]
-              }"
-              :row-props="(row: any) => ({
+    <n-data-table
+      :columns="productionColumns"
+      :data="productionReport"
+      :row-key="(row: any) => row.orderNumber"
+      v-model:expanded-row-keys="productionExpandedKeys"
+      max-height="calc(100vh - 320px)"
+      :pagination="productionPagination"
+      :row-props="(row: any) => ({
                 style: 'cursor: pointer;',
                 onClick: () => {
                   const key = row.orderNumber
@@ -192,8 +175,7 @@ import { useToolsStore } from '@/stores/tools'
 import { useReportsStore } from '@/stores/reports'
 import { useOrdersStore } from '@/stores/orders'
 import {
-  type MaterialInvoiceItem,
-  type Tool
+  type MaterialInvoiceItem
 } from '@/types'
 import {
   StatsChartOutline, CubeOutline
@@ -211,10 +193,8 @@ const reportsStore = useReportsStore()
 const ordersStore = useOrdersStore()
 const { ordersReport, topEmployees } = storeToRefs(reportsStore)
 
-const dateRange = ref<[number, number] | null>(null)
 const activeTab = ref('main')
 const productionReport = ref<any[]>([])
-const productionDateRange = ref<[number, number] | null>(null)
 const productionSearchQuery = ref('')
 const productionExpandedKeys = ref<string[]>([])
 const productExpandedKeys = ref<Record<string, string[]>>({})
@@ -222,6 +202,55 @@ const expandedOrderKeys = ref<string[]>([])
 const searchToolsQuery = ref('')
 const ordersSearchQuery = ref('')
 const ordersStatusFilter = ref<string | null>(null)
+const ordersCurrentPage = ref(1)
+const ordersItemsPerPage = ref(10)
+const ordersPagination = computed(() => ({
+  pageSize: ordersItemsPerPage.value,
+  page: ordersCurrentPage.value,
+  pageCount: Math.ceil(filteredOrdersReport.value.length / ordersItemsPerPage.value),
+  showSizePicker: true,
+  pageSizes: [10, 15, 25, 50, 100],
+  onChange: (page: number) => {
+    ordersCurrentPage.value = page
+  },
+  onUpdatePageSize: (pageSize: number) => {
+    ordersItemsPerPage.value = pageSize
+    ordersCurrentPage.value = 1
+  }
+}))
+const productionPagination = computed(() => ({
+  pageSize: productionPageSize.value,
+  page: productionPage.value,
+  pageCount: Math.ceil(productionReport.value.length / productionPageSize.value),
+  showSizePicker: true,
+  pageSizes: [10, 20, 50, 100],
+  onChange: (page: number) => {
+    productionPage.value = page
+  },
+  onUpdatePageSize: (pageSize: number) => {
+    productionPageSize.value = pageSize
+    productionPage.value = 1
+  }
+}))
+const productionPage = ref(1)
+const productionPageSize = ref(20)
+
+const toolsCurrentPage = ref(1)
+const toolsItemsPerPage = ref(10)
+const toolsPagination = computed(() => ({
+  pageSize: toolsItemsPerPage.value,
+  page: toolsCurrentPage.value,
+  pageCount: Math.ceil(filteredForgottenTools.value.length / toolsItemsPerPage.value),
+  showSizePicker: true,
+  pageSizes: [10, 20, 50, 100],
+  onChange: (page: number) => {
+    toolsCurrentPage.value = page
+  },
+  onUpdatePageSize: (pageSize: number) => {
+    toolsItemsPerPage.value = pageSize
+    toolsCurrentPage.value = 1
+  }
+}))
 
 const ordersStatusOptions = computed(() => [
   { label: 'В работе', value: 'in_progress' },
@@ -281,16 +310,22 @@ const filteredOrdersReport = computed(() => {
   })
 })
 
+watch([ordersSearchQuery, ordersStatusFilter], () => {
+  ordersCurrentPage.value = 1
+})
+
+watch(searchToolsQuery, () => {
+  toolsCurrentPage.value = 1
+})
+
+watch(productionSearchQuery, () => {
+  productionPage.value = 1
+  loadProductionReport()
+})
+
 const loadProductionReport = async () => {
   try {
     const params = new URLSearchParams()
-    if (productionDateRange.value) {
-      const range = productionDateRange.value
-      const from = range[0] as number
-      const to = range[1] as number
-      params.set('dateFrom', new Date(from).toISOString().split('T')[0] || '')
-      params.set('dateTo', new Date(to).toISOString().split('T')[0] || '')
-    }
     if (productionSearchQuery.value) {
       params.set('search', productionSearchQuery.value)
     }
@@ -438,7 +473,7 @@ onMounted(async () => {
   if (summaryMetrics.value[3]) summaryMetrics.value[3].value = `${issuedCount} шт.`
 })
 
-watch([productionDateRange, productionSearchQuery], () => {
+watch(productionSearchQuery, () => {
   loadProductionReport()
 })
 
@@ -505,7 +540,7 @@ const toolsDetailedColumns = [
   { title: 'Сотрудник', key: 'issuedToName' },
   {
     title: 'Срок (дней)', key: 'issuedAt',
-    render: (row: Tool) => row.issuedAt ? Math.floor((Date.now() - new Date(row.issuedAt).getTime()) / (1000 * 60 * 60 * 24)) : '-'
+    render: (row: any) => row.issuedAt ? Math.floor((Date.now() - new Date(row.issuedAt).getTime()) / (1000 * 60 * 60 * 24)) : '-'
   }
 ]
 

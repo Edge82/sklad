@@ -1,21 +1,20 @@
 <template>
   <div class="min-h-screen bg-linear-to-br from-blue-500 to-purple-600 flex items-center justify-center p-4">
-    <div class="bg-white rounded-lg shadow-2xl p-8 w-full max-w-md" :style="{ opacity: showPasswordChangeModal ? 0.5 : 1 }">
+    <div class="login-card" :style="{ opacity: showPasswordChangeModal ? 0.5 : 1 }">
       <!-- Заголовок -->
-      <div class="text-center mb-8">
-        <h1 class="text-3xl font-bold text-gray-900 mb-2">Warehouse System</h1>
-        <p class="text-gray-600">Управление складом и материалами</p>
+      <div class="login-header">
+        <h1 class="text-3xl font-bold text-gray-900 mb-2">Управление складом и материалами</h1>
       </div>
 
       <!-- Форма логина -->
-      <form @submit.prevent="handleLogin" class="space-y-6">
+      <form @submit.prevent="handleLogin" class="login-form">
         <!-- Ошибка -->
         <div v-if="error" class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
           {{ error }}
         </div>
 
         <!-- Поле для логина -->
-        <div>
+        <div class="form-field">
           <label for="login" class="block text-sm font-medium text-gray-700 mb-1">
             Логин
           </label>
@@ -31,7 +30,7 @@
         </div>
 
         <!-- Поле для пароля -->
-        <div>
+        <div class="form-field">
           <label for="password" class="block text-sm font-medium text-gray-700 mb-1">
             Пароль
           </label>
@@ -47,55 +46,53 @@
         </div>
 
         <!-- Кнопка логина -->
-        <button
-          type="submit"
-          :disabled="isLoading || showPasswordChangeModal"
-          class="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-bold py-2 px-4 rounded-lg transition duration-200"
-        >
-          {{ isLoading ? 'Загрузка...' : 'Войти' }}
-        </button>
+        <div class="form-field form-field-submit login-btn-wrapper">
+          <button
+            type="submit"
+            :disabled="isLoading || showPasswordChangeModal"
+            class="login-btn"
+          >
+            {{ isLoading ? 'Загрузка...' : 'Войти' }}
+          </button>
+        </div>
       </form>
 
       <!-- Тестовые учетные данные -->
-      <div class="mt-6 pt-6 border-t border-gray-200 text-sm text-gray-600 text-center">
-        <p class="mb-2"><strong>Тестовые данные:</strong></p>
-        <p>Логин: <code class="bg-gray-100 px-2 py-1 rounded">admin</code></p>
-        <p>Пароль: <code class="bg-gray-100 px-2 py-1 rounded">admin</code></p>
-      </div>
+
     </div>
 
     <!-- Модаль обязательной смены пароля при первом входе -->
     <transition name="modal-fade">
       <div v-if="showPasswordChangeModal" class="modal-overlay" @click.self="null">
         <div class="modal-content">
-          <h2 class="text-2xl font-bold text-gray-900 mb-4">Смена пароля при первом входе</h2>
-          <p class="text-gray-600 mb-6">
+          <h2 class="modal-title">Смена пароля при первом входе</h2>
+          <p class="modal-description">
             Вы входите в систему впервые. Пожалуйста, установите новый пароль для вашего аккаунта.
           </p>
 
-          <form @submit.prevent="handlePasswordChange" class="space-y-4">
+          <form @submit.prevent="handlePasswordChange" class="modal-form">
             <!-- Ошибка -->
             <div v-if="passwordChangeError" class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
               {{ passwordChangeError }}
             </div>
 
             <!-- Текущий пароль (временный) -->
-            <div>
-              <label for="current-password" class="block text-sm font-medium text-gray-700 mb-1">
-                Текущий пароль (временный: 12345678)
+            <div class="form-field">
+              <label for="current-password" class="form-label">
+                Текущий пароль
               </label>
               <input
                 id="current-password"
                 v-model="passwordChangeForm.currentPassword"
                 type="password"
-                placeholder="12345678"
-                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 bg-white placeholder-gray-500"
+                placeholder="Введите текущий пароль"
+                class="form-input"
               />
             </div>
 
             <!-- Новый пароль -->
-            <div>
-              <label for="new-password" class="block text-sm font-medium text-gray-700 mb-1">
+            <div class="form-field">
+              <label for="new-password" class="form-label">
                 Новый пароль
               </label>
               <input
@@ -103,14 +100,14 @@
                 v-model="passwordChangeForm.newPassword"
                 type="password"
                 placeholder="Введите новый пароль"
-                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 bg-white placeholder-gray-500"
+                class="form-input"
                 required
               />
             </div>
 
             <!-- Подтверждение пароля -->
-            <div>
-              <label for="confirm-password" class="block text-sm font-medium text-gray-700 mb-1">
+            <div class="form-field">
+              <label for="confirm-password" class="form-label">
                 Подтверждение пароля
               </label>
               <input
@@ -118,19 +115,21 @@
                 v-model="passwordChangeForm.confirmPassword"
                 type="password"
                 placeholder="Подтвердите пароль"
-                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 bg-white placeholder-gray-500"
+                class="form-input"
                 required
               />
             </div>
 
             <!-- Кнопка подтверждения -->
-            <button
-              type="submit"
-              :disabled="isChangingPassword"
-              class="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-bold py-2 px-4 rounded-lg transition duration-200"
-            >
-              {{ isChangingPassword ? 'Сохранение...' : 'Изменить пароль' }}
-            </button>
+            <div class="form-field form-field-submit">
+              <button
+                type="submit"
+                :disabled="isChangingPassword"
+                class="submit-btn"
+              >
+                {{ isChangingPassword ? 'Сохранение...' : 'Изменить пароль' }}
+              </button>
+            </div>
           </form>
         </div>
       </div>
@@ -167,7 +166,7 @@ const passwordChangeForm = reactive({
 onMounted(() => {
   // Восстанавливаем сессию из localStorage
   userStore.restoreSession()
-  
+
   // Если уже авторизован и нужна смена пароля - показываем модаль
   if (userStore.isAuthenticated && userStore.user?.needsPasswordChange) {
     console.log('[OnMounted] User needs password change, showing modal')
@@ -177,7 +176,7 @@ onMounted(() => {
     console.log('[OnMounted] passwordChangeForm.currentPassword:', passwordChangeForm.currentPassword)
     return
   }
-  
+
   // Если уже авторизован и не нужна смена пароля - редирект
   if (userStore.isAuthenticated && !userStore.user?.needsPasswordChange) {
     console.log('[OnMounted] User already authenticated, redirecting to inventory')
@@ -288,14 +287,14 @@ async function handlePasswordChange() {
       console.log('[PasswordChange] Success! Password changed')
       // Успешно изменили пароль
       showPasswordChangeModal.value = false
-      
+
       // Очищаем форму
       form.login = ''
       form.password = ''
       passwordChangeForm.currentPassword = ''
       passwordChangeForm.newPassword = ''
       passwordChangeForm.confirmPassword = ''
-      
+
       // Обновляем флаг в userStore
       if (userStore.user) {
         userStore.user.needsPasswordChange = false
@@ -321,6 +320,86 @@ async function handlePasswordChange() {
   overflow: hidden;
 }
 
+.login-card {
+  background-color: white;
+  border-radius: 0.5rem;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+  padding: 48px;
+  width: 100%;
+  max-width: 32rem;
+}
+
+.login-header {
+  text-align: center;
+  margin-bottom: 32px;
+}
+
+.login-form {
+  display: flex;
+  flex-direction: column;
+}
+
+.login-form .form-field input {
+  padding: 0.75rem 1rem;
+  font-size: 1.0625rem;
+  width: 100%;
+  border: 1px solid #d1d5db;
+  border-radius: 0.5rem;
+  color: #111827;
+  background-color: white;
+  box-sizing: border-box;
+}
+
+.login-form .form-field input:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.3);
+}
+
+.login-form .form-field input::placeholder {
+  color: #9ca3af;
+}
+
+.login-form .form-field input:disabled {
+  background-color: #f3f4f6;
+  cursor: not-allowed;
+}
+
+.form-field {
+  margin-bottom: 24px;
+}
+
+.form-field-submit {
+  margin-bottom: 0;
+}
+
+.login-btn-wrapper {
+  display: flex;
+  justify-content: center;
+}
+
+.login-btn {
+  min-width: 200px;
+  background-color: #2563eb;
+  color: white;
+  font-weight: bold;
+  padding: 0.875rem 2.5rem;
+  border-radius: 0.5rem;
+  transition: background-color 0.2s;
+  border: none;
+  cursor: pointer;
+  font-size: 1.125rem;
+}
+
+.login-btn:hover:not(:disabled) {
+  background-color: #1d4ed8;
+}
+
+.login-btn:disabled {
+  background-color: #9ca3af;
+  cursor: not-allowed;
+}
+
 .modal-overlay {
   position: fixed;
   top: 0;
@@ -331,20 +410,93 @@ async function handlePasswordChange() {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
+  z-index: 9999;
   padding: 1rem;
-  pointer-events: all;
 }
 
 .modal-content {
   background-color: white;
   border-radius: 0.5rem;
   box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
-  padding: 2rem;
+  padding: 2.5rem;
   width: 100%;
-  max-width: 28rem;
+  max-width: 32rem;
   z-index: 1001;
   pointer-events: all;
+}
+
+.modal-title {
+  font-size: 1.5rem;
+  font-weight: bold;
+  color: #111827;
+  margin-bottom: 1rem;
+}
+
+.modal-description {
+  color: #6b7280;
+  margin-bottom: 1.5rem;
+}
+
+.modal-form {
+  display: flex;
+  flex-direction: column;
+}
+
+.form-field {
+  margin-bottom: 20px;
+}
+
+.form-field-submit {
+  margin-bottom: 0;
+}
+
+.form-label {
+  display: block;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #374151;
+  margin-bottom: 0.25rem;
+}
+
+.form-input {
+  width: 100%;
+  padding: 0.5rem 1rem;
+  border: 1px solid #d1d5db;
+  border-radius: 0.5rem;
+  font-size: 1rem;
+  color: #111827;
+  background-color: white;
+}
+
+.form-input:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.5);
+}
+
+.form-input::placeholder {
+  color: #9ca3af;
+}
+
+.submit-btn {
+  width: 100%;
+  background-color: #2563eb;
+  color: white;
+  font-weight: bold;
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  transition: background-color 0.2s;
+  border: none;
+  cursor: pointer;
+}
+
+.submit-btn:hover:not(:disabled) {
+  background-color: #1d4ed8;
+}
+
+.submit-btn:disabled {
+  background-color: #9ca3af;
+  cursor: not-allowed;
 }
 
 .modal-fade-enter-active,

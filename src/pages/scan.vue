@@ -137,7 +137,7 @@ interface ShipmentHistory {
 
 const lastScannedCode = ref('')
 const scanInputRef = ref<InputInst | null>(null)
-let scanTimeout: ReturnType<typeof setTimeout> | null = null
+let isScanning = false
 const scannedCodes = ref<ScannedQRCode[]>([])
 const scanHistory = ref<{ time: Date; code: string; resultMessage: string; resultType: 'success' | 'error' | 'warning' }[]>([])
 const shipmentHistory = ref<ShipmentHistory[]>([])
@@ -492,6 +492,9 @@ const convertRussianKeyboardToLatin = (text: string): string => {
 }
 
 const handleScan = async () => {
+  if (isScanning) return
+  isScanning = true
+  try {
   // Очищаем код от спецсимволов сканера, конвертируем раскладку и убираем не-ASCII
   const code = convertRussianKeyboardToLatin(
     lastScannedCode.value
@@ -723,6 +726,9 @@ const handleScan = async () => {
   nextTick(() => {
     scanInputRef.value?.focus()
   })
+} finally {
+  isScanning = false
+}
 }
 
 const checkOrderStatus = (orderNumber: string | undefined) => {
@@ -861,14 +867,6 @@ const handlePrimaryAction = async () => {
 
 // Показываем только последние 5 отгрузок
 const recentShipments = computed(() => shipmentHistory.value.slice(0, 5))
-
-watch(lastScannedCode, (val) => {
-  if (scanTimeout) clearTimeout(scanTimeout)
-  if (!val.trim()) return
-  scanTimeout = setTimeout(() => {
-    handleScan()
-  }, 300)
-})
 
 watch(scannedCodes, () => {
   nextTick(() => recalcShipmentValidation())

@@ -127,20 +127,23 @@
     <n-empty size="large" description="Сотрудник не найден в базе данных" />
   </div>
 
-  <!-- Модалка возврата инструмента -->
+  <!-- Модалка возврата материала -->
   <n-modal
     v-model:show="showReturnModal"
     preset="card"
-    title="Сдача инструмента"
+    title="Сдача материала"
     class="w-md!"
     :auto-focus="false"
   >
     <n-form :model="returnForm" label-placement="top">
-      <n-form-item label="Инструмент">
+      <n-form-item label="Материал">
         <n-text strong class="text-blue-500 text-lg uppercase block mb-2 px-1">
-          {{ toolsStore.getToolById(selectedToolId || '')?.name }}
+          {{ selectedCheckout?.name }}
         </n-text>
-        <n-badge type="info" :value="toolsStore.getToolById(selectedToolId || '')?.inventoryNumber || 'ИНВ-???'" />
+        <n-badge type="info" :value="selectedCheckout?.inventoryNumber || '—'" />
+      </n-form-item>
+      <n-form-item label="Количество">
+        <n-text>{{ selectedCheckout?.checkedOut }} {{ selectedCheckout?.unit || 'шт' }}</n-text>
       </n-form-item>
       <n-form-item label="Причина сдачи">
         <n-select v-model:value="returnForm.reason" :options="returnReasonOptions" />
@@ -164,7 +167,7 @@ import { ref, computed, h, reactive, watch, onMounted } from 'vue'
 import { useEmployeesStore } from '@/stores/employees'
 import { useToolsStore } from '@/stores/tools'
 import EmployeeOperationHistory from './EmployeeOperationHistory.vue'
-import type { Employee, Tool } from '@/types'
+import type { Employee } from '@/types'
 import type { DataTableColumns } from 'naive-ui'
 import {
   NCard,
@@ -238,6 +241,11 @@ const returnReasonOptions = [
   { label: 'Требуется ремонт', value: 'repair' }
 ]
 
+const selectedCheckout = computed(() => {
+  if (!selectedToolId.value) return null
+  return employeeTools.value.find((t: any) => t.id === selectedToolId.value) || null
+})
+
 const handleReturnTool = (toolId: string) => {
   selectedToolId.value = toolId
   returnForm.reason = 'warehouse'
@@ -249,41 +257,38 @@ const confirmReturn = async () => {
   if (!selectedToolId.value) return
 
   try {
-    if (returnForm.reason === 'repair') {
-      const tool = toolsStore.getToolById(selectedToolId.value)
-      if (tool) {
-        await toolsStore.reportBreakdown(selectedToolId.value, returnForm.notes || 'Возврат с дефектом')
-      }
-    } else {
-      // Обычная сдача на склад
-      await toolsStore.returnTool(selectedToolId.value)
-    }
-
-    message.success('Инструмент успешно сдан')
+    await toolsStore.returnTool(selectedToolId.value)
+    message.success('Материал успешно сдан на склад')
     showReturnModal.value = false
     selectedToolId.value = null
   } catch (err) {
-    message.error('Ошибка при сдаче инструмента')
-    console.error('Error returning tool:', err)
+    message.error('Ошибка при сдаче материала')
+    console.error('Error returning material:', err)
   }
 }
 
-const toolColumns: DataTableColumns<Tool> = [
+const toolColumns: DataTableColumns<any> = [
   {
-    title: 'Инструмент',
+    title: 'Наименование',
     key: 'name',
     render: (row) => h('div', { class: 'flex items-center gap-3' }, [
       h(NIcon, { size: '20', color: '#f0a020' }, { default: () => h(BuildOutline) }),
       h('div', [
         h('div', { class: 'font-bold text-white' }, row.name),
-        h('div', { class: 'text-[10px] text-gray-500 uppercase' }, row.type)
+        h('div', { class: 'text-[10px] text-gray-500 uppercase' }, 'Хоз. инвентарь')
       ])
     ])
   },
   {
-    title: 'Инв. номер',
+    title: 'Артикул',
     key: 'inventoryNumber',
-    render: (row) => h('div', { class: 'font-mono text-gray-400' }, row.inventoryNumber)
+    render: (row) => h('div', { class: 'font-mono text-gray-400' }, row.inventoryNumber || '—')
+  },
+  {
+    title: 'Кол-во',
+    key: 'checkedOut',
+    width: 80,
+    render: (row) => h('div', { class: 'text-center' }, `${row.checkedOut} ${row.unit || 'шт'}`)
   },
   {
     title: 'Дата выдачи',
@@ -292,20 +297,6 @@ const toolColumns: DataTableColumns<Tool> = [
       h(NIcon, { size: '14' }, { default: () => h(TimeOutline) }),
       h('span', row.issuedAt ? formatDate(row.issuedAt) : '-')
     ])
-  },
-  {
-    title: 'Статус',
-    key: 'status',
-    render: (row) => {
-      const statusMap: Record<string, { label: string, type: 'success' | 'info' | 'warning' | 'error' | 'default' }> = {
-        'in_stock': { label: 'На складе', type: 'success' },
-        'issued': { label: 'Выдано', type: 'info' },
-        'repair': { label: 'В ремонте', type: 'warning' },
-        'written_off': { label: 'Списано', type: 'error' }
-      }
-      const s = statusMap[row.status] || { label: row.status, type: 'default' }
-      return h(NTag, { size: 'small', type: s.type, quaternary: true }, { default: () => s.label })
-    }
   },
   {
     title: 'Действия',
@@ -323,7 +314,7 @@ const toolColumns: DataTableColumns<Tool> = [
 ]
 
 const employeeTools = computed(() => {
-  return toolsStore.tools.filter(t => t.issuedTo === currentEmployee.value.id)
+  return toolsStore.getToolsIssuedToEmployee(currentEmployee.value.id)
 })
 
 const avatarSrc = computed(() => {
@@ -355,9 +346,8 @@ const getRoleLabel = (role: Employee['role']) => {
   const roleMap: Record<Employee['role'], string> = {
     'admin': 'Администратор',
     'manager': 'Менеджер',
-    'worker': 'Рабочий',
-    'warehouse': 'Кладовщик',
-    'production': 'Производство'
+    'storekeeper': 'Кладовщик',
+    'worker': 'Рабочий'
   }
   return roleMap[role] || role
 }
@@ -366,9 +356,8 @@ const getRoleColor = (role: Employee['role']) => {
   const colorMap: Record<Employee['role'], string> = {
     'admin': 'error',
     'manager': 'warning',
-    'worker': 'info',
-    'warehouse': 'success',
-    'production': 'default'
+    'storekeeper': 'success',
+    'worker': 'info'
   }
   return colorMap[role] || 'default'
 }

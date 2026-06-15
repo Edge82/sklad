@@ -2,7 +2,7 @@ export interface User {
   id: string;
   email: string;
   name: string;
-  role: 'director' | 'manager' | 'storekeeper' | 'worker';
+  role: 'admin' | 'manager' | 'storekeeper' | 'worker';
   department?: string;
   isActive: boolean;
   lastLogin?: Date;
@@ -276,7 +276,7 @@ export interface Employee {
   // Работа
   position: string;
   department: string;
-  role: 'admin' | 'manager' | 'worker' | 'warehouse' | 'production';
+  role: 'admin' | 'manager' | 'storekeeper' | 'worker';
   status: 'active' | 'inactive' | 'vacation' | 'sick';
   salary: number;
   hireDate: Date;
