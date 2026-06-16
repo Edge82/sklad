@@ -118,6 +118,7 @@ try { db.exec(`ALTER TABLE onec_stocks ADD COLUMN storageBin TEXT`) } catch(e) {
 try { db.exec(`ALTER TABLE onec_stocks ADD COLUMN barcode TEXT`) } catch(e) { /* already exists */ }
 try { db.exec(`ALTER TABLE onec_stocks ADD COLUMN image TEXT`) } catch(e) { /* already exists */ }
 try { db.exec(`ALTER TABLE onec_stocks ADD COLUMN local_only INTEGER DEFAULT 0`) } catch(e) { /* already exists */ }
+try { db.exec(`ALTER TABLE onec_stocks ADD COLUMN onec_image_key TEXT`) } catch(e) { /* already exists */ }
 try { db.exec(`ALTER TABLE onec_orders ADD COLUMN items TEXT DEFAULT '[]'`) } catch(e) { /* already exists */ }
 
 db.exec(`
@@ -136,6 +137,7 @@ db.exec(`
 `)
 
 try { db.exec(`ALTER TABLE onec_orders ADD COLUMN painting TEXT DEFAULT ''`) } catch(e) { /* already exists */ }
+try { db.exec(`ALTER TABLE onec_orders ADD COLUMN comment TEXT DEFAULT ''`) } catch(e) { /* already exists */ }
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS transfer_orders (
@@ -271,6 +273,16 @@ try {
 } catch (e) { /* column already exists */ }
 
 try {
+  db.prepare('ALTER TABLE transfer_orders ADD COLUMN status_key TEXT').run()
+  console.log('✓ Added status_key column to transfer_orders')
+} catch (e) { /* column already exists */ }
+
+try {
+  db.prepare('ALTER TABLE transfer_orders ADD COLUMN status_description TEXT').run()
+  console.log('✓ Added status_description column to transfer_orders')
+} catch (e) { /* column already exists */ }
+
+try {
   db.prepare('ALTER TABLE users ADD COLUMN needs_password_change INTEGER DEFAULT 1').run()
   console.log('✓ Added needs_password_change column to users')
 } catch (e) { /* column already exists */ }
@@ -340,10 +352,7 @@ try {
 // ============================================================
 
 export const testUsers = [
-  { login: 'admin', password: 'admin', fullName: 'Admin User', role: 'director' },
-  { login: 'manager', password: 'manager', fullName: 'Manager User', role: 'manager' },
-  { login: 'storekeeper', password: 'storekeeper', fullName: 'Storekeeper User', role: 'storekeeper' },
-  { login: 'worker', password: 'worker', fullName: 'Worker User', role: 'worker' }
+  { login: 'admin', password: 'admin', fullName: 'Admin User', role: 'admin' }
 ]
 
 for (const user of testUsers) {
@@ -535,6 +544,28 @@ try {
   }
 } catch (err) {
   console.error('Error initializing tool_operations table:', err.message)
+}
+
+try {
+  const materialCheckoutsTableExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='material_checkouts'").get()
+  if (!materialCheckoutsTableExists) {
+    db.exec(`
+      CREATE TABLE material_checkouts (
+        id TEXT PRIMARY KEY,
+        material_ref_key TEXT NOT NULL,
+        material_name TEXT NOT NULL,
+        sku TEXT DEFAULT '',
+        employee_id TEXT NOT NULL,
+        employee_name TEXT NOT NULL,
+        quantity REAL NOT NULL DEFAULT 1,
+        date TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      )
+    `)
+    console.log('✓ Created material_checkouts table')
+  }
+} catch (err) {
+  console.error('Error initializing material_checkouts table:', err.message)
 }
 
 console.log('✅ Database initialized')

@@ -456,7 +456,7 @@
   </div>
 
   <!-- Модал создания нового заказа на перемещение -->
-  <n-modal v-model:show="showCreateModal" :mask-closable="false" :close-on-esc="false" preset="card" style="width: 800px; max-width: 95vw" :title="editingOrderRefKey ? 'Редактировать товары' : 'Новый заказ на перемещение'" :segmented="{ content: true }">
+  <n-modal v-model:show="showCreateModal" :mask-closable="false" :close-on-esc="false" preset="card" style="width: 1100px; max-width: 98vw" :title="editingOrderRefKey ? 'Редактировать товары' : 'Новый заказ на перемещение'" :segmented="{ content: true }">
     <div class="space-y-4">
       <n-grid :cols="2" :x-gap="12">
         <n-gi>
@@ -475,18 +475,22 @@
 
       <n-grid :cols="2" :x-gap="12">
         <n-gi>
-          <n-form-item label="Заказ покупателя">
-            <n-select v-model:value="createForm.customerOrderKey" :options="customerOrderOptions" filterable placeholder="Выберите заказ" clearable @update:value="createForm.selectedProduct = ''" />
+          <n-form-item label="Заказ покупателя (для всех товаров)">
+            <n-select v-model:value="createForm.customerOrderKey" :options="customerOrderOptions" filterable placeholder="Выберите заказ" clearable :disabled="hasPerItemCustomerOrder" @update:value="onGlobalCustomerOrderChange" />
           </n-form-item>
         </n-gi>
         <n-gi>
           <n-form-item label="Изделие из заказа">
-            <n-select v-model:value="createForm.selectedProduct" :options="selectedOrderProducts" filterable placeholder="Выберите изделие" clearable :disabled="!createForm.customerOrderKey" />
+            <n-select v-model:value="createForm.selectedProduct" :options="selectedOrderProducts" filterable placeholder="Выберите изделие" clearable :disabled="!createForm.customerOrderKey || hasPerItemCustomerOrder" />
           </n-form-item>
         </n-gi>
       </n-grid>
 
-      <n-card size="small" title="Сканирование товаров" :segmented="true">
+      <n-card size="small" title="Товары" :segmented="true">
+        <p class="text-xs mb-2" style="color: var(--n-text-color-3);">
+          Для каждого товара можно указать свой заказ покупателя и изделие из него.
+          Если выбран заказ покупателя для конкретного товара, общий выбор блокируется.
+        </p>
         <div class="flex gap-2 mb-4" style="position: relative; margin-bottom: 12px">
           <n-input
             ref="createBarcodeInputRef"
@@ -561,6 +565,7 @@ import {
   NGrid,
   NGi,
   NButton,
+  NPopconfirm,
   NIcon,
   NText,
   NTag,
@@ -593,6 +598,7 @@ interface TransferOrder {
   destinationWarehouseName?: string
   customerOrderKey?: string
   customerOrderNumber?: string
+  perItemCustomerOrders?: string[]
   saved?: boolean
   items?: Array<{
     LineNumber: number
@@ -661,6 +667,9 @@ interface CreateItem {
   unitKey: string
   storageBin: string
   price: number
+  customerOrderKey: string
+  customerOrderNumber: string
+  selectedProduct: string
   _qtyInput?: string
 }
 
@@ -675,6 +684,10 @@ const createForm = reactive({
   selectedProduct: '',
   items: [] as CreateItem[]
 })
+
+const hasPerItemCustomerOrder = computed(() =>
+  createForm.items.some(i => i.customerOrderKey)
+)
 
 const customerOrderOptions = computed(() =>
   ordersStore.orders.map(o => ({
@@ -757,7 +770,12 @@ const handleProductSelectResult = (opt: { label: string; value: string }) => {
       unit: stock.unit || 'шт',
       unitKey: stock.unit_key || '',
       storageBin: stock.storageBin || '',
-      price: Number(stock.purchasePrice || stock.averagePrice || 0)
+      price: Number(stock.purchasePrice || stock.averagePrice || 0),
+      customerOrderKey: createForm.customerOrderKey || '',
+      customerOrderNumber: createForm.customerOrderKey
+        ? (ordersStore.orders.find(o => o.id === createForm.customerOrderKey)?.orderNumber || '')
+        : '',
+      selectedProduct: ''
     })
     message.success(`✓ Добавлен: ${stock.name || stock.product}`)
   }
@@ -858,7 +876,7 @@ const createItemsColumns: DataTableColumns<CreateItem> = [
   {
     title: '№',
     key: 'index',
-    width: 50,
+    width: 40,
     render: (_, index) => index + 1
   },
   {
@@ -869,30 +887,18 @@ const createItemsColumns: DataTableColumns<CreateItem> = [
   {
     title: 'Артикул',
     key: 'sku',
-    width: 120,
+    width: 100,
     render: (row) => row.sku || '-'
-  },
-  {
-    title: 'Штрихкод',
-    key: 'barcode',
-    width: 150,
-    render: (row) => h('code', {}, row.barcode || '-')
-  },
-  {
-    title: 'Место хранения',
-    key: 'storageBin',
-    width: 150,
-    render: (row) => row.storageBin || '-'
   },
   {
     title: 'Кол-во',
     key: 'quantity',
-    width: 100,
+    width: 80,
     align: 'center',
     render: (row, index) => h(NInput, {
       value: createForm.items[index]?._qtyInput ?? String(row.quantity).replace('.', ','),
       size: 'small',
-      style: 'width: 70px; text-align: center',
+      style: 'width: 60px; text-align: center',
       onInput: (val: string) => {
         if (createForm.items[index]) {
           createForm.items[index]._qtyInput = val
@@ -909,9 +915,62 @@ const createItemsColumns: DataTableColumns<CreateItem> = [
     })
   },
   {
+    title: 'Заказ покупателя',
+    key: 'customerOrderKey',
+    width: 180,
+    render: (row, index) => h(NSelect, {
+      value: row.customerOrderKey || createForm.customerOrderKey,
+      options: customerOrderOptions.value,
+      filterable: true,
+      placeholder: 'Выберите заказ',
+      size: 'small',
+      style: 'width: 170px',
+      clearable: true,
+      'onUpdate:value': (val: string) => {
+        const item = createForm.items[index]
+        if (item) {
+          item.customerOrderKey = val || ''
+          item.customerOrderNumber = val
+            ? ordersStore.orders.find(o => o.id === val)?.orderNumber || ''
+            : ''
+          item.selectedProduct = ''
+        }
+      }
+    })
+  },
+  {
+    title: 'Изделие из заказа',
+    key: 'selectedProduct',
+    width: 180,
+    render: (row, index) => {
+      const orderKey = row.customerOrderKey || createForm.customerOrderKey
+      const products = orderKey ? getOrderProducts(orderKey) : []
+      return h(NSelect, {
+        value: row.selectedProduct,
+        options: products,
+        filterable: true,
+        placeholder: 'Выберите изделие',
+        size: 'small',
+        style: 'width: 170px',
+        clearable: true,
+        disabled: !orderKey,
+        'onUpdate:value': (val: string) => {
+          const item = createForm.items[index]
+          if (item) item.selectedProduct = val || ''
+        }
+      })
+    }
+  },
+  {
+    title: 'Место хранения',
+    key: 'storageBin',
+    width: 130,
+    render: (row) => row.storageBin || '-'
+  },
+  {
     title: '',
     key: 'actions',
-    width: 50,
+    width: 40,
     render: (_, index) => h(NButton, {
       text: true,
       type: 'error',
@@ -919,6 +978,28 @@ const createItemsColumns: DataTableColumns<CreateItem> = [
     }, { default: () => '✕' })
   }
 ]
+
+const onGlobalCustomerOrderChange = (value: string) => {
+  createForm.selectedProduct = ''
+  createForm.items.forEach(item => {
+    item.customerOrderKey = value || ''
+    item.customerOrderNumber = value
+      ? ordersStore.orders.find(o => o.id === value)?.orderNumber || ''
+      : ''
+    item.selectedProduct = ''
+  })
+}
+
+const getCustomerOrderOptions = () => customerOrderOptions.value
+
+const getOrderProducts = (orderKey: string) => {
+  if (!orderKey) return []
+  const order = ordersStore.orders.find(o => o.id === orderKey)
+  return (order?.items || []).map((item: any) => ({
+    label: item.productName || item.itemName || 'Без названия',
+    value: item.productName || item.itemName || ''
+  }))
+}
 
 const openCreateModal = async () => {
   editingOrderRefKey.value = null
@@ -1010,7 +1091,12 @@ const handleCreateScan = async () => {
         unit: found.unit || 'шт',
         unitKey: found.unit_key || '',
         storageBin: found.storageBin || '',
-        price: Number(found.purchasePrice || found.averagePrice || 0)
+        price: Number(found.purchasePrice || found.averagePrice || 0),
+        customerOrderKey: createForm.customerOrderKey || '',
+        customerOrderNumber: createForm.customerOrderKey
+          ? (ordersStore.orders.find(o => o.id === createForm.customerOrderKey)?.orderNumber || '')
+          : '',
+        selectedProduct: ''
       })
       message.success(`✓ Добавлен: ${found.name}`)
     } else {
@@ -1037,7 +1123,10 @@ const saveCreateOrder = async () => {
       quantity: item.quantity,
       unitKey: item.unitKey,
       storageBin: item.storageBin,
-      price: item.price || 0
+      price: item.price || 0,
+      customerOrderKey: item.customerOrderKey || undefined,
+      customerOrderNumber: item.customerOrderNumber || undefined,
+      selectedProduct: item.selectedProduct || undefined
     }))
 
     // If editing existing local order, use PUT
@@ -1147,7 +1236,10 @@ const saveCreateAndSendTo1C = async () => {
       quantity: item.quantity,
       unitKey: item.unitKey,
       storageBin: item.storageBin,
-      price: item.price || 0
+      price: item.price || 0,
+      customerOrderKey: item.customerOrderKey || undefined,
+      customerOrderNumber: item.customerOrderNumber || undefined,
+      selectedProduct: item.selectedProduct || undefined
     }))
 
     const res = await fetch('/sklad/api/transfer-orders/create', {
@@ -1194,6 +1286,7 @@ const saveCreateAndSendTo1C = async () => {
     closeCreateModal()
     const data = await fetchTransferOrders()
     orders.value = data
+    window.dispatchEvent(new CustomEvent('transferOrderOperation'))
   } catch (err) {
     message.error(err instanceof Error ? err.message : 'Ошибка')
   } finally {
@@ -1524,8 +1617,15 @@ const columns: DataTableColumns<TransferOrder> = [
   {
     title: 'Заказ покупателя',
     key: 'customerOrderNumber',
-    width: 150,
-    render: (row) => row.customerOrderNumber || '-'
+    width: 170,
+    render: (row) => {
+      const val = row.customerOrderNumber
+      if (!val) return '-'
+      if (val === 'Разные заказы') {
+        return h('span', { style: 'color: var(--n-text-color-3); font-style: italic' }, 'В табличной части')
+      }
+      return val
+    }
   },
   {
     title: 'Состояние',
@@ -1537,6 +1637,27 @@ const columns: DataTableColumns<TransferOrder> = [
       return h(NTag, { type }, {
         default: () => status
       })
+    }
+  },
+  {
+    title: '',
+    key: 'actions',
+    width: 60,
+    render: (row) => {
+      if (!row.Ref_Key?.startsWith('LOCAL-')) return null
+      return h('div', { onClick: (e: MouseEvent) => e.stopPropagation() }, [
+        h(NPopconfirm, {
+          onPositiveClick: () => handleDeleteLocalOrder(row),
+          positiveButtonProps: { type: 'error' as const }
+        }, {
+          default: () => 'Удалить черновик?',
+          trigger: () => h(NButton, {
+            text: true,
+            type: 'error',
+            size: 'small'
+          }, { default: () => '✕' })
+        })
+      ])
     }
   },
 ]
@@ -1552,6 +1673,12 @@ const itemsColumns: DataTableColumns<any> = [
     key: 'barcode',
     width: 120,
     render: (row) => row.barcode || '-'
+  },
+  {
+    title: 'Заказ покупателя',
+    key: 'customerOrderNumber',
+    width: 150,
+    render: (row) => row.customerOrderNumber || '-'
   },
   {
     title: 'Место хранения',
@@ -1633,6 +1760,12 @@ const localItemsColumns: DataTableColumns<any> = [
     key: 'barcode',
     width: 120,
     render: (row) => row.barcode || '-'
+  },
+  {
+    title: 'Заказ покупателя',
+    key: 'customerOrderNumber',
+    width: 150,
+    render: (row) => row.customerOrderNumber || '-'
   },
   {
     title: 'Место хранения',
@@ -1731,6 +1864,12 @@ const itemsScanColumns: DataTableColumns<any> = [
     key: 'barcode',
     width: 150,
     render: (row) => h('code', {}, row.barcode || '-')
+  },
+  {
+    title: 'Заказ покупателя',
+    key: 'customerOrderNumber',
+    width: 150,
+    render: (row) => row.customerOrderNumber || '-'
   },
   {
     title: 'Место хранения',
@@ -1950,6 +2089,7 @@ const submitToOnec = async () => {
     lastBarcode.value = ''
     selectedOrder.value = null
     selectedOrderId.value = null
+    window.dispatchEvent(new CustomEvent('transferOrderOperation'))
   } catch (error) {
     console.error('Ошибка при отправке в 1C:', error)
     message.error('Ошибка при отправке в 1C')
@@ -2000,6 +2140,7 @@ const sendTo1C = async () => {
     orders.value = data
     selectedOrder.value = null
     selectedOrderId.value = null
+    window.dispatchEvent(new CustomEvent('transferOrderOperation'))
   } else {
     message.error(result.error || 'Ошибка отправки в 1С')
   }
@@ -2023,7 +2164,10 @@ const openAddItemsModal = () => {
       unit: item.unit || 'шт',
       unitKey: item.unitKey || '',
       storageBin: item.storageBin || '',
-      price: Number(item.price || item.Цена || 0)
+      price: Number(item.price || item.Цена || 0),
+      customerOrderKey: item.customerOrderKey || '',
+      customerOrderNumber: item.customerOrderNumber || '',
+      selectedProduct: item.selectedProduct || ''
     }))
   }
   createForm.sourceWarehouseKey = selectedOrder.value?.sourceWarehouseKey || ''
@@ -2247,6 +2391,28 @@ onBeforeUnmount(() => {
   if (saveTimeout) clearTimeout(saveTimeout)
   if (scanTimeout) clearTimeout(scanTimeout)
 })
+
+const handleDeleteLocalOrder = async (order: TransferOrder) => {
+  try {
+    const res = await fetch(`/sklad/api/onec/transfer-orders/${order.Ref_Key}`, {
+      method: 'DELETE',
+      headers: {
+        'Authorization': `Bearer ${localStorage.getItem('auth_token') || ''}`
+      }
+    })
+    const result = await res.json()
+    if (result.success) {
+      message.success('Черновик удалён')
+      const data = await fetchTransferOrders()
+      orders.value = data
+      window.dispatchEvent(new CustomEvent('transferOrderOperation'))
+    } else {
+      message.error(result.error || 'Ошибка удаления')
+    }
+  } catch (err) {
+    message.error(err instanceof Error ? err.message : 'Ошибка удаления')
+  }
+}
 </script>
 
 <style scoped>

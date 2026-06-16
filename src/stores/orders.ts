@@ -121,6 +121,7 @@ export const useOrdersStore = defineStore('orders', () => {
             priority: order.priority || 'medium',
             items: order.items || [],
             notes: order.notes || '',
+            comment: order.comment || '',
             totalAmount: Number(order.amount || order.СуммаДокумента || 0),
             plannedQuantity: order.items_count || 0,
             actualQuantity: 0,

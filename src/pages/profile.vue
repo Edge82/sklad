@@ -276,7 +276,8 @@ async function loadAllOperations() {
           id: `inv-${log.id}`,
           title: log.order_number ? `${log.order_number}${destLabel ? ` | ${destLabel}` : ''}` : destLabel || 'Готовая продукция',
           date: new Date(log.created_at),
-          items: []
+          items: [],
+          employeeName: log.employee_name || ''
         })
       } else if (opType.startsWith('tool_')) {
         const toolTitles: Record<string, string> = {
@@ -296,7 +297,8 @@ async function loadAllOperations() {
           date: new Date(log.created_at),
           items: [],
           action: toolActions[opType] || 'unknown',
-          subtitle: log.qr_code || ''
+          subtitle: log.qr_code || '',
+          employeeName: log.employee_name || ''
         })
       } else if (opType.startsWith('material_')) {
         const matTitles: Record<string, string> = {
@@ -316,7 +318,8 @@ async function loadAllOperations() {
           date: new Date(log.created_at),
           items: [],
           action: matActions[opType] || 'unknown',
-          subtitle: log.qr_code || ''
+          subtitle: log.qr_code || '',
+          employeeName: log.employee_name || ''
         })
       } else if (opType === 'transfer_order') {
         operations.push({
@@ -325,7 +328,8 @@ async function loadAllOperations() {
           title: `Перемещение${log.order_number ? ` | ${log.order_number}` : ''}`,
           date: new Date(log.created_at),
           items: [],
-          subtitle: typeof log.details === 'string' ? log.details : (log.details?.description || '')
+          subtitle: typeof log.details === 'string' ? log.details : (log.details?.description || ''),
+          employeeName: log.employee_name || ''
         })
       } else {
         const label = labelMap[opType] || opType
@@ -335,7 +339,8 @@ async function loadAllOperations() {
           title: log.order_number ? `${label} | ${log.order_number}` : label,
           date: new Date(log.created_at),
           items: [],
-          subtitle: log.product_name || log.details || ''
+          subtitle: log.product_name || log.details || '',
+          employeeName: log.employee_name || ''
         })
       }
     })
@@ -472,6 +477,12 @@ const operationsColumns: any[] = [
       }
       return 'Перемещение'
     }
+  },
+  {
+    title: 'Ответственный',
+    key: 'employeeName',
+    ellipsis: { tooltip: true },
+    render: (row: any) => row.employeeName || row.subtitle || '—'
   },
   {
     title: 'Описание',

@@ -30,6 +30,7 @@ export interface Order {
   priority?: 'low' | 'medium' | 'high' | 'urgent';
   items: OrderItem[];
   notes?: string;
+  comment?: string;
   totalAmount?: number;
   
   // Количественные показатели

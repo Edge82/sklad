@@ -296,9 +296,30 @@ export const useEmployeesStore = defineStore('employees', () => {
       return !isNaN(empUserId) && empUserId === searchUserId
     })
 
-    if (!employee && employees.value.length > 0) {
-      console.warn('addMaterialHistory: No employee found with matching userId', searchUserId, ', using first employee')
-      employee = employees.value[0]
+    if (!employee) {
+      if (employees.value.length > 0) {
+        console.warn('addMaterialHistory: No employee found with matching userId', searchUserId, ', using first employee')
+        employee = employees.value[0]
+      } else if (userStore.user) {
+        employee = {
+          id: userStore.user.id,
+          userId: String(userStore.user.id),
+          name: userStore.user.name || 'Пользователь',
+          email: userStore.user.email || '',
+          phone: '',
+          position: '',
+          department: userStore.user.department || '',
+          role: (userStore.user.role || 'worker') as Employee['role'],
+          status: 'active' as const,
+          hireDate: new Date(),
+          salary: 0,
+          currentTools: [],
+          currentOrders: [],
+          materialHistory: []
+        }
+        employees.value.push(employee)
+        console.log('addMaterialHistory: Created temporary employee from user', employee.name)
+      }
     }
 
     if (employee) {

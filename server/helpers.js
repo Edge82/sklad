@@ -2,6 +2,7 @@
  * Общие вспомогательные функции
  */
 import fs from 'fs'
+import jwt from 'jsonwebtoken'
 import db from './db.js'
 
 /**
@@ -83,6 +84,33 @@ export function transformOrderStatus(status1C) {
  */
 export function moscowNow() {
   return new Date().toLocaleString('sv-SE', { timeZone: 'Europe/Moscow' }).replace(' ', 'T')
+}
+
+/**
+ * Извлекает информацию о сотруднике из JWT токена в запросе
+ */
+export function getEmployeeFromRequest(req, JWT_SECRET) {
+  try {
+    const authHeader = req.headers.authorization || ''
+    let token = null
+    if (authHeader.startsWith('Bearer ')) {
+      token = authHeader.substring(7)
+    } else {
+      const cookies = req.headers.cookie || ''
+      const m = cookies.match(/auth_token=([^;]+)/)
+      if (m) token = decodeURIComponent(m[1])
+    }
+    if (token) {
+      const payload = jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] })
+      return {
+        employeeId: payload?.userId || null,
+        employeeName: payload?.login || 'Система'
+      }
+    }
+  } catch (err) {
+    console.log('⚠️ JWT verification failed in getEmployeeFromRequest:', err.message)
+  }
+  return { employeeId: null, employeeName: 'Система' }
 }
 
 /**

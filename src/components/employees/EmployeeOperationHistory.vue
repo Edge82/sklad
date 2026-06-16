@@ -34,7 +34,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, h, onMounted } from 'vue'
+import { ref, computed, h, onMounted, onActivated, onUnmounted } from 'vue'
 import {
   NCard,
   NButton,
@@ -86,6 +86,9 @@ const getOperationLabel = (operationType: string) => {
     'order_painting_updated': 'Окраска обновлена',
     'transfer_order_created': 'Заказ на перемещение создан',
     'transfer_order_completed': 'Заказ на перемещение завершен',
+    'transfer_order_sent': 'Заказ перемещения отправлен в 1С',
+    'transfer_order_deleted': 'Заказ перемещения удалён',
+    'transfer_order_updated': 'Заказ перемещения обновлён',
     'tool_issued': 'Выдача инструмента',
     'tool_returned': 'Возврат инструмента',
     'material_issued': 'Выдача инструмента',
@@ -168,7 +171,21 @@ const refreshOperations = () => {
 
 onMounted(() => {
   loadOperations(currentLimit.value)
+  window.addEventListener('transferOrderOperation', handleRefreshEvent)
 })
+
+onActivated(() => {
+  loadOperations(currentLimit.value)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('transferOrderOperation', handleRefreshEvent)
+})
+
+const handleRefreshEvent = () => {
+  currentLimit.value = props.limit || 5
+  loadOperations(currentLimit.value)
+}
 </script>
 
 <style scoped>

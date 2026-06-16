@@ -32,7 +32,7 @@ function getUserRoleFromRequest(req) {
   }
 }
 
-import { sendJSON, _readBody, writeSyncLog, logOperation, mapMaterialInvoiceRows, moscowNow } from './helpers.js'
+import { sendJSON, _readBody, writeSyncLog, logOperation, mapMaterialInvoiceRows, moscowNow, getEmployeeFromRequest } from './helpers.js'
 import { cache, unitsCache, lastSyncTime, updateLastSyncTime } from './cache.js'
 import {
   fetch1COData, fetch1CUnits, fetch1CCategories, fetch1CWarehouses,
@@ -650,11 +650,26 @@ const server = http.createServer(async (req, res) => {
 
         const stock = db.prepare('SELECT * FROM onec_stocks WHERE ref_key = ?').get(refKey)
 
+        // Look up employee name from database using employeeId from request body
+        let returnEmployeeName = null
+        let returnEmployeeId = null
+        const emp = db.prepare('SELECT id, name FROM employees WHERE id = ?').get(employeeId)
+        if (emp) {
+          returnEmployeeName = emp.name
+          returnEmployeeId = emp.id
+        } else {
+          // Fallback to JWT
+          const jwtEmp = getEmployeeFromRequest(req, JWT_SECRET)
+          returnEmployeeId = jwtEmp.employeeId
+          returnEmployeeName = jwtEmp.employeeName
+        }
+
         logOperation('material_returned', {
           productName: stock?.name || '',
           productId: refKey,
           orderNumber: stock?.sku || '',
-          employee_id: employeeId,
+          employee_id: returnEmployeeId || employeeId,
+          employee_name: returnEmployeeName,
           details: JSON.stringify({ quantity, deletedCheckoutIds: deletedIds })
         })
 
@@ -764,27 +779,83 @@ const server = http.createServer(async (req, res) => {
   // Transfer Orders list (from local DB)
   if (pathname === '/sklad/api/onec/transfer-orders' && req.method === 'GET') {
     try {
-      const orders = db.prepare('SELECT ref_key, order_number, date, source_warehouse_key, source_warehouse_name, destination_warehouse_key, destination_warehouse_name, customer_order_key, customer_order_number, posted, status_key, status_description FROM transfer_orders ORDER BY date DESC').all()
+      // Подтягиваем per-item заказы покупателя для заказов, где их нет
+      try { await syncTransferOrderItems() } catch (e) { /* ignore */ }
 
-      const result = orders.map(order => ({
-        Ref_Key: order.ref_key,
-        Number: order.order_number,
-        Date: order.date,
-        sourceWarehouseKey: order.source_warehouse_key,
-        sourceWarehouseName: order.source_warehouse_name,
-        destinationWarehouseKey: order.destination_warehouse_key,
-        destinationWarehouseName: order.destination_warehouse_name,
-        customerOrderKey: order.customer_order_key,
-        customerOrderNumber: order.customer_order_number,
-        Posted: order.posted === 1,
-        statusKey: order.status_key || '',
-        statusDescription: order.ref_key?.startsWith?.('LOCAL-') ? 'Черновик' : (order.status_description || 'В работе')
-      }))
+      const orders = db.prepare('SELECT ref_key, order_number, date, source_warehouse_key, source_warehouse_name, destination_warehouse_key, destination_warehouse_name, customer_order_key, customer_order_number, posted, status_key, status_description, items FROM transfer_orders ORDER BY date DESC').all()
+
+      const result = orders.map(order => {
+        let perItemCustomerOrders = []
+        let displayCustomerOrderNumber = order.customer_order_number || ''
+        // Всегда проверяем per-item заказы, если есть товары — override на основе реальных данных
+        if (order.items) {
+          try {
+            const itemsData = JSON.parse(order.items)
+            const custOrders = itemsData.map(i => i.customerOrderNumber || '').filter(Boolean)
+            const uniqueOrders = [...new Set(custOrders)]
+            if (uniqueOrders.length === 1) {
+              displayCustomerOrderNumber = uniqueOrders[0]
+            } else if (uniqueOrders.length > 1) {
+              displayCustomerOrderNumber = 'Разные заказы'
+              perItemCustomerOrders = uniqueOrders
+            }
+          } catch { /* ignore */ }
+        }
+
+        return {
+          Ref_Key: order.ref_key,
+          Number: order.order_number,
+          Date: order.date,
+          sourceWarehouseKey: order.source_warehouse_key,
+          sourceWarehouseName: order.source_warehouse_name,
+          destinationWarehouseKey: order.destination_warehouse_key,
+          destinationWarehouseName: order.destination_warehouse_name,
+          customerOrderKey: order.customer_order_key || '',
+          customerOrderNumber: displayCustomerOrderNumber,
+          perItemCustomerOrders,
+          Posted: order.posted === 1,
+          statusKey: order.status_key || '',
+          statusDescription: order.ref_key?.startsWith?.('LOCAL-') ? 'Черновик' : (order.status_description || 'В работе')
+        }
+      })
 
       sendJSON(res, 200, { value: result })
     } catch (err) {
       console.error('Error fetching transfer orders from DB:', err)
       sendJSON(res, 500, { error: 'Failed to fetch transfer orders' })
+    }
+    return
+  }
+
+  // Delete local transfer order
+  if (pathname.match(/^\/sklad\/api\/onec\/transfer-orders\/LOCAL-.+$/) && req.method === 'DELETE') {
+    try {
+      const orderId = pathname.split('/').pop()
+      const order = db.prepare('SELECT ref_key, order_number FROM transfer_orders WHERE ref_key = ?').get(orderId)
+      if (!order) {
+        sendJSON(res, 404, { error: 'Transfer order not found' })
+        return
+      }
+      db.prepare('DELETE FROM transfer_orders WHERE ref_key = ?').run(orderId)
+      let employeeName = 'Система'
+      try {
+        const authHeader = req.headers.authorization || ''
+        if (authHeader.startsWith('Bearer ')) {
+          const token = authHeader.substring(7)
+          const payload = jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] })
+          employeeName = payload?.login || 'Система'
+        }
+      } catch {}
+
+      logOperation('transfer_order_deleted', {
+        orderNumber: order.order_number,
+        employeeName,
+        employeeId: employeeName,
+        details: { refKey: orderId }
+      })
+      sendJSON(res, 200, { success: true })
+    } catch (err) {
+      sendJSON(res, 500, { error: err.message })
     }
     return
   }
@@ -839,6 +910,14 @@ const server = http.createServer(async (req, res) => {
 
         const itemPrice = Number(item.Цена || item.price || 0)
 
+        // Resolve customer order number from onec_orders if not set on item
+        let custOrderKey = item.customerOrderKey || ''
+        let custOrderNumber = item.customerOrderNumber || ''
+        if (custOrderKey && !custOrderNumber) {
+          const co = db.prepare('SELECT order_number FROM onec_orders WHERE ref_key = ?').get(custOrderKey)
+          if (co?.order_number) custOrderNumber = co.order_number
+        }
+
         // Нормализация: поддержка старого формата (productName, quantity) -> новый (nomenclatureName, Количество)
         return {
           LineNumber: item.LineNumber || idx + 1,
@@ -849,7 +928,10 @@ const server = http.createServer(async (req, res) => {
           barcode: stock?.barcode || stock?.sku || item.barcode || item.Номенклатура_Key || item.nomenclatureKey || '',
           storageBin: stock?.storageBin || item.storageBin || '',
           Цена: itemPrice || stockPrice,
-          price: itemPrice || stockPrice
+          price: itemPrice || stockPrice,
+          customerOrderKey: custOrderKey,
+          customerOrderNumber: custOrderNumber,
+          selectedProduct: item.selectedProduct || ''
         }
       })
 
@@ -864,6 +946,8 @@ const server = http.createServer(async (req, res) => {
         destinationWarehouseKey: order.destination_warehouse_key,
         sourceWarehouseName: order.source_warehouse_name || 'Unknown',
         destinationWarehouseName: order.destination_warehouse_name || 'Unknown',
+        customerOrderKey: order.customer_order_key || '',
+        customerOrderNumber: order.customer_order_number || '',
         items: enrichedItems
       }
 
@@ -894,6 +978,29 @@ const server = http.createServer(async (req, res) => {
         const authHeader = getBasicAuthHeader()
         const baseUrl = ONEC_CONFIG.baseUrl.replace(/\/$/, '')
 
+        // Get user info from JWT FIRST — before any 1C interaction
+        let employeeName = 'System'
+        let employeeId = null
+        try {
+          const reqAuth = req.headers.authorization || ''
+          let token = null
+          const bearerMatch = reqAuth.match(/^Bearer\s+(.+)$/i)
+          if (bearerMatch) {
+            token = bearerMatch[1]
+          } else {
+            const cookies = req.headers.cookie || ''
+            const m = cookies.match(/auth_token=([^;]+)/)
+            if (m) token = decodeURIComponent(m[1])
+          }
+          if (token) {
+            const payload = jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] })
+            employeeName = payload?.login || 'System'
+            employeeId = payload?.userId || null
+          }
+        } catch {
+          console.log('⚠️ JWT verification failed in complete handler')
+        }
+
         const statusCatalog = 'Catalog_СостоянияЗаказовНаПеремещение'
         let statusKey = ''
 
@@ -903,46 +1010,38 @@ const server = http.createServer(async (req, res) => {
             headers: { 'Authorization': authHeader, 'Accept': 'application/json' }
           })
 
-          if (!catalogResponse.ok) {
-            throw new Error(`Failed to fetch status catalog: ${catalogResponse.status}`)
-          }
+          if (catalogResponse.ok) {
+            const catalogData = await catalogResponse.json()
+            const statusItems = catalogData.value || []
 
-          const catalogData = await catalogResponse.json()
-          const statusItems = catalogData.value || []
-
-          let foundStatus = statusItems.find(item => {
-            const desc = String(item.Description || '').trim()
-            return desc === targetStatusName
-          })
-
-          if (!foundStatus) {
-            foundStatus = statusItems.find(item => {
+            let foundStatus = statusItems.find(item => {
               const desc = String(item.Description || '').trim()
-              return desc === 'Завершен' || desc.startsWith('Завершен')
+              return desc === targetStatusName
             })
-          }
 
-          if (!foundStatus && targetStatusName.toLowerCase().includes('завершен')) {
-            foundStatus = statusItems.find(item => {
-              const desc = String(item.Description || '').trim().toLowerCase()
-              return desc.includes('завершен')
-            })
-          }
+            if (!foundStatus) {
+              foundStatus = statusItems.find(item => {
+                const desc = String(item.Description || '').trim()
+                return desc === 'Завершен' || desc.startsWith('Завершен')
+              })
+            }
 
-          if (foundStatus?.Ref_Key) {
-            statusKey = foundStatus.Ref_Key
-          } else {
-            if (statusItems.length > 1) {
+            if (!foundStatus && targetStatusName.toLowerCase().includes('завершен')) {
+              foundStatus = statusItems.find(item => {
+                const desc = String(item.Description || '').trim().toLowerCase()
+                return desc.includes('завершен')
+              })
+            }
+
+            if (foundStatus?.Ref_Key) {
+              statusKey = foundStatus.Ref_Key
+            } else if (statusItems.length > 1) {
               statusKey = statusItems[1].Ref_Key
             } else if (statusItems.length === 1) {
               statusKey = statusItems[0].Ref_Key
-            } else {
-              throw new Error('No statuses found in catalog')
             }
           }
-        } catch (err) {
-          throw err
-        }
+        } catch { /* 1C unreachable — continue with empty statusKey */ }
 
         let updated = false
         try {
@@ -968,26 +1067,6 @@ const server = http.createServer(async (req, res) => {
 
         const deletedScans = db.prepare('DELETE FROM transfer_order_scans WHERE order_ref_key = ?').run(orderId)
 
-        // Get user info from JWT
-        let employeeName = 'System'
-        let employeeId = null
-        try {
-          const authHeader = req.headers.authorization || ''
-          if (authHeader.startsWith('Bearer ')) {
-            const payload = jwt.verify(authHeader.substring(7), JWT_SECRET, { algorithms: ['HS256'] })
-            employeeName = payload?.login || 'System'
-            employeeId = payload?.userId || null
-          } else {
-            const cookies = req.headers.cookie || ''
-            const m = cookies.match(/auth_token=([^;]+)/)
-            if (m) {
-              const payload = jwt.verify(decodeURIComponent(m[1]), JWT_SECRET)
-              employeeName = payload?.login || 'System'
-              employeeId = payload?.userId || null
-            }
-          }
-        } catch {}
-
         // Если у заказа нет ответственного — проставляем того, кто завершил
         const currentOrder = db.prepare('SELECT created_by FROM transfer_orders WHERE ref_key = ?').get(orderId)
         if (currentOrder && (!currentOrder.created_by || currentOrder.created_by === '')) {
@@ -996,6 +1075,7 @@ const server = http.createServer(async (req, res) => {
         }
 
         const order = db.prepare('SELECT * FROM transfer_orders WHERE ref_key = ?').get(orderId)
+        console.log(`[LOG] transfer_order_completed: ${order?.order_number || orderId} by ${employeeName}, updated: ${updated}`)
         logOperation('transfer_order_completed', {
           orderId,
           orderNumber: order?.order_number || orderId,
@@ -1149,20 +1229,22 @@ const server = http.createServer(async (req, res) => {
         let creatorName = 'Система'
         try {
           const authHeader = req.headers.authorization || ''
-          if (authHeader.startsWith('Bearer ')) {
-            const token = authHeader.substring(7)
-            const payload = jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] })
-            creatorName = payload?.login || 'Система'
+          let token = null
+          const bearerMatch = authHeader.match(/^Bearer\s+(.+)$/i)
+          if (bearerMatch) {
+            token = bearerMatch[1]
           } else {
             const cookies = req.headers.cookie || ''
-            const authTokenMatch = cookies.match(/auth_token=([^;]+)/)
-            if (authTokenMatch) {
-              const token = decodeURIComponent(authTokenMatch[1])
-              const payload = jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] })
-              creatorName = payload?.login || 'Система'
-            }
+            const m = cookies.match(/auth_token=([^;]+)/)
+            if (m) token = decodeURIComponent(m[1])
           }
-        } catch { /* fallback to default */ }
+          if (token) {
+            const payload = jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] })
+            creatorName = payload?.login || 'Система'
+          }
+        } catch {
+          console.log('⚠️ JWT verification failed in create handler, falling back to Система')
+        }
 
         const localRefKey = `LOCAL-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`
         const orderNumber = `LOCAL-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.random().toString(36).substr(2, 4).toUpperCase()}`
@@ -1178,22 +1260,11 @@ const server = http.createServer(async (req, res) => {
           destinationWarehouseKey, destinationWarehouseName || '', customerOrderKey || null,
           customerOrderNumber || null, itemsJson, now, selectedProduct || null, creatorName)
 
-        let employeeName = 'System'
-        let employeeId = null
-        try {
-          const cookies = req.headers.cookie || ''
-          const m = cookies.match(/auth_token=([^;]+)/)
-          if (m) {
-            const payload = jwt.verify(decodeURIComponent(m[1]), JWT_SECRET)
-            employeeName = payload?.login || 'System'
-            employeeId = payload?.userId || null
-          }
-        } catch {}
-
+        console.log(`[LOG] transfer_order_created: ${orderNumber} by ${creatorName}`)
         logOperation('transfer_order_created', {
           orderNumber,
-          employeeName,
-          employeeId: String(employeeId),
+          employeeName: creatorName,
+          employeeId: creatorName,
           details: {
             sourceWarehouse: sourceWarehouseName,
             destinationWarehouse: destinationWarehouseName,
@@ -1299,7 +1370,23 @@ const server = http.createServer(async (req, res) => {
           console.warn(`⚠️ Error looking up status: ${err.message}`)
         }
 
-        const docPayload = {
+        // Determine per-item customer orders
+        const perItemKeys = items.map(i => i.customerOrderKey).filter(Boolean)
+        const useTabularSection = perItemKeys.length > 0
+
+        const createItems = enrichedItems.map((item, idx) => ({
+          LineNumber: idx + 1,
+          Номенклатура_Key: item.nomenclatureKey || '',
+          Количество: Number(item.quantity) || 1,
+          ...(item.unitKey
+            ? { ЕдиницаИзмерения: item.unitKey, ЕдиницаИзмерения_Type: 'StandardODATA.Catalog_КлассификаторЕдиницИзмерения' }
+            : {}),
+          ...(item.customerOrderKey
+            ? { ЗаказПокупателя_Key: item.customerOrderKey }
+            : {})
+        }))
+
+        const createPayload = {
           Date: (() => {
             const d = new Date()
             const pad = (n) => String(n).padStart(2, '0')
@@ -1309,47 +1396,93 @@ const server = http.createServer(async (req, res) => {
           СтруктурнаяЕдиницаПолучатель_Key: order.destination_warehouse_key,
           ...(operationKey ? { ХозяйственнаяОперация_Key: operationKey } : {}),
           ...(statusKey ? { СостояниеЗаказа_Key: statusKey } : {}),
-          ...(order.customer_order_key ? { ЗаказПокупателя_Key: order.customer_order_key } : {}),
+          ...(useTabularSection
+            ? { ПоложениеЗаказаПокупателя: 'ВТабличнойЧасти' }
+            : {}),
+          ...(!useTabularSection && order.customer_order_key
+            ? { ЗаказПокупателя_Key: order.customer_order_key }
+            : {}),
           Posted: false,
-          Запасы: enrichedItems.map((item, idx) => ({
-            LineNumber: idx + 1,
-            Номенклатура_Key: item.nomenclatureKey || '',
-            Количество: Number(item.quantity) || 1,
-            ...(item.unitKey
-              ? { ЕдиницаИзмерения: item.unitKey, ЕдиницаИзмерения_Type: 'StandardODATA.Catalog_КлассификаторЕдиницИзмерения' }
-              : {})
-          }))
+          Запасы: createItems
         }
 
-        const controller = new AbortController()
-        const timeoutId = setTimeout(() => controller.abort(), 30000)
+        console.log('📤 POST create doc:', JSON.stringify(createPayload, null, 2))
 
-        const response = await fetch(url, {
-          method: 'POST',
-          signal: controller.signal,
-          headers: {
-            'Authorization': authHeader,
-            'Content-Type': 'application/json',
-            'Accept': 'application/json'
-          },
-          body: JSON.stringify(docPayload)
-        })
+        // Extract employee info FIRST
+        let employeeName = 'Система'
+        try {
+          const reqAuth = req.headers.authorization || ''
+          let token = null
+          const bearerMatch = reqAuth.match(/^Bearer\s+(.+)$/i)
+          if (bearerMatch) {
+            token = bearerMatch[1]
+          } else {
+            const cookies = req.headers.cookie || ''
+            const m = cookies.match(/auth_token=([^;]+)/)
+            if (m) token = decodeURIComponent(m[1])
+          }
+          if (token) {
+            const payload = jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] })
+            employeeName = payload?.login || 'Система'
+          }
+        } catch {
+          console.log('⚠️ JWT verification failed in send-to-1c handler')
+        }
 
-        clearTimeout(timeoutId)
+        let onecRefKey = null
+        let onecError = null
+        let sent = false
 
-        if (response.ok) {
-          const result = await response.json()
-          const onecRefKey = result['Ref_Key'] || null
+        try {
+          const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+              'Authorization': authHeader,
+              'Content-Type': 'application/json',
+              'Accept': 'application/json'
+            },
+            signal: AbortSignal.timeout(ONEC_CONFIG.timeout),
+            body: JSON.stringify(createPayload)
+          })
 
-          if (onecRefKey) {
-            db.prepare('UPDATE transfer_orders SET ref_key = ?, posted = 1, status_key = ?, status_description = ? WHERE ref_key = ?')
-              .run(onecRefKey, statusKey || '', statusDescription || 'В работе (к списанию)', localRefKey)
+          if (!response.ok) {
+            const errorText = await response.text()
+            onecError = `1C Error: ${response.status}: ${errorText.substring(0, 200)}`
+          } else {
+            const result = await response.json()
+            onecRefKey = result['Ref_Key'] || null
+            if (!onecRefKey) {
+              onecError = '1C did not return Ref_Key'
+            }
+          }
+        } catch (err) {
+          onecError = err.message || '1C request failed'
+        }
+
+        if (onecRefKey) {
+          // Set created_by if empty
+          if (!order.created_by || order.created_by === '') {
+            db.prepare('UPDATE transfer_orders SET created_by = ? WHERE ref_key = ?')
+              .run(employeeName, localRefKey)
           }
 
+          db.prepare('UPDATE transfer_orders SET ref_key = ?, posted = 1, status_key = ?, status_description = ? WHERE ref_key = ?')
+            .run(onecRefKey, statusKey || '', statusDescription || 'В работе (к списанию)', localRefKey)
+          sent = true
+        }
+
+        console.log(`[LOG] transfer_order_sent: ${order.order_number} by ${employeeName}, sent: ${sent}, error: ${onecError || 'none'}`)
+        logOperation('transfer_order_sent', {
+          orderNumber: order.order_number,
+          employeeName,
+          employeeId: employeeName,
+          details: { onecRefKey, error: onecError, sent }
+        })
+
+        if (sent) {
           sendJSON(res, 200, { success: true, refKey: onecRefKey, status: statusDescription || 'В работе (к списанию)' })
         } else {
-          const errorText = await response.text()
-          sendJSON(res, 502, { success: false, error: `1C Error: ${response.status}: ${errorText.substring(0, 200)}` })
+          sendJSON(res, 502, { success: false, error: onecError })
         }
       } catch (err) {
         sendJSON(res, 500, { error: err.message })
@@ -1653,11 +1786,14 @@ const server = http.createServer(async (req, res) => {
           db.prepare('UPDATE onec_orders SET status = ? WHERE ref_key = ?').run('printing', orderId)
         }
 
+        const { employeeId: genEmployeeId, employeeName: genEmployeeName } = getEmployeeFromRequest(req, JWT_SECRET)
         logOperation('qr_codes_generated', {
           orderId: orderId,
           orderNumber: order.order_number,
           qrCount: result.length,
-          generatedBy: generatedBy || 'System'
+          generatedBy: generatedBy || genEmployeeName || 'System',
+          employee_id: genEmployeeId,
+          employee_name: genEmployeeName
         })
 
         sendJSON(res, 200, {
@@ -1739,11 +1875,14 @@ const server = http.createServer(async (req, res) => {
           db.prepare('UPDATE onec_orders SET status = ? WHERE ref_key = ?').run('printing', orderId)
         }
 
+        const { employeeId: genEmployeeId2, employeeName: genEmployeeName2 } = getEmployeeFromRequest(req, JWT_SECRET)
         logOperation('qr_codes_generated', {
           orderId: orderId,
           orderNumber: order.order_number,
           qrCount: result.length,
-          generatedBy: generatedBy || 'System'
+          generatedBy: generatedBy || genEmployeeName2 || 'System',
+          employee_id: genEmployeeId2,
+          employee_name: genEmployeeName2
         })
 
         sendJSON(res, 200, {
@@ -1940,6 +2079,10 @@ const server = http.createServer(async (req, res) => {
 
         const now = moscowNow()
 
+        const { employeeId: scanEmployeeId, employeeName: scanEmployeeName } = getEmployeeFromRequest(req, JWT_SECRET)
+        const resolvedEmployeeId = employeeId || scanEmployeeId
+        const resolvedEmployeeName = employeeName || scanEmployeeName
+
         // Determine new status
         let newStatus = qrCode.status
         if (action === 'reject') {
@@ -1957,7 +2100,7 @@ const server = http.createServer(async (req, res) => {
 
         db.prepare(`
           UPDATE local_qr_codes SET status = ?, scanned_at = ?, scanned_by = ? WHERE id = ?
-        `).run(newStatus, now, employeeName || 'Unknown', qrCode.id)
+        `).run(newStatus, now, resolvedEmployeeName || 'Unknown', qrCode.id)
 
         logOperation('qr_code_scanned', {
           qrCodeId: qrCode.id,
@@ -1966,8 +2109,8 @@ const server = http.createServer(async (req, res) => {
           orderNumber: qrCode.order_number,
           productId: qrCode.product_id,
           productName: qrCode.product_name,
-          employeeId: employeeId,
-          employeeName: employeeName,
+          employeeId: resolvedEmployeeId,
+          employeeName: resolvedEmployeeName,
           details: { status: newStatus }
         })
 
@@ -1979,8 +2122,8 @@ const server = http.createServer(async (req, res) => {
             orderNumber: qrCode.order_number,
             productId: qrCode.product_id,
             productName: qrCode.product_name,
-            employeeId: employeeId,
-            employeeName: employeeName
+            employeeId: resolvedEmployeeId,
+            employeeName: resolvedEmployeeName
           })
         }
 
@@ -2041,7 +2184,11 @@ const server = http.createServer(async (req, res) => {
 
         db.prepare(`
           UPDATE local_qr_codes SET status = ?, scanned_at = ?, scanned_by = ? WHERE id = ?
-        `).run(statusToSet, now, employeeName || 'Unknown', qrCode.id)
+        const { employeeId: scanEmployeeId2, employeeName: scanEmployeeName2 } = getEmployeeFromRequest(req, JWT_SECRET)
+        const resolvedEmployeeId2 = employeeId || scanEmployeeId2
+        const resolvedEmployeeName2 = employeeName || scanEmployeeName2
+
+        `).run(statusToSet, now, resolvedEmployeeName2 || 'Unknown', qrCode.id)
 
         logOperation('qr_code_scanned', {
           qrCodeId: qrCode.id,
@@ -2050,8 +2197,8 @@ const server = http.createServer(async (req, res) => {
           orderNumber: qrCode.order_number,
           productId: qrCode.product_id,
           productName: qrCode.product_name,
-          employeeId: employeeId,
-          employeeName: employeeName,
+          employeeId: resolvedEmployeeId2,
+          employeeName: resolvedEmployeeName2,
           details: { status: statusToSet }
         })
 
@@ -2063,8 +2210,8 @@ const server = http.createServer(async (req, res) => {
             orderNumber: qrCode.order_number,
             productId: qrCode.product_id,
             productName: qrCode.product_name,
-            employeeId: employeeId,
-            employeeName: employeeName
+            employeeId: resolvedEmployeeId2,
+            employeeName: resolvedEmployeeName2
           })
         }
 
@@ -2453,6 +2600,11 @@ const server = http.createServer(async (req, res) => {
       if (targetId && targetId !== empId) {
         searchIds.push(targetId)
       }
+      // Also add login for operation_logs that store login as employee_id
+      const userForLogin = db.prepare('SELECT login FROM users WHERE id = ?').get(employee.user_id)
+      if (userForLogin?.login) {
+        searchIds.push(userForLogin.login)
+      }
       const placeholders = searchIds.map(() => '?').join(', ')
 
       const operationLogs = db.prepare(`
@@ -2486,10 +2638,6 @@ const server = http.createServer(async (req, res) => {
         LIMIT ?
       `).all(...searchIds, ...searchIds, limit)
 
-      // Resolve login for transfer_orders search (created_by stores login, not user_id)
-      const userForLogin = db.prepare('SELECT login FROM users WHERE id = ?').get(employee.user_id)
-      const loginForSearch = userForLogin ? userForLogin.login : ''
-
       const transferOrders = db.prepare(`
         SELECT ref_key as id, 'transfer_order' as operation_type,
                COALESCE(synced_at, date, '') as created_at,
@@ -2497,10 +2645,10 @@ const server = http.createServer(async (req, res) => {
                order_number, NULL as product_name,
                NULL as qr_code, '' as details, 'success' as status
         FROM transfer_orders
-        WHERE created_by = ? OR created_by IN (${placeholders}) OR CAST(created_by AS TEXT) IN (${placeholders})
+        WHERE created_by IN (${placeholders}) OR CAST(created_by AS TEXT) IN (${placeholders})
         ORDER BY created_at DESC
         LIMIT ?
-      `).all(loginForSearch, ...searchIds, ...searchIds, limit * 2)
+      `).all(...searchIds, ...searchIds, limit * 2)
 
       const mixed = [...operationLogs, ...toolOps, ...invoices, ...transferOrders]
         .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
@@ -3280,11 +3428,13 @@ const server = http.createServer(async (req, res) => {
     try {
       const employees = db.prepare(`
         SELECT e.*,
-          (COUNT(DISTINCT mi.id) + COUNT(DISTINCT ol.id)) as operations_count
+          (COUNT(DISTINCT mi.id) + COUNT(DISTINCT ol.id) + COUNT(DISTINCT to.id) + COUNT(DISTINCT toper.id)) as operations_count
         FROM employees e
         LEFT JOIN material_invoices mi ON e.id = mi.employee_id
         LEFT JOIN users u ON e.user_id = u.id
         LEFT JOIN operation_logs ol ON LOWER(u.login) = LOWER(ol.employee_name) OR LOWER(u.full_name) = LOWER(ol.employee_name)
+        LEFT JOIN transfer_orders to ON LOWER(u.login) = LOWER(to.created_by)
+        LEFT JOIN tool_operations toper ON e.id = toper.employee_id
         GROUP BY e.id ORDER BY operations_count DESC LIMIT 5
       `).all()
 

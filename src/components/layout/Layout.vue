@@ -8,7 +8,11 @@
         :native-scrollbar="false"
         content-class="p-0"
       >
-        <router-view />
+        <router-view v-slot="{ Component }">
+          <KeepAlive :max="15">
+            <component :is="Component" />
+          </KeepAlive>
+        </router-view>
       </n-layout-content>
     </n-layout>
   </n-layout>

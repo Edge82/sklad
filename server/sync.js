@@ -312,7 +312,7 @@ function syncOrdersIncremental(orders) {
 
     if (existingMap.has(ref_key)) {
       db.prepare(`UPDATE onec_orders SET
-        order_number = ?, date = ?, customer = ?, status = ?, amount = ?, items_count = ?, items = ?
+        order_number = ?, date = ?, customer = ?, status = ?, amount = ?, items_count = ?, items = ?, comment = ?
         WHERE ref_key = ?`)
         .run(
           order.order_number || order.id,
@@ -322,13 +322,14 @@ function syncOrdersIncremental(orders) {
           order.amount || 0,
           order.items_count || 0,
           itemsJson,
+          order.comment || '',
           ref_key
         )
       stats.updated++
     } else {
       try {
-        db.prepare(`INSERT INTO onec_orders (ref_key, order_number, date, customer, status, amount, items_count, items)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+        db.prepare(`INSERT INTO onec_orders (ref_key, order_number, date, customer, status, amount, items_count, items, comment)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
           .run(
             ref_key,
             order.order_number || order.id,
@@ -337,7 +338,8 @@ function syncOrdersIncremental(orders) {
             transformedStatus,
             order.amount || 0,
             order.items_count || 0,
-            itemsJson
+            itemsJson,
+            order.comment || ''
           )
         stats.added++
       } catch (e) { /* ignore duplicates */ }
@@ -518,27 +520,51 @@ export async function syncWith1C() {
  */
 async function syncTransferOrderItems() {
   const stats = { fetched: 0, failed: 0 }
-  const emptyOrders = db.prepare(`
-    SELECT ref_key FROM transfer_orders
-    WHERE (items IS NULL OR items = '[]')
+  // Синхронизируем товары для ВСЕХ 1С-заказов (кроме LOCAL-).
+  // При каждом обновлении получаем per-item заказы покупателя.
+  // Локальные данные (scannedQty, price) сохраняются через merge.
+  const ordersToSync = db.prepare(`
+    SELECT ref_key, items FROM transfer_orders
+    WHERE ref_key NOT LIKE 'LOCAL-%'
   `).all()
 
-  if (emptyOrders.length === 0) return stats
+  if (ordersToSync.length === 0) return stats
+  console.log(`📦 syncTransferOrderItems: syncing items for ${ordersToSync.length} orders (with ЗаказПокупателя_Key)`)
 
   const baseUrl = ONEC_CONFIG.baseUrl.replace(/\/$/, '')
   const authHeader = getBasicAuthHeader()
+  const resolvedOrders = new Map() // GUID → order_number (in-memory cache across all orders)
 
-  for (const order of emptyOrders) {
+  for (const order of ordersToSync) {
     try {
+      // Read existing items to preserve local data (scannedQty, price, etc.)
+      let existingItems = []
+      try { existingItems = JSON.parse(order.items || '[]') } catch { /* ignore */ }
+      const existingByKey = {}
+      for (const ei of existingItems) {
+        const key = ei.Номенклатура_Key || ei.nomenclatureKey || ''
+        if (key) existingByKey[key] = ei
+      }
+
+      // Получаем все поля (без $select — 1C может не поддерживать его для нав. свойств)
       const url = `${baseUrl}/Document_ЗаказНаПеремещение(guid'${order.ref_key}')/Запасы?$format=json`
+      console.log(`  Fetching items for ${order.ref_key}...`)
       const response = await fetch(url, {
-        headers: { 'Authorization': authHeader, 'Content-Type': 'application/json' },
+        headers: { 'Authorization': authHeader, 'Content-Type': 'application/json', 'Accept': 'application/json' },
         signal: AbortSignal.timeout(ONEC_CONFIG.timeout)
       })
 
       if (response.ok) {
         const data = await response.json()
-        const items = (data.value || []).map((item, idx) => {
+        const rawItems = data.value || []
+
+        // Логируем первые поля из первого товара для отладки
+        if (rawItems.length > 0) {
+          const firstKeys = Object.keys(rawItems[0])
+          console.log(`  Запасы fields for ${order.ref_key}: ${firstKeys.join(', ')}`)
+        }
+
+        const items = await Promise.all(rawItems.map(async (item, idx) => {
           let productName = item.Номенклатура____Presentation || ''
           if (!productName && item.Номенклатура_Key) {
             const stock = (cache.stocks || []).find(s => s.ref_key === item.Номенклатура_Key)
@@ -551,25 +577,70 @@ async function syncTransferOrderItems() {
             actualBarcode = stockRec?.barcode || stockRec?.sku || ''
           }
 
+          // Preserve existing data: scannedQty, storageBin, selectedProduct, price
+          const existing = existingByKey[item.Номенклатура_Key || '']
+
+          // Поле ЗаказПокупателя____Presentation может отсутствовать.
+          // Порядок разрешения: 1C → onec_orders (БД) → 1C HTTP → existing
+          const custKey = item.ЗаказПокупателя_Key || item.ЗаказПокупателя || ''
+          let custPres = item.ЗаказПокупателя____Presentation || ''
+
+          if (custKey && !custPres) {
+            // 1) In-memory cache
+            if (resolvedOrders.has(custKey)) {
+              custPres = resolvedOrders.get(custKey)
+            } else {
+              // 2) Local DB (onec_orders)
+              const co = db.prepare('SELECT order_number FROM onec_orders WHERE ref_key = ?').get(custKey)
+              if (co?.order_number) {
+                custPres = co.order_number
+                resolvedOrders.set(custKey, custPres)
+              } else {
+                // 3) Fallback: fetch directly from 1C
+                try {
+                  const orderUrl = `${baseUrl}/Document_ЗаказПокупателя(guid'${custKey}')?$format=json&$select=Number`
+                  const orderResp = await fetch(orderUrl, {
+                    headers: { 'Authorization': authHeader },
+                    signal: AbortSignal.timeout(ONEC_CONFIG.timeout)
+                  })
+                  if (orderResp.ok) {
+                    const orderData = await orderResp.json()
+                    custPres = orderData.Number || ''
+                    if (custPres) {
+                      db.prepare(`INSERT OR IGNORE INTO onec_orders (ref_key, order_number, date, customer, status, amount, items_count, items) VALUES (?, ?, '', '', '', 0, 0, '[]')`).run(custKey, custPres)
+                      resolvedOrders.set(custKey, custPres)
+                    }
+                  }
+                } catch { /* 1C fallback failed */ }
+              }
+            }
+          }
+
           return {
             LineNumber: item.LineNumber || idx + 1,
             Номенклатура_Key: item.Номенклатура_Key || '',
             nomenclatureName: productName || 'Без названия',
             Количество: Number(item.Количество) || 0,
-            scannedQty: 0,
+            scannedQty: existing?.scannedQty || 0,
             barcode: actualBarcode,
-            storageBin: ''
+            storageBin: existing?.storageBin || '',
+            price: existing?.price || 0,
+            customerOrderKey: custKey || existing?.customerOrderKey || '',
+            customerOrderNumber: custPres || existing?.customerOrderNumber || '',
+            selectedProduct: existing?.selectedProduct || ''
           }
-        })
+        }))
         db.prepare('UPDATE transfer_orders SET items = ? WHERE ref_key = ?')
           .run(JSON.stringify(items), order.ref_key)
         stats.fetched++
       }
     } catch (e) {
+      console.warn(`⚠️ Error fetching items for ${order.ref_key}: ${e.message}${response?.status ? ' (HTTP ' + response.status + ')' : ''}`)
       stats.failed++
     }
   }
 
+  console.log(`  ✓ syncTransferOrderItems: fetched=${stats.fetched} failed=${stats.failed}`)
   return stats
 }
 

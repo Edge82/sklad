@@ -529,7 +529,7 @@ export async function fetch1CStocks() {
 export async function fetch1COrders() {
   // Пробуем без фильтра по дате (некоторые 1C OData не поддерживают $filter с $orderby)
   const orders = await fetch1COData('Document_ЗаказПокупателя', {
-    '$select': 'Ref_Key,Number,Date,Контрагент____Presentation,СостояниеЗаказа____Presentation,СуммаДокумента',
+    '$select': 'Ref_Key,Number,Date,Контрагент____Presentation,СостояниеЗаказа____Presentation,СуммаДокумента,Комментарий',
     '$top': '500'
   })
 
@@ -540,7 +540,7 @@ export async function fetch1COrders() {
     const dateFilter = `Date ge datetime'${ninetyDaysAgo.toISOString()}'`
 
     const orders2 = await fetch1COData('Document_ЗаказПокупателя', {
-      '$select': 'Ref_Key,Number,Date,Контрагент____Presentation,СостояниеЗаказа____Presentation,СуммаДокумента',
+      '$select': 'Ref_Key,Number,Date,Контрагент____Presentation,СостояниеЗаказа____Presentation,СуммаДокумента,Комментарий',
       '$filter': dateFilter,
       '$top': '500'
     })
@@ -624,7 +624,8 @@ async function processOrders(orders) {
       status: o.СостояниеЗаказа____Presentation || 'pending',
       amount: Number(o.СуммаДокумента || 0),
       items_count: items.length,
-      items: items
+      items: items,
+      comment: o.Комментарий || ''
     }
   }
 
@@ -840,7 +841,7 @@ export function loadCacheFromDB() {
       status: (s.currentStock || 0) > 0 ? 'in_stock' : 'out_of_stock',
       reservesByOrder: s.reservesByOrder ? JSON.parse(s.reservesByOrder) : {}
     }))
-    cache.orders = db.prepare('SELECT ref_key as id, order_number, date, customer, status, items_count as items, amount, items as items_json, painting FROM onec_orders').all().map(o => ({
+    cache.orders = db.prepare('SELECT ref_key as id, order_number, date, customer, status, items_count as items, amount, items as items_json, painting, comment FROM onec_orders').all().map(o => ({
       ...o,
       notes: o.painting,
       items: o.items_json ? JSON.parse(o.items_json) : []
