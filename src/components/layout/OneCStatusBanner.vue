@@ -279,7 +279,6 @@ async function refreshStatus() {
   isRefreshing.value = true
   try {
     await fetchStatus()
-    console.log('Status refreshed successfully')
   } catch (err) {
     console.error('Error refreshing status:', err)
   } finally {
@@ -303,7 +302,6 @@ onMounted(() => {
 
   // Слушаем события синхронизации
   syncEvents.on('sync-completed', () => {
-    console.log('Sync event received, refreshing status...')
     fetchStatus()
   })
 })

@@ -222,6 +222,49 @@ try {
   console.error('Migration error:', e.message)
 }
 
+// Миграция: почистить operation_logs — заменить "Система" и логины на реальные данные сотрудников
+try {
+  const sysCount = db.prepare("SELECT COUNT(*) as cnt FROM operation_logs WHERE employee_name = 'Система' OR employee_name IS NULL OR employee_id = 'Система'").get()
+  if (sysCount && sysCount.cnt > 0) {
+    console.log(`📦 [DB MIGRATION] Fixing ${sysCount.cnt} operation_logs with missing employee data...`)
+
+    const employees = db.prepare('SELECT e.id, e.name, e.user_id, u.login, u.full_name FROM employees e LEFT JOIN users u ON e.user_id = u.id').all()
+    const resolveByLogin = {}
+    const resolveByUserId = {}
+    for (const emp of employees) {
+      const name = emp.name || emp.full_name || emp.login
+      if (emp.login) resolveByLogin[emp.login.toLowerCase()] = { id: emp.id, name }
+      if (emp.user_id) resolveByUserId[String(emp.user_id)] = { id: emp.id, name }
+    }
+
+    const fixStmt = db.prepare('UPDATE operation_logs SET employee_id = ?, employee_name = ? WHERE id = ?')
+
+    const fixable = db.prepare("SELECT id, employee_id, employee_name FROM operation_logs WHERE employee_name = 'Система' OR employee_name IS NULL OR employee_id = 'Система' OR (employee_id NOT LIKE 'emp-%' AND employee_id IS NOT NULL)").all()
+    let fixed = 0
+    for (const rec of fixable) {
+      let resolved = null
+      if (rec.employee_id) resolved = resolveByLogin[String(rec.employee_id).toLowerCase()] || resolveByUserId[String(rec.employee_id)]
+      if (!resolved && rec.employee_name) resolved = resolveByLogin[String(rec.employee_name).toLowerCase()]
+      if (resolved) {
+        fixStmt.run(resolved.id, resolved.name, rec.id)
+        fixed++
+      }
+    }
+
+    const remaining = db.prepare("SELECT COUNT(*) as cnt FROM operation_logs WHERE employee_name = 'Система' OR employee_name IS NULL").get()
+    if (remaining && remaining.cnt > 0) {
+      const adminEmp = employees.find(e => e.login === 'admin')
+      if (adminEmp) {
+        db.prepare("UPDATE operation_logs SET employee_id = ?, employee_name = ? WHERE employee_name = 'Система' OR employee_name IS NULL").run(adminEmp.id, adminEmp.name || adminEmp.full_name)
+      }
+    }
+
+    console.log(`✓ [DB MIGRATION] operation_logs fixed: ${fixed} resolved, remaining set to admin`)
+  }
+} catch (e) {
+  console.error('Migration error (operation_logs):', e.message)
+}
+
 // Таблица логирования операций
 db.exec(`
   CREATE TABLE IF NOT EXISTS operation_logs (

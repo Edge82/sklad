@@ -255,7 +255,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, h, watch, onMounted } from 'vue'
+import { ref, reactive, computed, h, watch, onMounted, onActivated } from 'vue'
 import * as XLSX from 'xlsx'
 import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
@@ -314,6 +314,22 @@ const dialog = useDialog()
 const message = useMessage()
 
 onMounted(async () => {
+  inventoryStore.loadCategories()
+  inventoryStore.loadWarehouses()
+  if (inventoryStore.items.length === 0 || !integrationStore.lastSyncTime) {
+    await handleSync1C()
+  }
+
+  if (ordersStore.orders.length === 0) {
+    try {
+      await integrationStore.syncOrders()
+    } catch (err) {
+      console.error('Ошибка загрузки заказов:', err)
+    }
+  }
+})
+
+onActivated(async () => {
   inventoryStore.loadCategories()
   inventoryStore.loadWarehouses()
   if (inventoryStore.items.length === 0 || !integrationStore.lastSyncTime) {

@@ -89,7 +89,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, h, nextTick, onMounted, watch } from 'vue'
+import { ref, computed, h, nextTick, onMounted, onActivated, watch } from 'vue'
 import { TrashOutline } from '@vicons/ionicons5'
 import {
   NInput,
@@ -790,8 +790,6 @@ const transferToWarehouse = async () => {
         employeeId: userStore.user?.id,
         employeeName: userStore.user?.name
       }
-      console.log('📦 [SCAN] Sending payload:', JSON.stringify(payload))
-
       const response = await fetch('/sklad/api/inventory/receive-finished-product', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -873,6 +871,15 @@ watch(scannedCodes, () => {
 }, { deep: true })
 
 onMounted(() => {
+  nextTick(() => {
+    scanInputRef.value?.focus()
+  })
+
+  // Load shipment history from backend
+  loadShipmentHistory()
+})
+
+onActivated(() => {
   nextTick(() => {
     scanInputRef.value?.focus()
   })

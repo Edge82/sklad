@@ -1036,16 +1036,6 @@ export const useInventoryStore = defineStore('inventory', () => {
               reserveDetails: new Map(Object.entries(item.reservesByOrder || {}))
             }
           })
-          console.log('✓ Loaded', items.value.length, 'items from API')
-          if (items.value.length > 0) {
-            const firstReserves = items.value[0]?.reserveDetails
-            console.log('  First item reserves type:', firstReserves instanceof Map ? 'Map' : typeof firstReserves)
-            console.log('  First item reserves size:', firstReserves?.size || 0)
-            if (firstReserves && firstReserves.size > 0) {
-              const sample = Array.from(firstReserves.entries()).slice(0, 2)
-              console.log('  Sample entries:', sample)
-            }
-          }
           syncTime.value = new Date()
           if (typeof window !== 'undefined') {
             // JSON.stringify не может сериализировать Map, поэтому преобразуем его в объект
@@ -1057,7 +1047,6 @@ export const useInventoryStore = defineStore('inventory', () => {
         try {
           localStorage.setItem('inventory_items', JSON.stringify(itemsForStorage))
         } catch (e) { /* quota exceeded */ }
-              console.log('✓ Saved to localStorage, items:', items.value.length)
             } catch (e) {
               // localStorage quota exceeded — данные уже в памяти, работаем без кэша
             }
@@ -1103,7 +1092,6 @@ export const useInventoryStore = defineStore('inventory', () => {
               ...item,
               reserveDetails: new Map(Object.entries(item.reserveDetails || {}))
             }))
-            console.log('✓ Restored from localStorage, items:', items.value.length)
           } catch (err) {
             console.error('Failed to restore inventory from localStorage:', err)
           }

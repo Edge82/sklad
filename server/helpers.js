@@ -87,7 +87,9 @@ export function moscowNow() {
 }
 
 /**
- * Извлекает информацию о сотруднике из JWT токена в запросе
+ * Извлекает информацию о сотруднике из JWT токена в запросе.
+ * Возвращает { employeeId, employeeName } — UUID сотрудника и его ФИО.
+ * employeeId — UUID из таблицы employees (emp-xxx), employeeName — ФИО (name из employees).
  */
 export function getEmployeeFromRequest(req, JWT_SECRET) {
   try {
@@ -102,15 +104,29 @@ export function getEmployeeFromRequest(req, JWT_SECRET) {
     }
     if (token) {
       const payload = jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] })
-      return {
-        employeeId: payload?.userId || null,
-        employeeName: payload?.login || 'Система'
+      const userId = payload?.userId || payload?.id
+      const login = payload?.login || ''
+      if (userId) {
+        const employee = db.prepare(`
+          SELECT e.id, e.name, u.full_name
+          FROM employees e
+          LEFT JOIN users u ON e.user_id = u.id
+          WHERE e.user_id = ? OR CAST(e.user_id AS TEXT) = ? OR e.id = ?
+          LIMIT 1
+        `).get(userId, String(userId), String(userId))
+        if (employee) {
+          return {
+            employeeId: employee.id,
+            employeeName: employee.name || employee.full_name || login
+          }
+        }
       }
+      return { employeeId: login || null, employeeName: login || null }
     }
   } catch (err) {
     console.log('⚠️ JWT verification failed in getEmployeeFromRequest:', err.message)
   }
-  return { employeeId: null, employeeName: 'Система' }
+  return { employeeId: null, employeeName: null }
 }
 
 /**

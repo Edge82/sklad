@@ -169,17 +169,13 @@ onMounted(() => {
 
   // Если уже авторизован и нужна смена пароля - показываем модаль
   if (userStore.isAuthenticated && userStore.user?.needsPasswordChange) {
-    console.log('[OnMounted] User needs password change, showing modal')
     showPasswordChangeModal.value = true
-    // Заполняем поле с временным паролем по умолчанию
     passwordChangeForm.currentPassword = '12345678'
-    console.log('[OnMounted] passwordChangeForm.currentPassword:', passwordChangeForm.currentPassword)
     return
   }
 
   // Если уже авторизован и не нужна смена пароля - редирект
   if (userStore.isAuthenticated && !userStore.user?.needsPasswordChange) {
-    console.log('[OnMounted] User already authenticated, redirecting to inventory')
     router.push('/inventory')
   }
 })
@@ -194,21 +190,12 @@ async function handleLogin() {
   try {
     // Используем метод login из store
     const success = await userStore.login(form.login, form.password)
-    console.log('[Login] Success:', success)
-    console.log('[Login] User:', userStore.user)
-    console.log('[Login] needsPasswordChange:', userStore.user?.needsPasswordChange)
 
     if (success) {
       // Если нужна смена пароля, показываем модаль
       if (userStore.user?.needsPasswordChange) {
-        console.log('[Login] Showing password change modal')
-        console.log('[Login] showPasswordChangeModal before:', showPasswordChangeModal.value)
-        console.log('[Login] form.password:', form.password)
-        showPasswordChangeModal.value = true
+            showPasswordChangeModal.value = true
         passwordChangeForm.currentPassword = form.password
-        console.log('[Login] passwordChangeForm.currentPassword after:', passwordChangeForm.currentPassword)
-        console.log('[Login] showPasswordChangeModal after:', showPasswordChangeModal.value)
-        console.log('[DOM Check] Element exists:', document.querySelector('.modal-overlay'))
         return
       }
 
@@ -240,7 +227,7 @@ async function handleLogin() {
  */
 async function handlePasswordChange() {
   passwordChangeError.value = null
-  console.log('[PasswordChange] Starting password change')
+
 
   // Валидация
   if (!passwordChangeForm.currentPassword) {
@@ -265,10 +252,6 @@ async function handlePasswordChange() {
   }
 
   isChangingPassword.value = true
-  console.log('[PasswordChange] Submitting change request')
-  console.log('[PasswordChange] User ID:', userStore.user?.id)
-  console.log('[PasswordChange] Old password:', passwordChangeForm.currentPassword)
-  console.log('[PasswordChange] New password length:', passwordChangeForm.newPassword.length)
 
   try {
     const response = await fetch('/sklad/api/auth/change-password', {
@@ -281,10 +264,7 @@ async function handlePasswordChange() {
       })
     }).then(r => r.json())
 
-    console.log('[PasswordChange] Response:', response)
-
     if (response.success) {
-      console.log('[PasswordChange] Success! Password changed')
       // Успешно изменили пароль
       showPasswordChangeModal.value = false
 

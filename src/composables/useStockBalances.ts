@@ -106,10 +106,6 @@ export function useStockBalances() {
       headers['Authorization'] = authToken;
     }
 
-    console.log('DEBUG: POST URL', url);
-    console.log('DEBUG: POST headers', headers);
-    console.log('DEBUG: POST body', JSON.stringify(data, null, 2));
-
     const response = await fetch(url, {
       method: 'POST',
       headers,
@@ -193,7 +189,6 @@ export function useStockBalances() {
         Валюта_Key: '3ec96d36-da51-11ef-810a-00155d01ef06'
       };
 
-      console.log('DEBUG: Отправка цены в 1С (Финальная попытка):', JSON.stringify(payload, null, 2));
       return await postOData('InformationRegister_ЦеныНоменклатуры', payload);
     } catch (err) {
       console.error('Ошибка установки цены в 1С:', err);
@@ -294,7 +289,6 @@ export function useStockBalances() {
     payload.СуммаВключаетНДС = includeVAT;
     payload.Posted = false;
 
-    console.log('DEBUG: Отправка документа перемещения материалов в 1С:', JSON.stringify(payload, null, 2));
     return await postOData('Document_ПеремещениеЗапасов', payload);
   }
 
@@ -306,9 +300,7 @@ export function useStockBalances() {
   async function debugUsers() {
     try {
       const users = await fetchOData('Catalog_Пользователи', { '$select': 'Ref_Key,Description' });
-      console.log('DEBUG: Список всех пользователей в вашей 1С:', users);
     } catch (e) {
-      console.warn('Не удалось загрузить список пользователей:', e);
     }
   }
 
@@ -436,9 +428,6 @@ export function useStockBalances() {
       ТипХраненияФайла: 'ВИнформационнойБазе',
       Том_Key: '00000000-0000-0000-0000-000000000000'
     };
-    // Для отладки: выводим payload в консоль
-    console.log('[1C uploadImage payload]', payload);
-
     const result = await postOData('Catalog_НоменклатураПрисоединенныеФайлы', payload);
     const fileKey = result.Ref_Key;
 
@@ -480,11 +469,9 @@ export function useStockBalances() {
     try {
       // 1. Создаём материал
       const material = await createNomenclature(materialData);
-      console.log('✅ 1. Материал создан:', material.id);
 
       // 2. Загружаем файл во временное хранилище
       const tempPath = await uploadToTempStorage(imageFile);
-      console.log('✅ 2. Файл во временном хранилище:', tempPath);
 
       // 3. Привязываем файл из временного хранилища к номенклатуре
       const extension = imageFile.name.split('.').pop()?.toLowerCase() || 'jpg';
@@ -494,7 +481,6 @@ export function useStockBalances() {
         imageFile.name,
         extension
       );
-      console.log('✅ 3. Файл привязан к номенклатуре. GUID файла:', attachedFileId);
 
       // 4. Устанавливаем привязанный файл как основную картинку
       if (attachedFileId) {
@@ -502,10 +488,7 @@ export function useStockBalances() {
           ФайлКартинки_Key: attachedFileId,
           ОсновнаяКартинка_Key: attachedFileId
         });
-        console.log('✅ 4. Файл установлен как основная картинка.');
-      } else {
-        console.warn('⚠️ GUID файла не получен, картинка не установлена.');
-      }
+        }
 
       return material;
     } catch (err) {
@@ -804,8 +787,6 @@ export function useStockBalances() {
         throw new Error('No valid warehouse data received from 1C');
       }
     } catch (err) {
-      console.warn('Не удалось загрузить единицы из Catalog_СтруктурныеЕдиницы, пытаемся получить из backend:', err);
-
       // Fallback: загружаем из нашего backend API если 1С недоступна или данные неверные
       try {
         const response = await fetch('/sklad/api/onec/warehouses', {
@@ -819,11 +800,9 @@ export function useStockBalances() {
               addWarehouse(sourceWarehouses, item)
               addWarehouse(destinationWarehouses, item)
             })
-            console.log('Загружены склады из backend API')
-          }
+           }
         }
       } catch (fallbackErr) {
-        console.warn('Не удалось загрузить склады из backend API:', fallbackErr)
       }
     }
 
@@ -868,7 +847,6 @@ export function useStockBalances() {
         };
       }
     } catch (err) {
-      console.warn('Не удалось загрузить значения по умолчанию из Document_ПеремещениеЗапасов:', err);
     }
     return { expenseAccountKey: undefined, currencyKey: undefined, sourceWarehouseKey: undefined, destinationWarehouseKey: undefined, includeVAT: undefined };
   }
@@ -889,7 +867,6 @@ export function useStockBalances() {
           }));
       }
     } catch (err) {
-      console.warn('Не удалось загрузить счета из ChartOfAccounts_Управленческий:', err);
     }
 
     try {
@@ -913,7 +890,6 @@ export function useStockBalances() {
         return Array.from(accountMap.entries()).map(([id, name]) => ({ id, name }));
       }
     } catch (err) {
-      console.warn('Не удалось загрузить счета из Document_ПеремещениеЗапасов:', err);
     }
 
     return [];
@@ -946,7 +922,9 @@ export function useStockBalances() {
       const items = await fetchOData('Catalog_ХозяйственныеОперации', {
         '$select': 'Ref_Key,Description,Presentation'
       });
-      console.log('DEBUG: Catalog_ХозяйственныеОперации raw items:', items);
+      const items = await fetchOData('Catalog_ХозяйственныеОперации', {
+        '$select': 'Ref_Key,Description,Presentation'
+      });
 
       const operations = (items || [])
         .map((item: any) => {
@@ -959,13 +937,9 @@ export function useStockBalances() {
 
       const filtered = operations.filter(op => allowedNames.has(op.name));
       if (filtered.length > 0) {
-        console.log('DEBUG: Filtered operation types:', filtered);
         return filtered;
       }
-
-      console.warn('DEBUG: No allowed operation types found in Catalog_ХозяйственныеОперации');
     } catch (err) {
-      console.warn('Не удалось загрузить операции из Catalog_ХозяйственныеОперации:', err);
     }
 
     const fallback = [
@@ -974,7 +948,6 @@ export function useStockBalances() {
       { id: '12dcfd1a-e265-11f0-862e-fa163e5c9faa', name: 'Передача в эксплуатацию' },
       { id: '12dcfd1a-e265-11f0-862e-fa163e5c9fab', name: 'Возврат из эксплуатации' }
     ];
-    console.log('DEBUG: Using fallback operations list:', fallback);
     return fallback;
   }
 
@@ -1056,7 +1029,6 @@ export function useStockBalances() {
 
       if (!response.ok) {
         // Если прямой путь не сработал, пробуем через $filter (старый способ)
-        console.warn(`Direct path failed (${response.status}), falling back to filter...`);
         const items = await fetchOData('Document_ЗаказПокупателя_Запасы', {
           '$filter': `Ref_Key eq guid'${orderId}'`,
           '$select': selectFields

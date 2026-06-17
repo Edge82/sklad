@@ -57,6 +57,7 @@ interface OperationLog {
   operation_type: string
   employee_id: string
   employee_name: string
+  resolved_name?: string
   order_number?: string
   product_name?: string
   qr_code?: string
@@ -65,10 +66,13 @@ interface OperationLog {
   created_at: string
 }
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   employeeId: string
+  employeeName?: string
   limit?: number
-}>()
+}>(), {
+  employeeName: ''
+})
 
 const API_BASE = '/sklad/api'
 const operations = ref<OperationLog[]>([])
@@ -83,17 +87,26 @@ const getOperationLabel = (operationType: string) => {
     'qr_code_generated': 'QR код сгенерирован',
     'qr_code_scanned': 'QR код отсканирован',
     'qr_code_deleted': 'QR код удален',
+    'qr_codes_generated': 'QR-коды сгенерированы',
+    'qr_code_shipped': 'Материал отгружен',
     'order_painting_updated': 'Окраска обновлена',
     'transfer_order_created': 'Заказ на перемещение создан',
     'transfer_order_completed': 'Заказ на перемещение завершен',
     'transfer_order_sent': 'Заказ перемещения отправлен в 1С',
     'transfer_order_deleted': 'Заказ перемещения удалён',
     'transfer_order_updated': 'Заказ перемещения обновлён',
+    'transfer_scans_saved': 'Сканирование сохранено',
     'tool_issued': 'Выдача инструмента',
     'tool_returned': 'Возврат инструмента',
-    'material_issued': 'Выдача инструмента',
-    'material_returned': 'Возврат инструмента',
-    'material_created': 'Создание инструмента',
+    'tool_created': 'Создан инструмент',
+    'tool_updated': 'Инструмент обновлён',
+    'tool_deleted': 'Инструмент удалён',
+    'tool_operation': 'Операция с инструментом',
+    'tool_breakdown_reported': 'Поломка инструмента',
+    'material_issued': 'Выдача материала',
+    'material_returned': 'Возврат материала',
+    'material_created': 'Создание материала',
+    'invoice_created': 'Создана накладная',
     'invoice_Производство': 'Поступление материалов',
     'invoice_Клиент': 'Отгрузка клиенту',
     'invoice_Перемещение': 'Перемещение',
@@ -125,6 +138,15 @@ const columns: any[] = [
     key: 'operation_type',
     ellipsis: { tooltip: true },
     render: (row: OperationLog) => getOperationLabel(row.operation_type)
+  },
+  {
+    title: 'Ответственный',
+    key: 'employee_name',
+    ellipsis: { tooltip: true },
+    render: (row: OperationLog) => {
+      const name = row.resolved_name || row.employee_name || row.employee_id || props.employeeName || '—'
+      return name === 'Неизвестно' || name === 'System' ? (props.employeeName || '—') : name
+    }
   },
   {
     title: 'Описание',

@@ -167,7 +167,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, computed, onUnmounted } from 'vue'
+import { ref, reactive, onMounted, computed, onUnmounted, onActivated } from 'vue'
 import { useUserStore } from '@/stores/user'
 import { useEmployeesStore } from '@/stores/employees'
 import { useToolsStore } from '@/stores/tools'
@@ -224,7 +224,6 @@ async function loadAllOperations() {
       return !isNaN(empUserId) && empUserId === currentUserId
     })
     if (!employee) {
-      console.log('[profile] employee not found for user id:', currentUserId)
       return
     }
 
@@ -242,29 +241,35 @@ async function loadAllOperations() {
       const key = `${log.operation_type}-${log.id}`
       if (seenIds.has(key)) return false
       seenIds.add(key)
-      // Filter transfer_orders by current user's login
-      if (log.operation_type === 'transfer_order' && log.employee_name !== userStore.user?.login) return false
       return true
     })
-
-    console.log('[profile] raw logs:', data.logs?.length, 'byLogin:', logsByLogin.logs?.length, 'merged:', allRawLogs.length, 'types:', [...new Set(allRawLogs.map((l: any) => l.operation_type))])
 
     const operations: any[] = []
     const labelMap: Record<string, string> = {
       transfer_order_completed: 'Заказ перемещения выполнен',
       transfer_order_created: 'Создан заказ перемещения',
+      transfer_order_sent: 'Заказ перемещения отправлен в 1С',
+      transfer_order_deleted: 'Заказ перемещения удалён',
+      transfer_order_updated: 'Заказ перемещения изменён',
+      transfer_scans_saved: 'Сканирование сохранено',
       qr_code_shipped: 'Материал отгружен',
       qr_code_scanned: 'QR-код отсканирован',
       qr_codes_generated: 'Сгенерированы QR-коды',
-      transfer_order_updated: 'Заказ перемещения изменён',
       tool_issued: 'Выдача инструмента',
       tool_returned: 'Возврат инструмента',
+      tool_created: 'Создан инструмент',
+      tool_updated: 'Инструмент обновлён',
+      tool_deleted: 'Инструмент удалён',
+      tool_operation: 'Операция с инструментом',
+      tool_breakdown_reported: 'Поломка инструмента',
       material_issued: 'Выдача материала',
-      material_returned: 'Возврат материала'
+      material_returned: 'Возврат материала',
+      invoice_created: 'Создана накладная'
     }
 
     allRawLogs.forEach((log: any) => {
       const opType = log.operation_type
+      const resolvedName = log.resolved_name || log.employee_name || ''
       if (opType.startsWith('invoice_')) {
         const dest = opType.replace('invoice_', '')
         const destLabel = dest === 'workshop' ? 'Цех'
@@ -277,7 +282,7 @@ async function loadAllOperations() {
           title: log.order_number ? `${log.order_number}${destLabel ? ` | ${destLabel}` : ''}` : destLabel || 'Готовая продукция',
           date: new Date(log.created_at),
           items: [],
-          employeeName: log.employee_name || ''
+          employeeName: resolvedName
         })
       } else if (opType.startsWith('tool_')) {
         const toolTitles: Record<string, string> = {
@@ -298,7 +303,7 @@ async function loadAllOperations() {
           items: [],
           action: toolActions[opType] || 'unknown',
           subtitle: log.qr_code || '',
-          employeeName: log.employee_name || ''
+          employeeName: resolvedName
         })
       } else if (opType.startsWith('material_')) {
         const matTitles: Record<string, string> = {
@@ -319,7 +324,7 @@ async function loadAllOperations() {
           items: [],
           action: matActions[opType] || 'unknown',
           subtitle: log.qr_code || '',
-          employeeName: log.employee_name || ''
+          employeeName: resolvedName
         })
       } else if (opType === 'transfer_order') {
         operations.push({
@@ -329,7 +334,7 @@ async function loadAllOperations() {
           date: new Date(log.created_at),
           items: [],
           subtitle: typeof log.details === 'string' ? log.details : (log.details?.description || ''),
-          employeeName: log.employee_name || ''
+          employeeName: resolvedName
         })
       } else {
         const label = labelMap[opType] || opType
@@ -340,7 +345,7 @@ async function loadAllOperations() {
           date: new Date(log.created_at),
           items: [],
           subtitle: log.product_name || log.details || '',
-          employeeName: log.employee_name || ''
+          employeeName: resolvedName
         })
       }
     })
@@ -517,15 +522,17 @@ const resetForm = () => {
 onMounted(async () => {
   resetForm()
 
-  // Слушаем событие обновления операций
+  // Слушаем события обновления операций
   const refreshHandler = () => {
     loadAllOperations()
   }
   window.addEventListener('refreshToolOperations', refreshHandler)
+  window.addEventListener('refreshUserOperations', refreshHandler)
 
   // onUnmounted должен быть до await
   onUnmounted(() => {
     window.removeEventListener('refreshToolOperations', refreshHandler)
+    window.removeEventListener('refreshUserOperations', refreshHandler)
   })
 
   await employeesStore.loadEmployeesFromApi()
@@ -536,8 +543,20 @@ onMounted(async () => {
     toolsStore.loadToolsFromApi()
   }
 
-  console.log('profile.vue mounted, user:', userStore.user)
-})
+  })
+
+onActivated(async () => {
+  resetForm()
+
+  await employeesStore.loadEmployeesFromApi()
+
+  await loadAllOperations()
+
+  if (toolsStore.tools.length === 0) {
+    toolsStore.loadToolsFromApi()
+  }
+
+  })
 </script>
 
 <style scoped>

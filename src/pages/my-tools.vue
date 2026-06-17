@@ -63,7 +63,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, onActivated } from 'vue'
 import { useUserStore } from '@/stores/user'
 import { useEmployeesStore } from '@/stores/employees'
 import { useToolsStore } from '@/stores/tools'
@@ -128,6 +128,11 @@ const handleReturnItem = async (itemId: string) => {
 }
 
 onMounted(async () => {
+  await toolsStore.loadToolsFromApi()
+  await employeesStore.loadEmployeesFromApi()
+})
+
+onActivated(async () => {
   await toolsStore.loadToolsFromApi()
   await employeesStore.loadEmployeesFromApi()
 })

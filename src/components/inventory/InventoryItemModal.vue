@@ -834,7 +834,6 @@ const handleSubmit = async () => {
         try {
           // Сначала выполняем полную синхронизацию
           await integrationStore.syncAll()
-          console.log('✓ Sync completed, reloading stocks from API...')
         } catch (syncErr) {
           console.error('⚠️ Sync error:', syncErr);
         }
@@ -901,16 +900,11 @@ const handleSubmit = async () => {
           })
         })
         if (response.ok) {
-          console.log('✓ Local fields saved for', itemIdToUse)
           // Перезагружаем данные из API чтобы убедиться что они сохранены
           try {
             await inventoryStore.loadStocksFromApi()
-            console.log('✓ Stocks reloaded after save')
           } catch (err) {
-            console.warn('⚠️ Failed to reload stocks:', err)
           }
-        } else {
-          console.warn('⚠️ Failed to save local fields:', response.status)
         }
       } catch (err) {
         console.error('Error saving local fields:', err)

@@ -219,7 +219,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, h, onMounted, watch } from 'vue'
+import { ref, computed, h, onMounted, onActivated, watch } from 'vue'
 import {
   NText, NCard, NDataTable, NButton, NIcon, NSpace, NInput,
   NDescriptions, NDescriptionsItem, NTag,
@@ -295,6 +295,14 @@ const toolOperations = ref<Array<{
   employee_name: string
   created_at: string
 }>>([])
+
+const resolveWorkerName = (createdBy: string) => {
+  if (!createdBy || createdBy === '—') return '—'
+  if (createdBy === 'Неизвестно' || createdBy === 'System') return '—'
+  const emp = employeesStore.employees.find(e => e.id === createdBy || e.name === createdBy || String(e.user_id) === createdBy)
+  if (emp) return emp.name
+  return createdBy
+}
 
 const destinationOptions = [
   { label: 'Все направления', value: 'all' },
@@ -396,7 +404,7 @@ const allInvoices = computed(() => {
       createdAt: order.date,
       updatedAt: order.date,
       createdBy: order.created_by || '—',
-      workerName: order.created_by || '—',
+      workerName: resolveWorkerName(order.created_by),
       workerId: 'system',
       operationLabel: 'Перемещение между складами',
       movementType: 'transfer',
@@ -428,7 +436,7 @@ const allInvoices = computed(() => {
       createdAt: op.created_at,
       updatedAt: op.created_at,
       createdBy: op.employee_name,
-      workerName: op.employee_name || 'Неизвестно',
+      workerName: resolveWorkerName(op.employee_name),
       workerId: op.employee_id,
       operationLabel: label,
       movementType: 'tool',
@@ -493,8 +501,7 @@ const filteredInvoices = computed(() => {
   return list
 })
 
-// Load invoices from API on mount
-onMounted(async () => {
+const loadAllData = async () => {
   if (employeesStore.employees.length === 0) {
     await employeesStore.loadEmployeesFromApi()
   }
@@ -532,6 +539,14 @@ onMounted(async () => {
   } catch (err) {
     console.error('Error loading tool operations:', err)
   }
+}
+
+onMounted(() => {
+  loadAllData()
+})
+
+onActivated(() => {
+  loadAllData()
 })
 
 const columns: DataTableColumns<InvoiceWithWorker> = [

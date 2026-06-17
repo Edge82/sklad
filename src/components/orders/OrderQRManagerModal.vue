@@ -341,7 +341,6 @@ onMounted(() => {
 // При открытии модалки (props.show становится true) сбрасываем форму и загружаем коды
 watch(() => props.show, async (isShown) => {
   if (isShown) {
-    console.log(`🔓 [QR MODAL] Opening for order: ${props.orderId}`)
     genForm.value.productId = null
     genForm.value.productName = ''
     genForm.value.labelInfo = ''

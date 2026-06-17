@@ -554,7 +554,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, h, onBeforeUnmount, watch, nextTick } from 'vue'
+import { ref, reactive, computed, onMounted, onActivated, h, onBeforeUnmount, watch, nextTick } from 'vue'
 import { useStockBalances } from '@/composables/useStockBalances'
 import { useMessage } from 'naive-ui'
 import {
@@ -771,10 +771,8 @@ const handleProductSelectResult = (opt: { label: string; value: string }) => {
       unitKey: stock.unit_key || '',
       storageBin: stock.storageBin || '',
       price: Number(stock.purchasePrice || stock.averagePrice || 0),
-      customerOrderKey: createForm.customerOrderKey || '',
-      customerOrderNumber: createForm.customerOrderKey
-        ? (ordersStore.orders.find(o => o.id === createForm.customerOrderKey)?.orderNumber || '')
-        : '',
+      customerOrderKey: '',
+      customerOrderNumber: '',
       selectedProduct: ''
     })
     message.success(`✓ Добавлен: ${stock.name || stock.product}`)
@@ -922,10 +920,11 @@ const createItemsColumns: DataTableColumns<CreateItem> = [
       value: row.customerOrderKey || createForm.customerOrderKey,
       options: customerOrderOptions.value,
       filterable: true,
-      placeholder: 'Выберите заказ',
+      placeholder: createForm.customerOrderKey ? 'Выбран глобальный' : 'Выберите заказ',
       size: 'small',
       style: 'width: 170px',
       clearable: true,
+      disabled: !!createForm.customerOrderKey,
       'onUpdate:value': (val: string) => {
         const item = createForm.items[index]
         if (item) {
@@ -949,11 +948,11 @@ const createItemsColumns: DataTableColumns<CreateItem> = [
         value: row.selectedProduct,
         options: products,
         filterable: true,
-        placeholder: 'Выберите изделие',
+        placeholder: createForm.customerOrderKey ? 'Выбран глобальный' : 'Выберите изделие',
         size: 'small',
         style: 'width: 170px',
         clearable: true,
-        disabled: !orderKey,
+        disabled: !orderKey || !!createForm.customerOrderKey,
         'onUpdate:value': (val: string) => {
           const item = createForm.items[index]
           if (item) item.selectedProduct = val || ''
@@ -982,10 +981,8 @@ const createItemsColumns: DataTableColumns<CreateItem> = [
 const onGlobalCustomerOrderChange = (value: string) => {
   createForm.selectedProduct = ''
   createForm.items.forEach(item => {
-    item.customerOrderKey = value || ''
-    item.customerOrderNumber = value
-      ? ordersStore.orders.find(o => o.id === value)?.orderNumber || ''
-      : ''
+    item.customerOrderKey = ''
+    item.customerOrderNumber = ''
     item.selectedProduct = ''
   })
 }
@@ -1287,6 +1284,7 @@ const saveCreateAndSendTo1C = async () => {
     const data = await fetchTransferOrders()
     orders.value = data
     window.dispatchEvent(new CustomEvent('transferOrderOperation'))
+    window.dispatchEvent(new CustomEvent('refreshUserOperations'))
   } catch (err) {
     message.error(err instanceof Error ? err.message : 'Ошибка')
   } finally {
@@ -2000,7 +1998,6 @@ const openOrder = async (orderId: string) => {
         })
       }
     } catch (e) {
-      console.log('Нет сохранённых данных сканирования')
     }
   } catch (error) {
     console.error('Ошибка при загрузке деталей заказа:', error)
@@ -2141,6 +2138,7 @@ const sendTo1C = async () => {
     selectedOrder.value = null
     selectedOrderId.value = null
     window.dispatchEvent(new CustomEvent('transferOrderOperation'))
+    window.dispatchEvent(new CustomEvent('refreshUserOperations'))
   } else {
     message.error(result.error || 'Ошибка отправки в 1С')
   }
@@ -2383,6 +2381,18 @@ onMounted(async () => {
 
   // Добавляем обработчик клавиатуры для сканера
   window.addEventListener('keydown', handleKeyDown)
+})
+
+onActivated(async () => {
+  loading.value = true
+  try {
+    const data = await fetchTransferOrders()
+    orders.value = data
+  } catch (error) {
+    console.error('Ошибка при загрузке заказов:', error)
+  } finally {
+    loading.value = false
+  }
 })
 
 // Очищаем обработчик при размонтировании компонента

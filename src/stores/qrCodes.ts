@@ -4,6 +4,12 @@ import type { QRCode, QRCodeStatus } from '@/types'
 
 const API_BASE = '/sklad/api'
 
+function notifyUserOpsRefresh() {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('refreshUserOperations'))
+  }
+}
+
 export const useQRCodesStore = defineStore('qrCodes', () => {
   const qrCodes = ref<QRCode[]>([])
   const loading = ref(false)
@@ -171,6 +177,7 @@ export const useQRCodesStore = defineStore('qrCodes', () => {
         }
       }
 
+      notifyUserOpsRefresh()
       return data
     } catch (err) {
       error.value = err instanceof Error ? err.message : 'Unknown error'

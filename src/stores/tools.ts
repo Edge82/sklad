@@ -3,6 +3,12 @@ import { ref, computed } from 'vue'
 
 const API_BASE = '/sklad/api'
 
+function notifyUserOpsRefresh() {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('refreshUserOperations'))
+  }
+}
+
 interface MaterialItem {
   id: string
   name: string
@@ -122,6 +128,7 @@ export const useToolsStore = defineStore('tools', () => {
 
       const data = await response.json()
       await loadToolsFromApi()
+      notifyUserOpsRefresh()
       return data
     } catch (err) {
       error.value = err instanceof Error ? err.message : 'Unknown error'
@@ -150,6 +157,7 @@ export const useToolsStore = defineStore('tools', () => {
 
       const data = await response.json()
       await loadToolsFromApi()
+      notifyUserOpsRefresh()
       return data
     } catch (err) {
       error.value = err instanceof Error ? err.message : 'Unknown error'
@@ -187,19 +195,15 @@ export const useToolsStore = defineStore('tools', () => {
   }
 
   async function addTool() {
-    console.warn('addTool is disabled — materials are synced from 1C')
   }
 
   async function updateTool() {
-    console.warn('updateTool is disabled — materials are synced from 1C')
   }
 
   async function deleteTool() {
-    console.warn('deleteTool is disabled — materials are synced from 1C')
   }
 
   async function reportBreakdown() {
-    console.warn('reportBreakdown is not available for materials')
   }
 
   async function loadBreakdowns() {

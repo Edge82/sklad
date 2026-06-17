@@ -118,7 +118,7 @@
 
       <n-tab-pane name="operations" tab="История операций">
         <div class="py-4">
-          <EmployeeOperationHistory :employee-id="currentEmployee.id" :limit="10" />
+          <EmployeeOperationHistory :employee-id="currentEmployee.id" :employee-name="currentEmployee.name" :limit="10" />
         </div>
       </n-tab-pane>
     </n-tabs>

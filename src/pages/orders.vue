@@ -270,7 +270,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, h, computed, reactive, onMounted, watch } from 'vue'
+import { ref, h, computed, reactive, onMounted, onActivated, watch } from 'vue'
 import { useOrdersStore } from '@/stores/orders'
 import { useQRCodesStore } from '@/stores/qrCodes'
 import { useUserStore } from '@/stores/user'
@@ -351,6 +351,12 @@ const handleSyncOrders = async () => {
 
 // Автоматическая загрузка данных при инициализации (один раз)
 onMounted(async () => {
+  if (ordersStore.orders.length === 0) {
+    handleSyncOrders()
+  }
+})
+
+onActivated(async () => {
   if (ordersStore.orders.length === 0) {
     handleSyncOrders()
   }

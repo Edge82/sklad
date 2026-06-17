@@ -283,7 +283,6 @@ export const useEmployeesStore = defineStore('employees', () => {
 
   const addMaterialHistory = (userId: string, historyItem: MaterialInvoice) => {
     if (!userId) {
-      console.warn('addMaterialHistory: userId is empty')
       return
     }
 
@@ -298,7 +297,6 @@ export const useEmployeesStore = defineStore('employees', () => {
 
     if (!employee) {
       if (employees.value.length > 0) {
-        console.warn('addMaterialHistory: No employee found with matching userId', searchUserId, ', using first employee')
         employee = employees.value[0]
       } else if (userStore.user) {
         employee = {
@@ -318,7 +316,6 @@ export const useEmployeesStore = defineStore('employees', () => {
           materialHistory: []
         }
         employees.value.push(employee)
-        console.log('addMaterialHistory: Created temporary employee from user', employee.name)
       }
     }
 
@@ -333,8 +330,6 @@ export const useEmployeesStore = defineStore('employees', () => {
       if (typeof window !== 'undefined') {
         localStorage.setItem('employees_data', JSON.stringify(employees.value))
       }
-
-      console.log('addMaterialHistory: Added item for employee', employee.name, 'userId:', employee.userId, '(parsed:', parseFloat(String(employee.userId)), ')')
     } else {
       console.error('addMaterialHistory: No employee found to add material history')
     }
@@ -373,9 +368,6 @@ export const useEmployeesStore = defineStore('employees', () => {
           // materialHistory загружается отдельно через API
           materialHistory: []
         }))
-
-        // Debug: log loaded employees
-        console.log('loadEmployeesFromApi: Loaded', employees.value.length, 'employees')
 
         if (typeof window !== 'undefined') {
           localStorage.setItem('employees_data', JSON.stringify(employees.value))

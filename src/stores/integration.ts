@@ -131,8 +131,6 @@ export const useIntegrationStore = defineStore('integration', () => {
         unit: item.unit || 'шт'
       }))
 
-      console.log('✅ syncOrderDetails: Loaded', items.length, 'items for order', orderId, 'items:', items.map(i => ({ name: i.productName, price: i.unitPrice })))
-
       // Обновляем заказ в store с полученными позициями
       const order = ordersStore.orders.find(o => o.id === orderId)
       if (order) {
@@ -153,10 +151,6 @@ export const useIntegrationStore = defineStore('integration', () => {
 
   async function createMaterialTransferDocument(data: any) {
     try {
-      console.log('\n🚀 ===== SENDING TO BACKEND =====')
-      console.log('📦 Request Data:')
-      console.log(JSON.stringify(data, null, 2))
-
       const response = await fetch(`${API_BASE_URL}/1c/material-transfer`, {
         method: 'POST',
         headers: {
@@ -166,8 +160,6 @@ export const useIntegrationStore = defineStore('integration', () => {
         body: JSON.stringify(data)
       })
 
-      console.log(`📡 Response Status: ${response.status}`)
-
       if (!response.ok) {
         const errorData = await response.json()
         console.error('❌ Backend Error:', errorData)
@@ -175,9 +167,6 @@ export const useIntegrationStore = defineStore('integration', () => {
       }
 
       const result = await response.json()
-      console.log('✅ Success Response:')
-      console.log(JSON.stringify(result, null, 2))
-      console.log('🚀 ===== END SENDING =====\n')
       return result
     } catch (err: any) {
       error.value = err.message || 'Ошибка создания документа переноса'

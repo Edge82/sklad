@@ -168,7 +168,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, h, onMounted, watch, markRaw } from 'vue'
+import { ref, computed, h, onMounted, onActivated, watch, markRaw } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useInventoryStore } from '@/stores/inventory'
 import { useToolsStore } from '@/stores/tools'
@@ -469,6 +469,21 @@ onMounted(async () => {
   const prodOrders = productionReport.value.length
   if (summaryMetrics.value[2]) summaryMetrics.value[2].value = `${prodOrders} заказов`
 
+  const issuedCount = toolsStore.issuedTools.length
+  if (summaryMetrics.value[3]) summaryMetrics.value[3].value = `${issuedCount} шт.`
+})
+
+onActivated(async () => {
+  await Promise.all([
+    reportsStore.loadAllReports(),
+    loadProductionReport(),
+    ordersStore.loadOrdersFromApi(),
+    toolsStore.loadToolsFromApi()
+  ])
+  const totalOrders = ordersReport.value.reduce((s, r) => s + r.items.length, 0)
+  if (summaryMetrics.value[1]) summaryMetrics.value[1].value = `${filteredOrdersReport.value.length} заказов`
+  const prodOrders = productionReport.value.length
+  if (summaryMetrics.value[2]) summaryMetrics.value[2].value = `${prodOrders} заказов`
   const issuedCount = toolsStore.issuedTools.length
   if (summaryMetrics.value[3]) summaryMetrics.value[3].value = `${issuedCount} шт.`
 })

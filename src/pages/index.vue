@@ -35,7 +35,7 @@
 import { useUserStore } from '@/stores/user'
 import { useInventoryStore } from '@/stores/inventory'
 import { useOrdersStore } from '@/stores/orders'
-import { onMounted } from 'vue'
+import { onMounted, onActivated } from 'vue'
 
 const userStore = useUserStore()
 const inventoryStore = useInventoryStore()
@@ -43,6 +43,11 @@ const ordersStore = useOrdersStore()
 
 onMounted(() => {
   // Восстанавливаем данные из localStorage
+  inventoryStore.restoreFromLocalStorage()
+  ordersStore.restoreFromLocalStorage()
+})
+
+onActivated(() => {
   inventoryStore.restoreFromLocalStorage()
   ordersStore.restoreFromLocalStorage()
 })

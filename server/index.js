@@ -837,20 +837,12 @@ const server = http.createServer(async (req, res) => {
         return
       }
       db.prepare('DELETE FROM transfer_orders WHERE ref_key = ?').run(orderId)
-      let employeeName = 'Система'
-      try {
-        const authHeader = req.headers.authorization || ''
-        if (authHeader.startsWith('Bearer ')) {
-          const token = authHeader.substring(7)
-          const payload = jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] })
-          employeeName = payload?.login || 'Система'
-        }
-      } catch {}
+      const emp = getEmployeeFromRequest(req, JWT_SECRET)
 
       logOperation('transfer_order_deleted', {
         orderNumber: order.order_number,
-        employeeName,
-        employeeId: employeeName,
+        employeeName: emp.employeeName,
+        employeeId: emp.employeeId,
         details: { refKey: orderId }
       })
       sendJSON(res, 200, { success: true })
@@ -979,27 +971,9 @@ const server = http.createServer(async (req, res) => {
         const baseUrl = ONEC_CONFIG.baseUrl.replace(/\/$/, '')
 
         // Get user info from JWT FIRST — before any 1C interaction
-        let employeeName = 'System'
-        let employeeId = null
-        try {
-          const reqAuth = req.headers.authorization || ''
-          let token = null
-          const bearerMatch = reqAuth.match(/^Bearer\s+(.+)$/i)
-          if (bearerMatch) {
-            token = bearerMatch[1]
-          } else {
-            const cookies = req.headers.cookie || ''
-            const m = cookies.match(/auth_token=([^;]+)/)
-            if (m) token = decodeURIComponent(m[1])
-          }
-          if (token) {
-            const payload = jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] })
-            employeeName = payload?.login || 'System'
-            employeeId = payload?.userId || null
-          }
-        } catch {
-          console.log('⚠️ JWT verification failed in complete handler')
-        }
+        const emp = getEmployeeFromRequest(req, JWT_SECRET)
+        const employeeName = emp.employeeName || emp.employeeId || 'Неизвестно'
+        const employeeId = emp.employeeId
 
         const statusCatalog = 'Catalog_СостоянияЗаказовНаПеремещение'
         let statusKey = ''
@@ -1120,6 +1094,14 @@ const server = http.createServer(async (req, res) => {
           stmt.run(orderRefKey, item.barcode || '', item.scannedQty || 0)
         }
 
+        const emp = getEmployeeFromRequest(req, JWT_SECRET)
+        logOperation('transfer_scans_saved', {
+          orderNumber: orderRefKey,
+          employeeName: emp.employeeName,
+          employeeId: emp.employeeId,
+          details: { itemsCount: items.length }
+        })
+
         sendJSON(res, 200, { status: 'saved', count: items.length })
       })
     } catch (err) {
@@ -1226,25 +1208,8 @@ const server = http.createServer(async (req, res) => {
           return
         }
 
-        let creatorName = 'Система'
-        try {
-          const authHeader = req.headers.authorization || ''
-          let token = null
-          const bearerMatch = authHeader.match(/^Bearer\s+(.+)$/i)
-          if (bearerMatch) {
-            token = bearerMatch[1]
-          } else {
-            const cookies = req.headers.cookie || ''
-            const m = cookies.match(/auth_token=([^;]+)/)
-            if (m) token = decodeURIComponent(m[1])
-          }
-          if (token) {
-            const payload = jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] })
-            creatorName = payload?.login || 'Система'
-          }
-        } catch {
-          console.log('⚠️ JWT verification failed in create handler, falling back to Система')
-        }
+        const emp = getEmployeeFromRequest(req, JWT_SECRET)
+        const creatorName = emp.employeeName || emp.employeeId || 'Неизвестно'
 
         const localRefKey = `LOCAL-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`
         const orderNumber = `LOCAL-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.random().toString(36).substr(2, 4).toUpperCase()}`
@@ -1258,13 +1223,13 @@ const server = http.createServer(async (req, res) => {
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
         `).run(localRefKey, orderNumber, now, sourceWarehouseKey, sourceWarehouseName || '',
           destinationWarehouseKey, destinationWarehouseName || '', customerOrderKey || null,
-          customerOrderNumber || null, itemsJson, now, selectedProduct || null, creatorName)
+          customerOrderNumber || null, itemsJson, now, selectedProduct || null, emp.employeeId || creatorName)
 
         console.log(`[LOG] transfer_order_created: ${orderNumber} by ${creatorName}`)
         logOperation('transfer_order_created', {
           orderNumber,
           employeeName: creatorName,
-          employeeId: creatorName,
+          employeeId: emp.employeeId || creatorName,
           details: {
             sourceWarehouse: sourceWarehouseName,
             destinationWarehouse: destinationWarehouseName,
@@ -1408,26 +1373,7 @@ const server = http.createServer(async (req, res) => {
 
         console.log('📤 POST create doc:', JSON.stringify(createPayload, null, 2))
 
-        // Extract employee info FIRST
-        let employeeName = 'Система'
-        try {
-          const reqAuth = req.headers.authorization || ''
-          let token = null
-          const bearerMatch = reqAuth.match(/^Bearer\s+(.+)$/i)
-          if (bearerMatch) {
-            token = bearerMatch[1]
-          } else {
-            const cookies = req.headers.cookie || ''
-            const m = cookies.match(/auth_token=([^;]+)/)
-            if (m) token = decodeURIComponent(m[1])
-          }
-          if (token) {
-            const payload = jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] })
-            employeeName = payload?.login || 'Система'
-          }
-        } catch {
-          console.log('⚠️ JWT verification failed in send-to-1c handler')
-        }
+        const emp = getEmployeeFromRequest(req, JWT_SECRET)
 
         let onecRefKey = null
         let onecError = null
@@ -1463,7 +1409,7 @@ const server = http.createServer(async (req, res) => {
           // Set created_by if empty
           if (!order.created_by || order.created_by === '') {
             db.prepare('UPDATE transfer_orders SET created_by = ? WHERE ref_key = ?')
-              .run(employeeName, localRefKey)
+              .run(emp.employeeName, localRefKey)
           }
 
           db.prepare('UPDATE transfer_orders SET ref_key = ?, posted = 1, status_key = ?, status_description = ? WHERE ref_key = ?')
@@ -1471,11 +1417,11 @@ const server = http.createServer(async (req, res) => {
           sent = true
         }
 
-        console.log(`[LOG] transfer_order_sent: ${order.order_number} by ${employeeName}, sent: ${sent}, error: ${onecError || 'none'}`)
+        console.log(`[LOG] transfer_order_sent: ${order.order_number} by ${emp.employeeName}, sent: ${sent}, error: ${onecError || 'none'}`)
         logOperation('transfer_order_sent', {
           orderNumber: order.order_number,
-          employeeName,
-          employeeId: employeeName,
+          employeeName: emp.employeeName,
+          employeeId: emp.employeeId,
           details: { onecRefKey, error: onecError, sent }
         })
 
@@ -1502,6 +1448,15 @@ const server = http.createServer(async (req, res) => {
         const data = JSON.parse(body)
         const itemsJson = JSON.stringify(data.items || [])
         db.prepare('UPDATE transfer_orders SET items = ? WHERE ref_key = ?').run(itemsJson, localRefKey)
+
+        const emp = getEmployeeFromRequest(req, JWT_SECRET)
+        logOperation('transfer_order_updated', {
+          orderNumber: localRefKey,
+          employeeName: emp.employeeName,
+          employeeId: emp.employeeId,
+          details: { itemsCount: (data.items || []).length }
+        })
+
         sendJSON(res, 200, { success: true })
       } catch (err) {
         sendJSON(res, 500, { error: err.message })
@@ -2284,14 +2239,20 @@ const server = http.createServer(async (req, res) => {
       const limit = parseInt(url.searchParams.get('limit') || '100', 10)
       const offset = parseInt(url.searchParams.get('offset') || '0', 10)
 
-      let query = 'SELECT * FROM operation_logs WHERE 1=1'
+      let query = `SELECT ol.*, COALESCE(e1.name, e2.name, e3.name, u.full_name, ol.employee_name) as resolved_name
+        FROM operation_logs ol
+        LEFT JOIN employees e1 ON e1.id = ol.employee_id
+        LEFT JOIN employees e2 ON CAST(e2.user_id AS TEXT) = ol.employee_id
+        LEFT JOIN users u ON LOWER(u.login) = LOWER(ol.employee_id) OR LOWER(u.login) = LOWER(ol.employee_name) OR CAST(u.id AS TEXT) = ol.employee_id
+        LEFT JOIN employees e3 ON e3.user_id = u.id
+        WHERE 1=1`
       const params = []
 
-      if (operationType) { query += ' AND operation_type = ?'; params.push(operationType) }
-      if (employeeId) { query += ' AND employee_id = ?'; params.push(employeeId) }
-      if (orderId) { query += ' AND order_id = ?'; params.push(orderId) }
+      if (operationType) { query += ' AND ol.operation_type = ?'; params.push(operationType) }
+      if (employeeId) { query += ' AND ol.employee_id = ?'; params.push(employeeId) }
+      if (orderId) { query += ' AND ol.order_id = ?'; params.push(orderId) }
 
-      query += ' ORDER BY created_at DESC LIMIT ? OFFSET ?'
+      query += ' ORDER BY ol.created_at DESC LIMIT ? OFFSET ?'
       params.push(limit, offset)
 
       const logs = db.prepare(query).all(...params)
@@ -2608,45 +2569,74 @@ const server = http.createServer(async (req, res) => {
       const placeholders = searchIds.map(() => '?').join(', ')
 
       const operationLogs = db.prepare(`
-        SELECT id, operation_type, created_at, employee_id, employee_name,
-               order_number, product_name, qr_code, details, status
-        FROM operation_logs
-        WHERE employee_id IN (${placeholders}) OR CAST(employee_id AS TEXT) IN (${placeholders})
-        ORDER BY created_at DESC
+        SELECT ol.id, ol.operation_type, ol.created_at, ol.employee_id, ol.employee_name,
+               ol.order_number, ol.product_name, ol.qr_code, ol.details, ol.status,
+               COALESCE(
+                 (SELECT e.name FROM employees e WHERE e.id = ol.employee_id LIMIT 1),
+                 (SELECT e.name FROM employees e WHERE CAST(e.user_id AS TEXT) = CAST(ol.employee_id AS TEXT) LIMIT 1),
+                 (SELECT e.name FROM employees e WHERE e.user_id = CAST(ol.employee_id AS INTEGER) AND ol.employee_id GLOB '[0-9]*' LIMIT 1),
+                 (SELECT e.name FROM employees e JOIN users u2 ON e.user_id = u2.id WHERE LOWER(u2.login) = LOWER(ol.employee_id) LIMIT 1),
+                 ol.employee_name
+               ) as resolved_name
+        FROM operation_logs ol
+        WHERE ol.employee_id IN (${placeholders}) OR CAST(ol.employee_id AS TEXT) IN (${placeholders})
+        ORDER BY ol.created_at DESC
         LIMIT ?
       `).all(...searchIds, ...searchIds, limit)
 
       const toolOps = db.prepare(`
-        SELECT id, ('tool_' || COALESCE(action, 'unknown')) as operation_type, created_at as created_at,
-               employee_id, performed_by as employee_name,
-               tool_name as product_name, inventory_number as qr_code,
-               NULL as details, 'success' as status
-        FROM tool_operations
-        WHERE employee_id IN (${placeholders}) OR CAST(employee_id AS TEXT) IN (${placeholders})
-        ORDER BY created_at DESC
+        SELECT to2.id, ('tool_' || COALESCE(to2.action, 'unknown')) as operation_type, to2.created_at as created_at,
+               to2.employee_id, to2.performed_by as employee_name,
+               to2.tool_name as product_name, to2.inventory_number as qr_code,
+               NULL as details, 'success' as status,
+               COALESCE(
+                 (SELECT e.name FROM employees e WHERE e.id = to2.employee_id LIMIT 1),
+                 (SELECT e.name FROM employees e WHERE CAST(e.user_id AS TEXT) = CAST(to2.employee_id AS TEXT) LIMIT 1),
+                 (SELECT e.name FROM employees e WHERE e.user_id = CAST(to2.employee_id AS INTEGER) AND to2.employee_id GLOB '[0-9]*' LIMIT 1),
+                 (SELECT e.name FROM employees e JOIN users u2 ON e.user_id = u2.id WHERE LOWER(u2.login) = LOWER(to2.employee_id) LIMIT 1),
+                 to2.performed_by
+               ) as resolved_name
+        FROM tool_operations to2
+        WHERE to2.employee_id IN (${placeholders}) OR CAST(to2.employee_id AS TEXT) IN (${placeholders})
+        ORDER BY to2.created_at DESC
         LIMIT ?
       `).all(...searchIds, ...searchIds, limit)
 
       const invoices = db.prepare(`
-        SELECT id, ('invoice_' || COALESCE(destination, 'unknown')) as operation_type, created_at,
-               employee_id, created_by as employee_name,
-               order_number, NULL as product_name,
-               NULL as qr_code, NULL as details, 'success' as status
-        FROM material_invoices
-        WHERE employee_id IN (${placeholders}) OR CAST(employee_id AS TEXT) IN (${placeholders})
-        ORDER BY created_at DESC
+        SELECT mi.id, ('invoice_' || COALESCE(mi.destination, 'unknown')) as operation_type, mi.created_at,
+               mi.employee_id, mi.created_by as employee_name,
+               mi.order_number, NULL as product_name,
+               NULL as qr_code, NULL as details, 'success' as status,
+               COALESCE(
+                 (SELECT e.name FROM employees e WHERE CAST(e.id AS TEXT) = CAST(mi.employee_id AS TEXT) LIMIT 1),
+                 (SELECT e.name FROM employees e WHERE CAST(e.user_id AS TEXT) = CAST(mi.employee_id AS TEXT) LIMIT 1),
+                 (SELECT e.name FROM employees e WHERE e.user_id = CAST(mi.employee_id AS INTEGER) AND mi.employee_id GLOB '[0-9]*' LIMIT 1),
+                 (SELECT e.name FROM employees e JOIN users u2 ON e.user_id = u2.id WHERE LOWER(u2.login) = LOWER(mi.created_by) LIMIT 1),
+                 mi.created_by
+               ) as resolved_name
+        FROM material_invoices mi
+        WHERE mi.employee_id IN (${placeholders}) OR CAST(mi.employee_id AS TEXT) IN (${placeholders})
+        ORDER BY mi.created_at DESC
         LIMIT ?
       `).all(...searchIds, ...searchIds, limit)
 
       const transferOrders = db.prepare(`
-        SELECT ref_key as id, 'transfer_order' as operation_type,
-               COALESCE(synced_at, date, '') as created_at,
-               created_by as employee_id, created_by as employee_name,
-               order_number, NULL as product_name,
-               NULL as qr_code, '' as details, 'success' as status
-        FROM transfer_orders
-        WHERE created_by IN (${placeholders}) OR CAST(created_by AS TEXT) IN (${placeholders})
-        ORDER BY created_at DESC
+        SELECT to2.ref_key as id, 'transfer_order' as operation_type,
+               COALESCE(to2.synced_at, to2.date, '') as created_at,
+               to2.created_by as employee_id, to2.created_by as employee_name,
+               to2.order_number, NULL as product_name,
+               NULL as qr_code, '' as details, 'success' as status,
+               COALESCE(
+                 (SELECT e.name FROM employees e WHERE e.id = to2.created_by LIMIT 1),
+                 (SELECT e.name FROM employees e WHERE CAST(e.user_id AS TEXT) = CAST(to2.created_by AS TEXT) LIMIT 1),
+                 (SELECT e.name FROM employees e WHERE e.user_id = CAST(to2.created_by AS INTEGER) AND to2.created_by GLOB '[0-9]*' LIMIT 1),
+                 (SELECT e.name FROM employees e JOIN users u2 ON e.user_id = u2.id WHERE LOWER(u2.login) = LOWER(to2.created_by) LIMIT 1),
+                 (SELECT e.name FROM employees e WHERE LOWER(e.name) = LOWER(to2.created_by) LIMIT 1),
+                 CASE WHEN to2.created_by AND to2.created_by != '' AND to2.created_by != 'Неизвестно' THEN to2.created_by END
+               ) as resolved_name
+        FROM transfer_orders to2
+        WHERE to2.created_by IN (${placeholders}) OR CAST(to2.created_by AS TEXT) IN (${placeholders})
+        ORDER BY COALESCE(to2.synced_at, to2.date, '') DESC
         LIMIT ?
       `).all(...searchIds, ...searchIds, limit * 2)
 
@@ -2654,7 +2644,43 @@ const server = http.createServer(async (req, res) => {
         .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
         .slice(0, limit)
 
-      sendJSON(res, 200, { employeeId, logs: mixed, count: mixed.length, limit })
+      // Also fetch operation_logs by employee login (catches logs where login was stored as employee_id)
+      let byLoginLogs = []
+      if (userForLogin?.login) {
+        try {
+          byLoginLogs = db.prepare(`
+            SELECT ol.id, ol.operation_type, ol.created_at, ol.employee_id, ol.employee_name,
+                   ol.order_number, ol.product_name, ol.qr_code, ol.details, ol.status,
+                   COALESCE(
+                     (SELECT e.name FROM employees e WHERE e.id = ol.employee_id LIMIT 1),
+                     (SELECT e.name FROM employees e WHERE CAST(e.user_id AS TEXT) = CAST(ol.employee_id AS TEXT) LIMIT 1),
+                     (SELECT e.name FROM employees e WHERE e.user_id = CAST(ol.employee_id AS INTEGER) AND ol.employee_id GLOB '[0-9]*' LIMIT 1),
+                     (SELECT e.name FROM employees e JOIN users u2 ON e.user_id = u2.id WHERE LOWER(u2.login) = LOWER(ol.employee_id) LIMIT 1),
+                     ol.employee_name
+                   ) as resolved_name
+            FROM operation_logs ol
+            WHERE ol.employee_id = ? OR ol.employee_name = ?
+            ORDER BY ol.created_at DESC
+            LIMIT ?
+          `).all(userForLogin.login, userForLogin.login, limit)
+        } catch (err) {
+          console.warn('Error fetching by-login logs:', err.message)
+        }
+      }
+
+      // Merge and deduplicate
+      const seenIds = new Set()
+      const allLogs = [...mixed, ...byLoginLogs]
+      const deduped = allLogs.filter(log => {
+        const key = `${log.operation_type}-${log.id}`
+        if (seenIds.has(key)) return false
+        seenIds.add(key)
+        return true
+      })
+      deduped.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+      const finalLogs = deduped.slice(0, limit)
+
+      sendJSON(res, 200, { employeeId, logs: finalLogs, count: finalLogs.length, limit })
     } catch (err) {
       console.error('Error fetching employee operations:', err)
       sendJSON(res, 500, { error: err.message })
@@ -2816,7 +2842,9 @@ const server = http.createServer(async (req, res) => {
         const data = JSON.parse(body)
         const { id, name, inventoryNumber, serialNumber, type = 'hand_tool', model, manufacturer,
                 status = 'in_stock', location, price = 0, qrCode, issuedTo, issuedToName, issuedAt,
-                breakdownDescription, createdBy } = data
+                breakdownDescription } = data
+
+        const emp = getEmployeeFromRequest(req, JWT_SECRET)
 
         if (!id || !name || !type) {
           sendJSON(res, 400, { error: 'Missing required fields' })
@@ -2844,7 +2872,7 @@ const server = http.createServer(async (req, res) => {
           `).run(opId, id, name, invNumber, issuedTo, 'issued', now, issuedToName || 'System', now)
         }
 
-        logOperation('tool_created', { tool_id: id, tool_name: name, tool_type: type, created_by: createdBy || 'System' })
+        logOperation('tool_created', { tool_id: id, tool_name: name, tool_type: type, employee_id: emp.employeeId, employee_name: emp.employeeName })
 
         sendJSON(res, 201, { success: true, tool: { id, name, inventoryNumber: invNumber, serialNumber, type, model, manufacturer,
           status, location, price, qrCode, issuedTo, issuedToName, issuedAt, breakdownDescription, createdAt: now, updatedAt: now, createdBy: createdBy || 'System' } })
@@ -2896,7 +2924,8 @@ const server = http.createServer(async (req, res) => {
         const oldTool = db.prepare('SELECT * FROM tools WHERE id = ?').get(toolId)
 
         db.prepare(`UPDATE tools SET ${setClause.join(', ')} WHERE id = ?`).run(...values)
-        logOperation('tool_updated', { tool_id: toolId, changes: data })
+        const empUpd = getEmployeeFromRequest(req, JWT_SECRET)
+        logOperation('tool_updated', { tool_id: toolId, changes: data, employee_id: empUpd.employeeId, employee_name: empUpd.employeeName })
 
         if (oldTool) {
           let toolAction = null
@@ -2952,8 +2981,9 @@ const server = http.createServer(async (req, res) => {
   if (pathname.match(/^\/sklad\/api\/tools\/[^\/]+$/) && req.method === 'DELETE') {
     try {
       const toolId = pathname.split('/')[4]
+      const empDel = getEmployeeFromRequest(req, JWT_SECRET)
       db.prepare('DELETE FROM tools WHERE id = ?').run(toolId)
-      logOperation('tool_deleted', { tool_id: toolId })
+      logOperation('tool_deleted', { tool_id: toolId, employee_id: empDel.employeeId, employee_name: empDel.employeeName })
       sendJSON(res, 200, { success: true })
     } catch (err) {
       console.error('Error deleting tool:', err)
@@ -2991,6 +3021,7 @@ const server = http.createServer(async (req, res) => {
         const toolId = pathname.split('/')[4]
         const data = JSON.parse(body)
         const { description, reportedBy } = data
+        const empBrk = getEmployeeFromRequest(req, JWT_SECRET)
 
         if (!description) {
           sendJSON(res, 400, { error: 'Missing description' })
@@ -3007,7 +3038,7 @@ const server = http.createServer(async (req, res) => {
 
         db.prepare(`UPDATE tools SET status = 'repair', issued_to = NULL, issued_to_name = NULL, issued_at = NULL WHERE id = ?`).run(toolId)
 
-        logOperation('tool_breakdown_reported', { tool_id: toolId, breakdown_id: breakdownId, description, reported_by: reportedBy || 'System' })
+        logOperation('tool_breakdown_reported', { tool_id: toolId, breakdown_id: breakdownId, description, employee_id: empBrk.employeeId, employee_name: empBrk.employeeName })
 
         sendJSON(res, 201, {
           success: true,
@@ -3097,20 +3128,22 @@ const server = http.createServer(async (req, res) => {
     req.on('end', () => {
       try {
         const data = JSON.parse(body)
-        const { employeeId, date, orderNumber, destination, totalAmount = 0, items = [], createdBy } = data
+        const { employeeId, date, orderNumber, destination, totalAmount = 0, items = [] } = data
 
         if (!employeeId || !date || !orderNumber) {
           sendJSON(res, 400, { error: 'Missing required fields' })
           return
         }
 
+        const empInv = getEmployeeFromRequest(req, JWT_SECRET)
+        const createdBy = empInv.employeeName || empInv.employeeId || 'Неизвестно'
         const invoiceId = Math.random().toString(36).substr(2, 9)
         const now = moscowNow()
 
         db.prepare(`
           INSERT INTO material_invoices (id, employee_id, date, order_number, destination, total_amount, created_at, updated_at, created_by)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(invoiceId, employeeId, date, orderNumber, destination || null, totalAmount, now, now, createdBy || 'System')
+        `).run(invoiceId, employeeId, date, orderNumber, destination || null, totalAmount, now, now, createdBy)
 
         items.forEach(item => {
           const itemId = Math.random().toString(36).substr(2, 9)
@@ -3120,7 +3153,7 @@ const server = http.createServer(async (req, res) => {
           `).run(itemId, invoiceId, item.productName, item.quantity, item.unit, item.article || null, item.price || 0, item.scannedAt || now)
         })
 
-        logOperation('invoice_created', { invoice_id: invoiceId, employee_id: employeeId, order_number: orderNumber, items_count: items.length, created_by: createdBy || 'System' })
+        logOperation('invoice_created', { invoice_id: invoiceId, employee_id: empInv.employeeId || employeeId, order_number: orderNumber, items_count: items.length, employee_name: empInv.employeeName })
 
         sendJSON(res, 201, {
           success: true,
@@ -3355,13 +3388,18 @@ const server = http.createServer(async (req, res) => {
       }
 
       const logs = db.prepare(`
-        SELECT id, operation_type, created_at, employee_id, employee_name,
-               order_number, product_name, qr_code, details, status
-        FROM operation_logs
-        WHERE employee_name = ?
-        ORDER BY created_at DESC
+        SELECT ol.id, ol.operation_type, ol.created_at, ol.employee_id, ol.employee_name,
+               ol.order_number, ol.product_name, ol.qr_code, ol.details, ol.status,
+               COALESCE(e1.name, e2.name, e3.name, u.full_name, ol.employee_name) as resolved_name
+        FROM operation_logs ol
+        LEFT JOIN employees e1 ON e1.id = ol.employee_id
+        LEFT JOIN employees e2 ON CAST(e2.user_id AS TEXT) = ol.employee_id
+        LEFT JOIN users u ON LOWER(u.login) = LOWER(ol.employee_id) OR LOWER(u.login) = LOWER(ol.employee_name) OR CAST(u.id AS TEXT) = ol.employee_id
+        LEFT JOIN employees e3 ON e3.user_id = u.id
+        WHERE ol.employee_name = ? OR ol.employee_id = ?
+        ORDER BY ol.created_at DESC
         LIMIT ?
-      `).all(employeeName, limit)
+      `).all(employeeName, employeeName, limit)
 
       sendJSON(res, 200, { logs })
     } catch (err) {
@@ -3428,12 +3466,12 @@ const server = http.createServer(async (req, res) => {
     try {
       const employees = db.prepare(`
         SELECT e.*,
-          (COUNT(DISTINCT mi.id) + COUNT(DISTINCT ol.id) + COUNT(DISTINCT to.id) + COUNT(DISTINCT toper.id)) as operations_count
+          (COUNT(DISTINCT mi.id) + COUNT(DISTINCT ol.id) + COUNT(DISTINCT torder.id) + COUNT(DISTINCT toper.id)) as operations_count
         FROM employees e
         LEFT JOIN material_invoices mi ON e.id = mi.employee_id
         LEFT JOIN users u ON e.user_id = u.id
         LEFT JOIN operation_logs ol ON LOWER(u.login) = LOWER(ol.employee_name) OR LOWER(u.full_name) = LOWER(ol.employee_name)
-        LEFT JOIN transfer_orders to ON LOWER(u.login) = LOWER(to.created_by)
+        LEFT JOIN transfer_orders torder ON LOWER(u.login) = LOWER(torder.created_by)
         LEFT JOIN tool_operations toper ON e.id = toper.employee_id
         GROUP BY e.id ORDER BY operations_count DESC LIMIT 5
       `).all()
@@ -3501,46 +3539,58 @@ const server = http.createServer(async (req, res) => {
 
       const orderMap = new Map()
 
-      for (const order of allOrders) {
-        const isRealGuid = order.customer_order_key && order.customer_order_key !== '00000000-0000-0000-0000-000000000000'
-        const groupKey = isRealGuid ? order.customer_order_key : (order.customer_order_number || order.order_number)
-        if (!groupKey) continue
-        if (!orderMap.has(groupKey)) {
-          orderMap.set(groupKey, {
-            orderNumber: order.customer_order_number || order.order_number,
-            date: order.date,
-            customerOrderKey: isRealGuid ? order.customer_order_key : null,
-            orderMaterials: [],
-            products: []
-          })
-        }
-        const entry = orderMap.get(groupKey)
-        if (!entry.customerOrderKey && isRealGuid) {
-          entry.customerOrderKey = order.customer_order_key
-        }
-        const displayNum = (order.customer_order_number || order.order_number || '').trim()
-        if (displayNum && displayNum.length > (entry.orderNumber || '').trim().length) {
-          entry.orderNumber = displayNum
-        }
-
+      for (const transferOrder of allOrders) {
         let items = []
-        try { items = JSON.parse(order.items || '[]') } catch { /* ignore */ }
+        try { items = JSON.parse(transferOrder.items || '[]') } catch { /* ignore */ }
 
-        const mappedMaterials = items.map((item) => ({
-          name: item.nomenclatureName || item.productName || item.Номенклатура____Presentation || item.Номенклатура_Presentation || 'Без названия',
-          barcode: item.barcode || '',
-          quantity: item.quantity || item.Количество || 1
-        }))
+        // Process each item individually - it may have its own customerOrderKey + selectedProduct
+        for (const item of items) {
+          // Use per-row order key/product if available, fallback to document-level
+          const itemOrderKey = item.customerOrderKey || transferOrder.customer_order_key || ''
+          const itemOrderNumber = item.customerOrderNumber || transferOrder.customer_order_number || ''
+          const itemProduct = item.selectedProduct || transferOrder.selected_product || ''
 
-        const productName = order.selected_product
-        if (productName && productName !== '') {
-          entry.products.push({
-            name: productName,
-            materials: mappedMaterials,
-            totalSum: 0
-          })
-        } else {
-          entry.orderMaterials.push(...mappedMaterials)
+          const isRealGuid = itemOrderKey && itemOrderKey !== '00000000-0000-0000-0000-000000000000'
+          const groupKey = isRealGuid ? itemOrderKey : (itemOrderNumber || transferOrder.order_number)
+          if (!groupKey) continue
+
+          if (!orderMap.has(groupKey)) {
+            orderMap.set(groupKey, {
+              orderNumber: itemOrderNumber || transferOrder.order_number,
+              date: transferOrder.date,
+              customerOrderKey: isRealGuid ? itemOrderKey : null,
+              orderMaterials: [],
+              products: []
+            })
+          }
+          const entry = orderMap.get(groupKey)
+          if (!entry.customerOrderKey && isRealGuid) {
+            entry.customerOrderKey = itemOrderKey
+          }
+          // Keep the longest/most descriptive order number
+          const displayNum = (itemOrderNumber || transferOrder.order_number || '').trim()
+          if (displayNum && displayNum.length > (entry.orderNumber || '').trim().length) {
+            entry.orderNumber = displayNum
+          }
+
+          const material = {
+            name: item.nomenclatureName || item.productName || item.Номенклатура____Presentation || item.Номенклатура_Presentation || 'Без названия',
+            barcode: item.barcode || '',
+            quantity: item.quantity || item.Количество || 1
+          }
+
+          // If this item has a product name, group under that product
+          if (itemProduct && itemProduct !== '') {
+            // Find or create product entry
+            let productEntry = entry.products.find(p => p.name === itemProduct)
+            if (!productEntry) {
+              productEntry = { name: itemProduct, materials: [], totalSum: 0 }
+              entry.products.push(productEntry)
+            }
+            productEntry.materials.push(material)
+          } else {
+            entry.orderMaterials.push(material)
+          }
         }
       }
 

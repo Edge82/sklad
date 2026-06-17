@@ -456,7 +456,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, h, onMounted } from 'vue'
+import { ref, reactive, computed, h, onMounted, onActivated } from 'vue'
 import { useEmployeesStore } from '@/stores/employees'
 import { useUserStore } from '@/stores/user'
 import type { Employee } from '@/types'
@@ -908,6 +908,10 @@ const handleSaveCredentials = async () => {
 
 // Load employees from API when page mounts
 onMounted(() => {
+  employeesStore.loadEmployeesFromApi()
+})
+
+onActivated(() => {
   employeesStore.loadEmployeesFromApi()
 })
 

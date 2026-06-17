@@ -182,7 +182,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, h, reactive, computed, onMounted, watch } from 'vue'
+import { ref, h, reactive, computed, onMounted, onActivated, watch } from 'vue'
 import {
   NTag,
   NButton,
@@ -479,6 +479,13 @@ const handleSync = async () => {
 }
 
 onMounted(async () => {
+  await Promise.all([
+    toolsStore.loadToolsFromApi(),
+    employeesStore.loadEmployeesFromApi()
+  ])
+})
+
+onActivated(async () => {
   await Promise.all([
     toolsStore.loadToolsFromApi(),
     employeesStore.loadEmployeesFromApi()

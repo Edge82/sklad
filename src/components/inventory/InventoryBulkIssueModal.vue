@@ -268,10 +268,6 @@ onMounted(async () => {
     sourceWarehouseOptions.value = transferWarehouses.sourceWarehouses.map(w => ({ label: w.name, value: w.id }))
     destinationWarehouseOptions.value = transferWarehouses.destinationWarehouses.map(w => ({ label: w.name, value: w.id }))
 
-    console.log('DEBUG: transferWarehouses:', transferWarehouses)
-    console.log('DEBUG: sourceWarehouseOptions:', sourceWarehouseOptions.value)
-    console.log('DEBUG: destinationWarehouseOptions:', destinationWarehouseOptions.value)
-
     operationOptions.value = operations.map((o: any) => ({ label: o.name, value: o.id }))
     organizationOptions.value = organizations.map((o: any) => ({ label: o.name, value: o.id }))
     expenseAccountOptions.value = expenseAccounts.map(e => ({ label: e.name, value: e.id }))
@@ -447,11 +443,6 @@ const handleSubmit = async () => {
       includeVAT: documentData.includeVAT === null ? undefined : documentData.includeVAT,
       items: transferItems
     }
-
-    console.log('\n📋 ===== MATERIAL TRANSFER PAYLOAD =====')
-    console.log('🔍 Полные данные для отправки в 1С:')
-    console.log(JSON.stringify(requestPayload, null, 2))
-    console.log('📋 ===== END PAYLOAD =====\n')
 
     await integrationStore.createMaterialTransferDocument(requestPayload)
 
