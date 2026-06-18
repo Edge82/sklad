@@ -922,9 +922,6 @@ export function useStockBalances() {
       const items = await fetchOData('Catalog_ХозяйственныеОперации', {
         '$select': 'Ref_Key,Description,Presentation'
       });
-      const items = await fetchOData('Catalog_ХозяйственныеОперации', {
-        '$select': 'Ref_Key,Description,Presentation'
-      });
 
       const operations = (items || [])
         .map((item: any) => {

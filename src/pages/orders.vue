@@ -640,6 +640,15 @@ const columnsBase = [
     }
   },
   {
+    title: 'Комментарий',
+    key: 'comment',
+    width: 200,
+    ellipsis: true,
+    render(row: Order) {
+      return row.comment || '-'
+    }
+  },
+  {
     title: 'Сумма',
     key: 'totalAmount',
     width: 120,

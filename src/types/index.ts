@@ -335,6 +335,7 @@ export interface InventoryItem {
   available: number;
   location: string; // Склад/Физическое место хранения
   storageBin?: string; // Место хранения/Полка-Ячейка
+  lowStockThreshold?: number | null; // Порог малого остатка для подсветки
   dimensions?: string; // габариты
   weight?: number; // вес единицы
   storageConditions?: string;

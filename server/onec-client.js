@@ -655,7 +655,7 @@ export async function fetch1CTransferOrders() {
   console.log('📦 Загружаем заказы на перемещение из 1C...')
   try {
     const baseUrl = ONEC_CONFIG.baseUrl.replace(/\/$/, '')
-    const url = `${baseUrl}/Document_ЗаказНаПеремещение?$format=json&$top=500&$select=Ref_Key,Number,Date,СтруктурнаяЕдиницаРезерв_Key,СтруктурнаяЕдиницаПолучатель_Key,Posted,ЗаказПокупателя_Key,СтруктурнаяЕдиницаРезерв____Presentation,СтруктурнаяЕдиницаПолучатель____Presentation,ЗаказПокупателя____Presentation&$orderby=Date desc`
+    const url = `${baseUrl}/Document_ЗаказНаПеремещение?$format=json&$top=500&$select=Ref_Key,Number,Date,СтруктурнаяЕдиницаРезерв_Key,СтруктурнаяЕдиницаПолучатель_Key,Posted,ЗаказПокупателя_Key,СтруктурнаяЕдиницаРезерв____Presentation,СтруктурнаяЕдиницаПолучатель____Presentation,ЗаказПокупателя____Presentation,Комментарий&$orderby=Date desc`
 
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), 30000)
@@ -686,7 +686,8 @@ export async function fetch1CTransferOrders() {
       destination_warehouse_name: order.СтруктурнаяЕдиницаПолучатель____Presentation || 'Unknown',
       customer_order_key: order.ЗаказПокупателя_Key || '',
       customer_order_number: order.ЗаказПокупателя____Presentation || '',
-      posted: order.Posted ? 1 : 0
+      posted: order.Posted ? 1 : 0,
+      comment: order.Комментарий || ''
     }))
 
     console.log(`  ✓ Transfer orders: ${orders.length} загружено`)

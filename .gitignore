@@ -39,3 +39,8 @@ coverage
 __screenshots__/
 
 .env.example
+
+# Database
+.data/
+app.db
+*.db

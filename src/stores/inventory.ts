@@ -1004,6 +1004,7 @@ export const useInventoryStore = defineStore('inventory', () => {
               unitId: item.unit_key || item.unitId || '',  // Дублируем для совместимости с фронтом
               warehouseId: item.warehouseId || '',  // GUID склада из 1C
               storageBin: item.storageBin || '',  // Место хранения (локальное)
+              lowStockThreshold: item.lowStockThreshold != null ? Number(item.lowStockThreshold) : null,  // Порог малого остатка
               currentStock: currentStock,
               quantity: currentStock,
               minStock: minStock,

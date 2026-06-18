@@ -245,7 +245,8 @@ function syncTransferOrdersIncremental(orders) {
       db.prepare(`UPDATE transfer_orders SET
         order_number = ?, date = ?, source_warehouse_key = ?, source_warehouse_name = ?,
         destination_warehouse_key = ?, destination_warehouse_name = ?, customer_order_key = ?,
-        customer_order_number = ?, posted = ?, selected_product = COALESCE(selected_product, '')
+        customer_order_number = ?, posted = ?, selected_product = COALESCE(selected_product, ''),
+        comment = ?
         WHERE ref_key = ?`)
         .run(
           order.order_number,
@@ -257,6 +258,7 @@ function syncTransferOrdersIncremental(orders) {
           order.customer_order_key,
           order.customer_order_number,
           order.posted,
+          order.comment || '',
           ref_key
         )
       stats.updated++
@@ -264,8 +266,8 @@ function syncTransferOrdersIncremental(orders) {
       try {
         db.prepare(`INSERT INTO transfer_orders (ref_key, order_number, date, source_warehouse_key,
           source_warehouse_name, destination_warehouse_key, destination_warehouse_name, customer_order_key,
-          customer_order_number, posted, selected_product, created_by)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '')`)
+          customer_order_number, posted, selected_product, created_by, comment)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?)`)
           .run(
             ref_key,
             order.order_number,
@@ -277,7 +279,8 @@ function syncTransferOrdersIncremental(orders) {
             order.customer_order_key,
             order.customer_order_number,
             order.posted,
-            order.selected_product || ''
+            order.selected_product || '',
+            order.comment || ''
           )
         stats.added++
       } catch (e) { /* ignore duplicates */ }

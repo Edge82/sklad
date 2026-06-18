@@ -261,7 +261,7 @@
                 >
                   <template #prefix>
                     <n-icon><CameraOutline /></n-icon>
-                  </template>
+</template>
                 </n-input>
                 <div
                   v-if="orderDetailSearchOptions.length > 0"
@@ -294,6 +294,7 @@
                 :single-line="false"
                 size="small"
                 striped
+                :row-props="orderItemRowProps"
               />
             </div>
           </n-card>
@@ -551,6 +552,13 @@
       </div>
     </div>
   </n-modal>
+  <InventoryItemModal
+    v-model:show="showEditItemModal"
+    :item-id="editingItemId"
+    mode="material"
+    @submit="handleEditItemSubmit"
+    @update:show="(val) => !val && (editingItemId = null)"
+  />
 </template>
 
 <script setup lang="ts">
@@ -583,7 +591,9 @@ import type { DataTableColumns } from 'naive-ui'
 import { useOrdersStore } from '@/stores/orders'
 import { useUserStore } from '@/stores/user'
 import { useEmployeesStore } from '@/stores/employees'
-import type { MaterialInvoice } from '@/types'
+import { useInventoryStore } from '@/stores/inventory'
+import type { MaterialInvoice, InventoryItem } from '@/types'
+import InventoryItemModal from '@/components/inventory/InventoryItemModal.vue'
 
 interface TransferOrder {
   Ref_Key: string
@@ -598,6 +608,7 @@ interface TransferOrder {
   destinationWarehouseName?: string
   customerOrderKey?: string
   customerOrderNumber?: string
+  comment?: string
   perItemCustomerOrders?: string[]
   saved?: boolean
   items?: Array<{
@@ -616,7 +627,56 @@ const { fetchTransferOrders, fetchTransferOrderDetails, syncTransferOrders, comp
 const ordersStore = useOrdersStore()
 const userStore = useUserStore()
 const employeesStore = useEmployeesStore()
+const inventoryStore = useInventoryStore()
 const message = useMessage()
+const showEditItemModal = ref(false)
+const editingItemId = ref<string | null>(null)
+
+const orderItemRowProps = (row: any) => {
+  return {
+    class: 'cursor-pointer hover:bg-gray-50',
+    onClick: () => {
+      openEditItem(row)
+    }
+  }
+}
+
+const openEditItem = (orderItem: any) => {
+  const nomenclatureKey = orderItem.Номенклатура_Key || orderItem.nomenclatureKey || ''
+  if (!nomenclatureKey) {
+    message.warning('Не удалось определить товар')
+    return
+  }
+  let inventoryItem = inventoryStore.items.find(i => i.ref_key === nomenclatureKey || i.id === nomenclatureKey)
+  if (!inventoryItem) {
+    inventoryItem = inventoryStore.items.find(i => i.barcode === orderItem.barcode)
+  }
+  if (inventoryItem) {
+    editingItemId.value = inventoryItem.id
+    showEditItemModal.value = true
+  } else {
+    message.info('Загрузка данных склада...')
+    inventoryStore.loadStocksFromApi().then(() => {
+      let found = inventoryStore.items.find(i => i.ref_key === nomenclatureKey || i.id === nomenclatureKey)
+      if (!found) {
+        found = inventoryStore.items.find(i => i.barcode === orderItem.barcode)
+      }
+      if (found) {
+        editingItemId.value = found.id
+        showEditItemModal.value = true
+      } else {
+        message.error('Товар не найден на складе')
+      }
+    }).catch(() => {
+      message.error('Не удалось загрузить данные склада')
+    })
+  }
+}
+
+const handleEditItemSubmit = (data: Partial<InventoryItem>) => {
+  message.success('Товар обновлён')
+  inventoryStore.loadStocksFromApi().catch(() => {})
+}
 const loading = ref(false)
 const syncing = ref(false)
 const loadingDetails = ref(false)
@@ -1664,7 +1724,9 @@ const itemsColumns: DataTableColumns<any> = [
   {
     title: 'Товар',
     key: 'nomenclatureName',
-    ellipsis: true
+    width: 300,
+    ellipsis: true,
+    render: (row) => row.nomenclatureName
   },
   {
     title: 'Штрих код',
@@ -1698,6 +1760,10 @@ const itemsColumns: DataTableColumns<any> = [
     render: (row) => {
       const scanned = row.scannedQty || 0
       const required = row.Количество || 0
+
+      if (!scanningMode.value) {
+        return String(scanned)
+      }
 
       return h('div', { class: 'flex items-center gap-2 justify-center' }, [
         h(NButton, {
@@ -1751,7 +1817,9 @@ const localItemsColumns: DataTableColumns<any> = [
   {
     title: 'Товар',
     key: 'nomenclatureName',
-    ellipsis: true
+    width: 300,
+    ellipsis: true,
+    render: (row) => row.nomenclatureName
   },
   {
     title: 'Штрих код',
@@ -2378,6 +2446,8 @@ onMounted(async () => {
   } finally {
     loading.value = false
   }
+
+  inventoryStore.loadStocksFromApi().catch(() => {})
 
   // Добавляем обработчик клавиатуры для сканера
   window.addEventListener('keydown', handleKeyDown)

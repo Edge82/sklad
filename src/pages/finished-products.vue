@@ -174,6 +174,7 @@
           :row-props="rowProps"
           v-model:expanded-row-keys="expandedRowKeys"
           :default-expand-all="true"
+          max-height="calc(100vh - 280px)"
         />
       </n-card>
 

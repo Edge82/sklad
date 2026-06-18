@@ -27,7 +27,8 @@ function getUserRoleFromRequest(req) {
       return payload?.role || null
     }
     return null
-  } catch {
+  } catch (err) {
+    console.error('getUserRoleFromRequest failed:', err.message, '| authHeader present:', !!req.headers.authorization)
     return null
   }
 }
@@ -374,7 +375,8 @@ const server = http.createServer(async (req, res) => {
           categoryId: category?.ref_key || ((stock.category === 'Готовая продукция' || stock.warehouse === 'Готовая продукция') ? '99' : ''),
           warehouseId: warehouseRecord?.ref_key || '',
           type: (stock.category === 'Готовая продукция' || stock.warehouse === 'Готовая продукция') ? 'product' : 'material',
-          lastReceipt: stock.last_receipt || null
+          lastReceipt: stock.last_receipt || null,
+          lowStockThreshold: stock.lowStockThreshold || null
           // onecImageUrl — disabled: 1CFresh OData does not expose binary data from ValueStore attributes
         }
       })
@@ -449,17 +451,17 @@ const server = http.createServer(async (req, res) => {
       try {
         const nomenclatureKey = pathname.split('/').pop()
         const data = JSON.parse(body)
-        const { barcode, storageBin, image } = data
+        const { barcode, storageBin, image, lowStockThreshold } = data
 
         const existing = db.prepare('SELECT id FROM onec_stocks WHERE ref_key = ?').get(nomenclatureKey)
 
         if (existing) {
-          db.prepare('UPDATE onec_stocks SET barcode = ?, storageBin = ?, image = ? WHERE ref_key = ?')
-            .run(barcode || '', storageBin || '', image || '', nomenclatureKey)
+          db.prepare('UPDATE onec_stocks SET barcode = ?, storageBin = ?, image = ?, lowStockThreshold = ? WHERE ref_key = ?')
+            .run(barcode || '', storageBin || '', image || '', lowStockThreshold != null ? lowStockThreshold : null, nomenclatureKey)
         } else {
-          db.prepare(`INSERT INTO onec_stocks (ref_key, name, product, barcode, storageBin, warehouse, image)
-            VALUES (?, ?, ?, ?, ?, ?, ?)`)
-            .run(nomenclatureKey, '', '', barcode || '', storageBin || '', '', image || '')
+          db.prepare(`INSERT INTO onec_stocks (ref_key, name, product, barcode, storageBin, warehouse, image, lowStockThreshold)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+            .run(nomenclatureKey, '', '', barcode || '', storageBin || '', '', image || '', lowStockThreshold != null ? lowStockThreshold : null)
         }
 
         sendJSON(res, 200, {
@@ -940,6 +942,7 @@ const server = http.createServer(async (req, res) => {
         destinationWarehouseName: order.destination_warehouse_name || 'Unknown',
         customerOrderKey: order.customer_order_key || '',
         customerOrderNumber: order.customer_order_number || '',
+        comment: order.comment || '',
         items: enrichedItems
       }
 
@@ -1139,7 +1142,7 @@ const server = http.createServer(async (req, res) => {
       try { await syncTransferOrderItems() } catch (e) { /* ignore */ }
 
       const orders = db.prepare(`
-        SELECT ref_key, order_number, date, source_warehouse_key, source_warehouse_name, destination_warehouse_key, destination_warehouse_name, customer_order_key, customer_order_number, posted, items, selected_product, created_by, status_description
+        SELECT ref_key, order_number, date, source_warehouse_key, source_warehouse_name, destination_warehouse_key, destination_warehouse_name, customer_order_key, customer_order_number, posted, items, selected_product, created_by, status_description, comment
         FROM transfer_orders ORDER BY date DESC
       `).all()
 
@@ -2137,12 +2140,12 @@ const server = http.createServer(async (req, res) => {
           else if (qrCode.status === 'ready') statusToSet = 'shipped'
         }
 
-        db.prepare(`
-          UPDATE local_qr_codes SET status = ?, scanned_at = ?, scanned_by = ? WHERE id = ?
         const { employeeId: scanEmployeeId2, employeeName: scanEmployeeName2 } = getEmployeeFromRequest(req, JWT_SECRET)
         const resolvedEmployeeId2 = employeeId || scanEmployeeId2
         const resolvedEmployeeName2 = employeeName || scanEmployeeName2
 
+        db.prepare(`
+          UPDATE local_qr_codes SET status = ?, scanned_at = ?, scanned_by = ? WHERE id = ?
         `).run(statusToSet, now, resolvedEmployeeName2 || 'Unknown', qrCode.id)
 
         logOperation('qr_code_scanned', {

@@ -209,6 +209,10 @@
               <n-input v-model:value="formData.storageBin" placeholder="Например: Ячейка-1 или А/2" />
             </n-form-item>
 
+            <n-form-item label="Показывать остаток меньше" path="lowStockThreshold">
+              <n-input-number v-model:value="formData.lowStockThreshold" :min="0" placeholder="Например: 5 — подсветит если остаток меньше" class="w-full" />
+            </n-form-item>
+
             <n-form-item label="Фото материала">
               <div class="w-full">
                 <div v-if="formData.image" class="relative group mb-2 border rounded-md overflow-hidden bg-gray-50 flex items-center justify-center min-h-40">
@@ -435,6 +439,7 @@ const formData = reactive({
   reserved: 0,
   location: '',
   storageBin: '', // Полка/Ячейка (только в БД, не в 1С)
+  lowStockThreshold: null, // Порог малого остатка для подсветки
   warehouse: '', // Название склада для отображения
   warehouseId: '', // Новый параметр: GUID склада в 1С
   purchasePrice: 0,
@@ -480,7 +485,8 @@ watch(() => props.show, (newShow) => {
         warehouse: item.warehouse || '',  // Название склада для отображения
         categoryId: item.categoryId || '',  // categoryId из 1C
         location: item.location || '',  // Место хранения из 1C
-        storageBin: item.storageBin || ''  // Ячейка/полка из БД
+        storageBin: item.storageBin || '',  // Ячейка/полка из БД
+        lowStockThreshold: item.lowStockThreshold || null  // Порог малого остатка
       })
       initialDataStr.value = JSON.stringify(formData)
     }
@@ -500,8 +506,9 @@ watch(() => props.show, (newShow) => {
       maxStock: 100,
       reserved: 0,
       location: '',
-      storageBin: '',
-      warehouse: 'Основной склад',  // Название склада по умолчанию
+     storageBin: '',
+       lowStockThreshold: null,
+       warehouse: 'Основной склад',  // Название склада по умолчанию
       warehouseId: '',  // GUID склада из 1C
       purchasePrice: 0,
       averagePrice: 0,
@@ -888,16 +895,17 @@ const handleSubmit = async () => {
 
     // Save local fields (barcode, storageBin, image) to local DB only
     const itemIdToUse = props.itemId || created1C?.id || item.id
-    if (itemIdToUse && (formData.barcode || formData.storageBin || formData.image)) {
+    if (itemIdToUse && (formData.barcode || formData.storageBin || formData.image || formData.lowStockThreshold != null)) {
       try {
         const response = await fetch(`${API_BASE_URL}/onec/stocks/${itemIdToUse}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            barcode: formData.barcode || '',  // Штрих-код (локальное поле)
-            storageBin: formData.storageBin || '',  // Место хранения (полка/ячейка)
-            image: formData.image || ''  // Картинка (base64)
-          })
+             barcode: formData.barcode || '',  // Штрих-код (локальное поле)
+             storageBin: formData.storageBin || '',  // Место хранения (полка/ячейка)
+             image: formData.image || '',  // Картинка (base64)
+             lowStockThreshold: formData.lowStockThreshold != null ? formData.lowStockThreshold : undefined  // Порог малого остатка
+           })
         })
         if (response.ok) {
           // Перезагружаем данные из API чтобы убедиться что они сохранены
@@ -929,8 +937,10 @@ const handleSubmit = async () => {
         minStock: 0,
         maxStock: 100,
         reserved: 0,
-        location: '',
-        purchasePrice: 0,
+      location: '',
+       storageBin: '',
+       lowStockThreshold: null,
+       purchasePrice: 0,
         averagePrice: 0,
         lastPurchasePrice: 0,
         mainSupplier: '',

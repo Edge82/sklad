@@ -119,6 +119,7 @@ try { db.exec(`ALTER TABLE onec_stocks ADD COLUMN barcode TEXT`) } catch(e) { /*
 try { db.exec(`ALTER TABLE onec_stocks ADD COLUMN image TEXT`) } catch(e) { /* already exists */ }
 try { db.exec(`ALTER TABLE onec_stocks ADD COLUMN local_only INTEGER DEFAULT 0`) } catch(e) { /* already exists */ }
 try { db.exec(`ALTER TABLE onec_stocks ADD COLUMN onec_image_key TEXT`) } catch(e) { /* already exists */ }
+try { db.exec(`ALTER TABLE onec_stocks ADD COLUMN lowStockThreshold REAL`) } catch(e) { /* already exists */ }
 try { db.exec(`ALTER TABLE onec_orders ADD COLUMN items TEXT DEFAULT '[]'`) } catch(e) { /* already exists */ }
 
 db.exec(`
@@ -333,6 +334,11 @@ try {
 try {
   db.prepare('ALTER TABLE local_qr_codes ADD COLUMN is_package INTEGER DEFAULT 0').run()
   console.log('✓ Added is_package column to local_qr_codes')
+} catch (e) { /* column already exists */ }
+
+try {
+  db.prepare('ALTER TABLE transfer_orders ADD COLUMN comment TEXT DEFAULT ""').run()
+  console.log('✓ Added comment column to transfer_orders')
 } catch (e) { /* column already exists */ }
 
 // Миграция: обновляем старые plain-text пароли на bcrypt

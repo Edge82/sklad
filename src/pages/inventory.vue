@@ -57,8 +57,8 @@
             size="small"
             hoverable
             class="metric-card h-full flex flex-col justify-center"
-            :class="{ 'active': !filters.status }"
-            @click="resetFilters"
+            :class="{ 'active': !filters.quickFilter }"
+            @click="filters.quickFilter = null"
           >
             <div class="flex items-center gap-3 py-1">
               <n-icon size="28" color="#2080f0">
@@ -77,16 +77,16 @@
             size="small"
             hoverable
             class="metric-card h-full flex flex-col justify-center"
-            :class="{ 'active': filters.status === 'out_of_stock' }"
-            @click="filters.status = 'out_of_stock'"
+            :class="{ 'active': filters.quickFilter === 'low_stock' }"
+            @click="filters.quickFilter = filters.quickFilter === 'low_stock' ? null : 'low_stock'"
           >
             <div class="flex items-center gap-3 py-1">
               <n-icon size="28" color="#d03050">
-                <CloseCircleOutline />
+                <WarningOutline />
               </n-icon>
               <div>
-                <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">Отсутствует</n-text>
-                <n-h3 class="m-0 leading-none">{{ filteredOutOfStockCount }}</n-h3>
+                <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">Малый остаток</n-text>
+                <n-h3 class="m-0 leading-none">{{ lowStockCount }}</n-h3>
               </div>
             </div>
           </n-card>
@@ -97,8 +97,8 @@
             size="small"
             hoverable
             class="metric-card h-full flex flex-col justify-center"
-            :class="{ 'active': filters.status === 'reserved' }"
-            @click="filters.status = 'reserved'"
+            :class="{ 'active': filters.quickFilter === 'reserved' }"
+            @click="filters.quickFilter = filters.quickFilter === 'reserved' ? null : 'reserved'"
           >
             <div class="flex items-center gap-3 py-1">
               <n-icon size="28" color="#626aef">
@@ -117,8 +117,8 @@
             size="small"
             hoverable
             class="metric-card h-full flex flex-col justify-center"
-            :class="{ 'active': filters.status === 'in_stock' }"
-            @click="filters.status = 'in_stock'"
+            :class="{ 'active': filters.quickFilter === 'in_stock' }"
+            @click="filters.quickFilter = filters.quickFilter === 'in_stock' ? null : 'in_stock'"
           >
             <div class="flex items-center gap-3 py-1">
               <n-icon size="28" color="#18a058">
@@ -289,6 +289,7 @@ import {
   AppsOutline,
   SearchOutline,
   CheckmarkCircleOutline,
+  WarningOutline,
   LocationOutline,
   ArrowBack
 } from '@vicons/ionicons5'
@@ -377,7 +378,8 @@ const filters = reactive({
   category: undefined as string | undefined,
   status: undefined as string | undefined,
   supplier: undefined as string | undefined,
-  warehouse: undefined as string | undefined
+  warehouse: undefined as string | undefined,
+  quickFilter: null as 'low_stock' | 'reserved' | 'in_stock' | null
 })
 
 const advancedFilters = reactive({
@@ -478,11 +480,13 @@ const filteredItems = computed(() => {
     result = result.filter(item => item.warehouse === filters.warehouse)
   }
 
-  // Фильтр по статусу
-  if (filters.status === 'reserved') {
+  // Быстрый фильтр (взаимоисключающий)
+  if (filters.quickFilter === 'low_stock') {
+    result = result.filter(item => item.lowStockThreshold != null && item.lowStockThreshold > 0 && item.currentStock > 0 && item.currentStock < item.lowStockThreshold)
+  } else if (filters.quickFilter === 'reserved') {
     result = result.filter(item => item.reserved > 0)
-  } else if (filters.status) {
-    result = result.filter(item => item.status === filters.status)
+  } else if (filters.quickFilter === 'in_stock') {
+    result = result.filter(item => item.status === 'in_stock')
   }
 
   // Расширенные фильтры
@@ -507,8 +511,8 @@ const filteredTotalValue = computed(() => {
   return Number(sum.toFixed(2))
 })
 
-const filteredOutOfStockCount = computed(() => {
-  return baseItemsForStats.value.filter(item => item.status === 'out_of_stock').length
+const lowStockCount = computed(() => {
+  return baseItemsForStats.value.filter(item => item.lowStockThreshold != null && item.lowStockThreshold > 0 && item.currentStock > 0 && item.currentStock < item.lowStockThreshold).length
 })
 
 const filteredInStockCount = computed(() => {
@@ -670,9 +674,10 @@ const columnsBase: DataTableColumns<InventoryItem> = [
     render: (row) => {
       const item = row as InventoryItem
       const available = Math.round((item.currentStock - (item.reserved || 0)) * 100) / 100
+      const isLowStock = item.lowStockThreshold != null && item.lowStockThreshold > 0 && item.currentStock > 0 && item.currentStock < item.lowStockThreshold
       return h('div', [
         h('div', { class: 'font-medium' }, [
-          h('span', { class: item.currentStock <= item.minStock ? 'text-yellow-500 font-bold' : 'font-bold' },
+          h('span', { class: isLowStock ? 'text-orange-500 font-bold' : item.currentStock <= item.minStock ? 'text-yellow-500 font-bold' : 'font-bold' },
             `${available} ${item.unit} `
           ),
           item.reserved > 0 ? h('span', {
@@ -691,7 +696,8 @@ const columnsBase: DataTableColumns<InventoryItem> = [
         ]),
         h('div', { class: 'text-xs mt-1.5' }, [
           h('span', { class: 'text-gray-400' }, `Всего на складе: `),
-          h('span', { class: 'font-bold text-blue-600' }, `${Math.round(item.currentStock * 100) / 100} ${item.unit}`)
+          h('span', { class: 'font-bold text-blue-600' }, `${Math.round(item.currentStock * 100) / 100} ${item.unit}`),
+          isLowStock ? h('span', { class: 'text-orange-500 ml-2 font-bold text-[11px]' }, `(⚠ мало, порог: ${item.lowStockThreshold})`) : null
         ])
       ])
     }
@@ -810,6 +816,7 @@ const resetFilters = () => {
   filters.status = undefined
   filters.supplier = undefined
   filters.warehouse = undefined
+  filters.quickFilter = null
   advancedFilters.minStock = null
   advancedFilters.maxStock = null
   advancedFilters.minPrice = null
@@ -955,10 +962,12 @@ const handleSorterChange = () => {
 }
 
 const rowProps = (row: any) => {
+  const item = row as InventoryItem
+  const isLowStock = item.lowStockThreshold != null && item.lowStockThreshold > 0 && item.currentStock > 0 && item.currentStock < item.lowStockThreshold
   return {
-    class: 'cursor-pointer',
+    class: `cursor-pointer ${isLowStock ? 'bg-orange-50 dark:bg-orange-950/30' : ''}`,
     onClick: () => {
-      editItem((row as InventoryItem).id)
+      editItem(item.id)
     }
   }
 }
