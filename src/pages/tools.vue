@@ -11,7 +11,7 @@
       </n-button>
     </div>
 
-    <n-grid :cols="5" :x-gap="12" :y-gap="12" class="mb-6 items-stretch py-2">
+    <n-grid :cols="6" :x-gap="12" :y-gap="12" class="mb-6 items-stretch py-2">
       <n-gi>
         <n-card
           size="small"
@@ -89,6 +89,25 @@
         </n-card>
       </n-gi>
       <n-gi>
+        <n-card
+          size="small"
+          hoverable
+          class="metric-card h-full flex flex-col justify-center"
+          :class="{ 'active': filters.status === 'discrepancy' }"
+          @click="filters.status = 'discrepancy'"
+        >
+          <div class="flex items-center gap-3 py-1">
+            <n-icon size="28" color="#d03050">
+              <AlertCircleOutline />
+            </n-icon>
+            <div>
+              <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">Инвентаризация</n-text>
+              <n-h3 class="m-0 leading-none">{{ discrepancyItems.length }}</n-h3>
+            </div>
+          </div>
+        </n-card>
+      </n-gi>
+      <n-gi>
         <n-card border-variant="dark" class="metric-card revenue-card h-full flex flex-col justify-center" size="small">
           <div class="flex items-center gap-3 py-1">
             <n-icon size="28" color="#18a058" :component="CashOutline" />
@@ -121,10 +140,11 @@
             { label: 'Все позиции', value: 'all' },
             { label: 'В наличии', value: 'in_stock' },
             { label: 'Выдано', value: 'issued' },
-            { label: 'Нет в наличии', value: 'out_of_stock' }
+            { label: 'Нет в наличии', value: 'out_of_stock' },
+            { label: '🔧 Инвентаризация', value: 'discrepancy' }
           ]"
           clearable
-          class="w-56!"
+          class="w-64!"
         />
 
         <n-button @click="resetFilters" quaternary type="warning">
@@ -149,7 +169,13 @@
         :columns="columns"
         :data="filteredItems"
         :pagination="pagination"
-        :row-props="() => ({})"
+        :row-props="(row: any) => ({
+          class: row.hasDiscrepancy ? 'discrepancy-row' : '',
+          style: 'cursor: pointer',
+          onClick: () => {
+            if (row.refKey) router.push(`/tools/${encodeURIComponent(row.refKey)}`)
+          }
+        })"
       />
     </n-card>
   </div>
@@ -162,6 +188,14 @@
       </n-form-item>
       <n-form-item label="Доступно на складе">
         <n-text type="success">{{ selectedItem.availableStock }} {{ selectedItem.unit || 'шт' }}</n-text>
+      </n-form-item>
+      <n-form-item label="Кол-во" path="quantity" required>
+        <n-input-number
+          v-model:value="issueForm.quantity"
+          :min="1"
+          :max="selectedItem.availableStock"
+          placeholder="Введите количество"
+        />
       </n-form-item>
       <n-form-item label="Кому выдать" path="employeeId" required>
         <n-select
@@ -183,6 +217,7 @@
 
 <script setup lang="ts">
 import { ref, h, reactive, computed, onMounted, onActivated, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import {
   NTag,
   NButton,
@@ -206,6 +241,7 @@ import { useToolsStore } from '@/stores/tools'
 import { useEmployeesStore } from '@/stores/employees'
 import { useUserStore } from '@/stores/user'
 import {
+  AlertCircleOutline,
   TrashOutline,
   QrCodeOutline,
   CashOutline,
@@ -220,6 +256,7 @@ import {
   LogOutOutline
 } from '@vicons/ionicons5'
 
+const router = useRouter()
 const toolsStore = useToolsStore()
 const userStore = useUserStore()
 const employeesStore = useEmployeesStore()
@@ -236,8 +273,12 @@ const issuedItems = computed(() =>
 )
 
 const outOfStockItems = computed(() =>
-  items.value.filter(i => i.currentStock <= 0 && i.checkedOut <= 0)
-)
+   items.value.filter(i => i.currentStock <= 0 && i.checkedOut <= 0)
+ )
+
+const discrepancyItems = computed(() =>
+   items.value.filter(i => i.hasDiscrepancy)
+ )
 
 const filters = reactive({
   search: '',
@@ -258,18 +299,20 @@ const filteredItems = computed(() => {
     if (filters.status === 'in_stock') return matchesSearch && item.availableStock > 0
     if (filters.status === 'issued') return matchesSearch && item.checkedOut > 0
     if (filters.status === 'out_of_stock') return matchesSearch && item.currentStock <= 0 && item.checkedOut <= 0
+    if (filters.status === 'discrepancy') return matchesSearch && item.hasDiscrepancy
     return matchesSearch
   })
 })
 
 const statusLabel = (s: string) => {
-  const map: Record<string, string> = {
-    'in_stock': 'В наличии',
-    'issued': 'Выдано',
-    'out_of_stock': 'Нет в наличии'
-  }
-  return map[s] || s
-}
+   const map: Record<string, string> = {
+     'in_stock': 'В наличии',
+     'issued': 'Выдано',
+     'out_of_stock': 'Нет в наличии',
+     'discrepancy': 'Инвентаризация'
+   }
+   return map[s] || s
+ }
 
 const resetFilters = () => {
   filters.search = ''
@@ -313,7 +356,8 @@ const selectedItem = ref<any>(null)
 const issuing = ref(false)
 
 const issueForm = reactive({
-  employeeId: null as string | null
+  employeeId: null as string | null,
+  quantity: 1
 })
 
 const employeeOptions = computed(() =>
@@ -323,21 +367,30 @@ const employeeOptions = computed(() =>
 const handleIssue = (item: any) => {
   selectedItem.value = item
   issueForm.employeeId = null
+  issueForm.quantity = 1
   showIssueModal.value = true
 }
 
 const confirmIssue = async () => {
-  if (!selectedItem.value || !issueForm.employeeId) {
-    message.warning('Выберите сотрудника')
-    return
-  }
+   if (!selectedItem.value || !issueForm.employeeId) {
+     message.warning('Выберите сотрудника')
+     return
+   }
+   if (selectedItem.value.hasDiscrepancy) {
+     message.error('Невозможно выдать — количество в 1С меньше выданного. Проведите инвентаризацию.')
+     return
+   }
+   if (!issueForm.quantity || issueForm.quantity < 1) {
+     message.warning('Укажите количество')
+     return
+   }
   const employee = employeesStore.employees.find(e => e.id === issueForm.employeeId)
   if (!employee) return
 
   issuing.value = true
   try {
-    await toolsStore.issueTool(selectedItem.value.refKey, employee.id, employee.name)
-    message.success(`Выдано: ${employee.name}`)
+    await toolsStore.issueTool(selectedItem.value.refKey, employee.id, employee.name, issueForm.quantity)
+    message.success(`Выдано ${issueForm.quantity} шт: ${employee.name}`)
     showIssueModal.value = false
   } catch (err: any) {
     message.error(err.message || 'Ошибка при выдаче')
@@ -346,24 +399,6 @@ const confirmIssue = async () => {
   }
 }
 
-const handleReturn = async (item: any) => {
-  if (item.checkedOut <= 0) {
-    message.warning('Нет выданных единиц для возврата')
-    return
-  }
-  try {
-    // Find the first checkout for this material
-    const checkout = toolsStore.checkouts.find((c: any) => c.material_ref_key === item.refKey)
-    if (!checkout) {
-      message.warning('Не найдена запись о выдаче')
-      return
-    }
-    await toolsStore.returnTool(checkout.id)
-    message.success('Возвращено на склад')
-  } catch (err: any) {
-    message.error(err.message || 'Ошибка при возврате')
-  }
-}
 
 const columns: DataTableColumns<any> = [
   {
@@ -411,11 +446,14 @@ const columns: DataTableColumns<any> = [
   {
     title: 'Статус',
     key: 'status',
-    width: 120,
+    width: 140,
     render(row) {
       let label = 'На складе'
       let type: 'success' | 'warning' | 'info' | 'error' = 'success'
-      if (row.currentStock <= 0 && row.checkedOut <= 0) {
+      if (row.hasDiscrepancy) {
+        label = '🔧 Инвентаризация'
+        type = 'error'
+      } else if (row.currentStock <= 0 && row.checkedOut <= 0) {
         label = 'Нет в наличии'
         type = 'error'
       } else if (row.checkedOut > 0 && row.availableStock <= 0) {
@@ -432,39 +470,32 @@ const columns: DataTableColumns<any> = [
     title: 'Место хранения',
     key: 'location',
     render(row) {
-      if (row.checkedOut > 0) {
-        const checkout = toolsStore.checkouts.find((c: any) => c.material_ref_key === row.refKey)
-        if (checkout) {
-          return h('span', { style: { color: '#2080f0' } }, `Выдан: ${checkout.employee_name}`)
-        }
-      }
       return row.location || '—'
     }
   },
   {
     title: 'Действия',
     key: 'actions',
-    width: 120,
+    width: 140,
     render(row) {
       if (userStore.isWorker) return null
-      const buttons: any[] = []
+      if (row.hasDiscrepancy) {
+        return h(NButton, {
+          size: 'tiny',
+          type: 'error',
+          ghost: true,
+          onClick: (e: MouseEvent) => { e.stopPropagation(); router.push(`/tools/${encodeURIComponent(row.refKey)}`) }
+        }, { default: () => '🔧 Инвентаризация' })
+      }
       if (row.availableStock > 0) {
-        buttons.push(h(NButton, {
+        return h(NButton, {
           size: 'tiny',
           type: 'primary',
           ghost: true,
           onClick: (e: MouseEvent) => { e.stopPropagation(); handleIssue(row) }
-        }, { icon: () => h(NIcon, null, { default: () => h(LogInOutline) }), default: () => 'Выдать' }))
+        }, { icon: () => h(NIcon, null, { default: () => h(LogInOutline) }), default: () => 'Выдать' })
       }
-      if (row.checkedOut > 0) {
-        buttons.push(h(NButton, {
-          size: 'tiny',
-          type: 'warning',
-          ghost: true,
-          onClick: (e: MouseEvent) => { e.stopPropagation(); handleReturn(row) }
-        }, { icon: () => h(NIcon, null, { default: () => h(LogOutOutline) }), default: () => 'Сдать' }))
-      }
-      return h(NSpace, { wrap: false, size: 4 }, { default: () => buttons })
+      return null
     }
   }
 ]
@@ -541,7 +572,16 @@ onActivated(async () => {
 }
 
 .revenue-value {
-  color: #18a058 !important;
-  font-weight: 900 !important;
+   color: #18a058 !important;
+   font-weight: 900 !important;
+}
+
+:deep(.discrepancy-row) {
+  background-color: #3a1a1a !important;
+}
+
+:deep(.discrepancy-row td) {
+  color: #ff4444 !important;
+  background-color: transparent !important;
 }
 </style>

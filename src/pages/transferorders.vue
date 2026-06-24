@@ -1029,12 +1029,29 @@ const createItemsColumns: DataTableColumns<CreateItem> = [
   {
     title: '',
     key: 'actions',
-    width: 40,
-    render: (_, index) => h(NButton, {
-      text: true,
-      type: 'error',
-      onClick: () => { createForm.items.splice(index, 1) }
-    }, { default: () => '✕' })
+    width: 70,
+    render: (_, index) => h('div', { style: 'display: flex; gap: 12px; align-items: center' }, [
+      h(NButton, {
+        text: true,
+        type: 'success',
+        onClick: () => {
+          const source = createForm.items[index]
+          createForm.items.splice(index + 1, 0, {
+            ...JSON.parse(JSON.stringify(source)),
+            quantity: 1,
+            _qtyInput: undefined,
+            customerOrderKey: '',
+            customerOrderNumber: '',
+            selectedProduct: ''
+          })
+        }
+      }, { default: () => '+' }),
+      h(NButton, {
+        text: true,
+        type: 'error',
+        onClick: () => { createForm.items.splice(index, 1) }
+      }, { default: () => '✕' })
+    ])
   }
 ]
 

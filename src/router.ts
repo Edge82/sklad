@@ -16,6 +16,7 @@ import EmployeeDetails from '@/pages/employeedetails.vue'
 import TransferOrders from '@/pages/transferorders.vue'
 import FinishedProducts from '@/pages/finished-products.vue'
 import MyTools from '@/pages/my-tools.vue'
+import ToolDetail from '@/pages/tool-detail.vue'
 
 const routes: RouteRecordRaw[] = [
   {
@@ -56,6 +57,11 @@ const routes: RouteRecordRaw[] = [
     path: '/tools',
     component: Tools,
     meta: { title: 'Инструменты' }
+  },
+  {
+    path: '/tools/:refKey',
+    component: ToolDetail,
+    meta: { title: 'Инструмент — детали' }
   },
   {
     path: '/profile',

@@ -66,26 +66,24 @@
         <n-spin size="large" />
         <n-text depth="3">Загрузка позиций из 1С...</n-text>
       </div>
-      <n-table v-else-if="order.items && order.items.length > 0" striped>
+      <div v-else-if="order.items && order.items.length > 0" class="overflow-x-auto">
+        <n-table striped>
         <thead>
-          <tr>
-            <th>№</th>
-            <th>Наименование</th>
-            <th>Количество</th>
-            <th>QR Коды</th>
-            <th v-if="userStore.canSeePrices">Цена за ед.</th>
-            <th>Материалы</th>
-            <th>Краски</th>
-            <th>Резерв</th>
-            <th v-if="userStore.canSeePrices" class="text-right">Сумма</th>
-          </tr>
-        </thead>
+           <tr>
+             <th style="width:40px">№</th>
+             <th>Наименование</th>
+             <th style="width:80px">Количество</th>
+             <th style="width:140px">QR Коды</th>
+             <th style="width:120px">Место хранения</th>
+             <th v-if="userStore.canSeePrices" style="width:120px; text-align: end">Сумма</th>
+           </tr>
+         </thead>
         <tbody>
           <tr v-for="(item, index) in order.items" :key="item.id">
-            <td>{{ index + 1 }}</td>
+            <td style="width:40px">{{ index + 1 }}</td>
             <td>{{ item.productName || item.itemName }}</td>
-            <td>{{ item.quantity }}</td>
-            <td>
+            <td style="width:80px">{{ item.quantity }}</td>
+            <td style="width:140px">
               <div class="flex flex-col gap-1 min-w-35">
                 <div class="flex justify-end items-center text-[10px] px-1">
                    <n-text strong :type="getScannedCount(item) === getQRCount(item) && getQRCount(item) > 0 ? 'success' : 'default'">
@@ -102,26 +100,19 @@
                 />
               </div>
             </td>
-            <td v-if="userStore.canSeePrices">{{ formatCurrency(item.unitPrice) }}</td>
-            <td>{{ item.materialUsed || '-' }}</td>
-            <td>{{ (item as any).paintUsed || '-' }}</td>
-            <td>
-              <n-tag v-if="getReserve(item)" size="small" type="info">
-                {{ getReserve(item) }}
-              </n-tag>
-              <span v-else class="text-gray-600">0</span>
-            </td>
-            <td v-if="userStore.canSeePrices" class="text-right">{{ formatCurrency(item.totalPrice) }}</td>
+            <td style="width:120px">{{ getStorageBin(item) }}</td>
+             <td v-if="userStore.canSeePrices" style="width:120px" class="text-right">{{ formatCurrency(item.totalPrice) }}</td>
           </tr>
         </tbody>
         <tfoot>
-          <tr>
-            <td v-if="userStore.canSeePrices" colspan="8" class="text-right font-bold">Итого:</td>
-            <td v-else colspan="7" class="text-right font-bold">Итого:</td>
-            <td v-if="userStore.canSeePrices" class="font-bold text-lg text-right">{{ formatCurrency(order.totalAmount) }}</td>
-          </tr>
-        </tfoot>
+           <tr>
+             <td v-if="userStore.canSeePrices" colspan="5" class="text-right font-bold">Итого:</td>
+             <td v-else colspan="4" class="text-right font-bold">Итого:</td>
+             <td v-if="userStore.canSeePrices" class="font-bold text-lg text-right">{{ formatCurrency(order.totalAmount) }}</td>
+           </tr>
+         </tfoot>
       </n-table>
+      </div>
       <div v-else class="py-12">
         <n-empty description="В этом заказе пока нет позиций" />
       </div>
@@ -357,6 +348,25 @@ const orderReserves = computed(() => {
 const getReserve = (item: OrderItem) => {
   const name = (item.productName || item.itemName || '').toLowerCase().trim()
   return orderReserves.value.get(name) || 0
+}
+
+const getStorageBin = (item: OrderItem) => {
+  const name = (item.productName || item.itemName || '').trim()
+  const productId = item.productId || ''
+  const matches = inventoryStore.items.filter(s =>
+    (s.ref_key || '').toLowerCase() === productId.toLowerCase() ||
+    (s.id || '').toLowerCase() === productId.toLowerCase() ||
+    (name && (s.name || '').trim().toLowerCase() === name.toLowerCase()) ||
+    (name && (s.name || '').trim().toLowerCase().includes(name.toLowerCase()))
+  )
+  // Приоритет: product, затем любой
+  const stock = matches.find(s => s.type === 'product' || s.categoryId === '99') || matches[0]
+  if (!stock) return '—'
+  const bin = stock.storageBin
+  if (bin && bin !== 'None') return bin
+  const loc = stock.location
+  if (loc && loc !== 'None') return loc
+  return '—'
 }
 
 const isOverdue = computed(() => {

@@ -348,7 +348,7 @@ const allInvoices = computed(() => {
       : (history.destination === 'Клиент' ? 'Отгружен клиенту' : (history.destination || 'Операция'))
     invoices.push({
       ...history,
-      workerName: employee?.name || history.createdBy || 'Неизвестно',
+      workerName: (history as any).employeeName || employee?.name || history.createdBy || 'Неизвестно',
       workerId: employee?.id || history.employeeId || 'unknown',
       operationLabel,
       movementType: 'receipt',
@@ -416,15 +416,18 @@ const allInvoices = computed(() => {
     const actionLabels: Record<string, string> = {
       issued: 'Выдан инструмент',
       returned: 'Возврат инструмента',
-      created: 'Создание инструмента'
+      created: 'Создание инструмента',
+      material_created: 'Вывод материала',
+      qr_codes_generated: 'Генерация QR-кодов'
     }
     const label = actionLabels[op.action] || op.action || 'Операция'
+    const destination = op.action === 'qr_codes_generated' ? 'QR-коды' : (op.action === 'material_created' ? 'Материал' : 'Инструмент')
     invoices.push({
       id: op.id,
       employeeId: op.employee_id,
       date: op.date,
-      orderNumber: `${op.tool_name} (${op.inventory_number})`,
-      destination: 'Инструмент',
+      orderNumber: op.action === 'qr_codes_generated' ? (op.inventory_number || 'Без номера') : `${op.tool_name} (${op.inventory_number})`,
+      destination,
       totalAmount: 0,
       items: [{
         productName: op.tool_name,

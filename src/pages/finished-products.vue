@@ -627,6 +627,7 @@ type InventoryTableRow = (InventoryItem & { isGroup?: boolean; available?: numbe
   currentStock: number
   totalValue: number
   isGroup: true
+  customerName?: string
   children: InventoryItem[]
 }
 
@@ -654,6 +655,8 @@ const tableData = computed<InventoryTableRow[]>(() => {
     const totalQty = groupItems.reduce((s, i) => s + i.currentStock, 0)
     const totalVal = groupItems.reduce((s, i) => s + i.totalValue, 0)
 
+    const order = ordersStore.orders.find(o => o.orderNumber === orderNo)
+
     result.push({
       id: `group-${orderNo}`,
       name: `ЗАКАЗ: ${orderNo}`,
@@ -661,6 +664,7 @@ const tableData = computed<InventoryTableRow[]>(() => {
       currentStock: totalQty,
       totalValue: totalVal,
       isGroup: true,
+      customerName: order?.customerName || undefined,
       children: groupItems
     })
   })
@@ -787,6 +791,17 @@ const columnsBase: DataTableColumns<InventoryTableRow> = [
           h('div', { class: 'font-medium' }, item.name)
         ])
       ])
+    }
+  },
+  {
+    title: 'Клиент',
+    key: 'customerName',
+    width: 160,
+    render: (row: InventoryTableRow) => {
+      if ('isGroup' in row && row.isGroup) {
+        return h('div', { class: 'text-gray-400' }, row.customerName || '—')
+      }
+      return null
     }
   },
   {

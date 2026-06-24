@@ -185,29 +185,33 @@ export function logOperation(operationType, data) {
  * Преобразует строки material_invoices в API-формат с вложенными items
  */
 export function mapMaterialInvoiceRows(invoicesRows) {
-  return invoicesRows.map(inv => ({
-    id: inv.id,
-    employeeId: inv.employee_id,
-    date: inv.date,
-    orderNumber: inv.order_number,
-    destination: inv.destination,
-    totalAmount: inv.total_amount,
-    items: db.prepare(`
-      SELECT id, product_name, quantity, unit, article, price, scanned_at
-      FROM material_invoice_items
-      WHERE invoice_id = ?
-      ORDER BY scanned_at ASC, id ASC
-    `).all(inv.id).map(item => ({
-      id: item.id,
-      productName: item.product_name,
-      quantity: item.quantity,
-      unit: item.unit,
-      article: item.article,
-      price: item.price,
-      scannedAt: item.scanned_at
-    })),
-    createdAt: inv.created_at,
-    updatedAt: inv.updated_at,
-    createdBy: inv.created_by
-  }))
+  return invoicesRows.map(inv => {
+    const empName = db.prepare('SELECT name FROM employees WHERE id = ?').get(inv.employee_id)?.name
+    return {
+      id: inv.id,
+      employeeId: inv.employee_id,
+      employeeName: empName || inv.created_by || '',
+      date: inv.date,
+      orderNumber: inv.order_number,
+      destination: inv.destination,
+      totalAmount: inv.total_amount,
+      items: db.prepare(`
+        SELECT id, product_name, quantity, unit, article, price, scanned_at
+        FROM material_invoice_items
+        WHERE invoice_id = ?
+        ORDER BY scanned_at ASC, id ASC
+      `).all(inv.id).map(item => ({
+        id: item.id,
+        productName: item.product_name,
+        quantity: item.quantity,
+        unit: item.unit,
+        article: item.article,
+        price: item.price,
+        scannedAt: item.scanned_at
+      })),
+      createdAt: inv.created_at,
+      updatedAt: inv.updated_at,
+      createdBy: inv.created_by
+    }
+  })
 }

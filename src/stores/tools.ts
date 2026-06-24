@@ -70,19 +70,21 @@ export const useToolsStore = defineStore('tools', () => {
       }
       checkouts.value = checkoutData
 
-      items.value = rawStocks.map((stock: any) => {
+     items.value = rawStocks.map((stock: any) => {
         const itemCheckouts = checkoutData.filter((c: any) => c.material_ref_key === stock.ref_key)
         const checkedOutQty = itemCheckouts.reduce((s: number, c: any) => s + Number(c.quantity || 0), 0)
+        const onecQuantity = Number(stock.quantity || 0)
         const currentStock = Number(stock.currentStock || stock.quantity || 0)
         const availableStock = currentStock - checkedOutQty
+        const hasDiscrepancy = onecQuantity < checkedOutQty
 
         let status = 'in_stock'
         if (currentStock <= 0) status = 'written_off'
+        if (hasDiscrepancy) status = 'discrepancy'
 
-        const location = stock.location || stock.warehouse || ''
         const issuedInfo = itemCheckouts.length > 0 ? itemCheckouts[0] : null
 
-        return {
+         return {
           id: stock.ref_key || stock.id,
           name: stock.name || stock.product || 'Без названия',
           inventoryNumber: stock.sku || stock.product || '',
@@ -92,17 +94,19 @@ export const useToolsStore = defineStore('tools', () => {
           issuedTo: issuedInfo?.employee_id || null,
           issuedToName: issuedInfo?.employee_name || null,
           issuedAt: issuedInfo?.date || null,
-          location: location,
-          qrCode: stock.barcode || '',
-          currentStock,
-          availableStock,
-          checkedOut: checkedOutQty,
-          unit: stock.unit || 'шт',
-          sku: stock.sku || '',
-          refKey: stock.ref_key || stock.id,
-          category: stock.category || '',
-          createdAt: stock.synced_at || undefined,
-          updatedAt: stock.synced_at || undefined
+          location: stock.storageBin || '',
+         qrCode: stock.barcode || '',
+         currentStock,
+         availableStock,
+         checkedOut: checkedOutQty,
+         onecQuantity,
+         hasDiscrepancy,
+         unit: stock.unit || 'шт',
+         sku: stock.sku || '',
+         refKey: stock.ref_key || stock.id,
+         category: stock.category || '',
+         createdAt: stock.synced_at || undefined,
+         updatedAt: stock.synced_at || undefined
         }
       })
     } catch (err) {
@@ -113,12 +117,12 @@ export const useToolsStore = defineStore('tools', () => {
     }
   }
 
-  async function issueTool(refKey: string, employeeId: string, employeeName: string) {
+  async function issueTool(refKey: string, employeeId: string, employeeName: string, quantity: number = 1) {
     try {
       const response = await fetch(`${API_BASE}/onec/stocks/${refKey}/issue`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ employeeId, employeeName, quantity: 1 })
+        body: JSON.stringify({ employeeId, employeeName, quantity })
       })
 
       if (!response.ok) {

@@ -532,6 +532,31 @@ const server = http.createServer(async (req, res) => {
     return
   }
 
+  // Checkouts for a specific material (tool detail page)
+  if (pathname.match(/^\/sklad\/api\/onec\/stocks\/[^/]+\/checkouts$/) && req.method === 'GET') {
+    try {
+      const refKey = pathname.split('/')[5]
+      const checkouts = db.prepare(`
+        SELECT mc.*, COALESCE(e.name, mc.employee_name, '') as resolved_employee_name
+        FROM material_checkouts mc
+        LEFT JOIN employees e ON mc.employee_id = e.id
+        WHERE mc.material_ref_key = ?
+        ORDER BY mc.created_at DESC
+      `).all(refKey)
+
+      const stock = db.prepare(`
+        SELECT ref_key, name, sku, current_stock, quantity, purchasePrice, unit, category
+        FROM onec_stocks WHERE ref_key = ?
+      `).get(refKey)
+
+      sendJSON(res, 200, { success: true, checkouts, stock })
+    } catch (err) {
+      console.error('Error getting material checkouts:', err)
+      sendJSON(res, 500, { error: err.message })
+    }
+    return
+  }
+
   // Issue material to employee (create checkout + reduce stock)
   if (pathname.match(/^\/sklad\/api\/onec\/stocks\/[^/]+\/issue$/) && req.method === 'POST') {
     let body = ''
@@ -1142,8 +1167,11 @@ const server = http.createServer(async (req, res) => {
       try { await syncTransferOrderItems() } catch (e) { /* ignore */ }
 
       const orders = db.prepare(`
-        SELECT ref_key, order_number, date, source_warehouse_key, source_warehouse_name, destination_warehouse_key, destination_warehouse_name, customer_order_key, customer_order_number, posted, items, selected_product, created_by, status_description, comment
-        FROM transfer_orders ORDER BY date DESC
+        SELECT to2.ref_key, to2.order_number, to2.date, to2.source_warehouse_key, to2.source_warehouse_name, to2.destination_warehouse_key, to2.destination_warehouse_name, to2.customer_order_key, to2.customer_order_number, to2.posted, to2.items, to2.selected_product, to2.created_by, to2.status_description, to2.comment,
+                COALESCE(e.name, to2.created_by) as created_by_name
+        FROM transfer_orders to2
+        LEFT JOIN employees e ON to2.created_by = e.id
+        ORDER BY to2.date DESC
       `).all()
 
       // Обогащаем items ценами из onec_stocks
@@ -3058,41 +3086,50 @@ const server = http.createServer(async (req, res) => {
   // Get tool operations for the movement page
   if (pathname === '/sklad/api/tool-operations' && req.method === 'GET') {
     try {
-      const toolOps = db.prepare(`
+   const toolOps = db.prepare(`
         SELECT to2.id, to2.tool_id, to2.tool_name, to2.inventory_number, to2.employee_id,
-               to2.action, to2.date, to2.created_at, e.name as employee_name,
-               COALESCE(t.price, 0) as price
+                to2.action, to2.date, to2.created_at,
+                COALESCE(e.name, to2.performed_by, '') as employee_name,
+                COALESCE(t.price, 0) as price
         FROM tool_operations to2
         LEFT JOIN employees e ON to2.employee_id = e.id
         LEFT JOIN tools t ON to2.tool_id = t.id
         ORDER BY to2.date DESC
       `).all()
 
-      const materialIssues = db.prepare(`
+ const materialIssues = db.prepare(`
         SELECT mc.id, mc.material_ref_key as tool_id, mc.material_name as tool_name, mc.sku as inventory_number,
-               mc.employee_id, 'issued' as action, mc.date, mc.created_at, mc.employee_name,
-               COALESCE(os.purchasePrice, 0) as price
+                mc.employee_id, 'issued' as action, mc.date, mc.created_at,
+                COALESCE(mc.employee_name, e.name, '') as employee_name,
+                COALESCE(os.purchasePrice, 0) as price
         FROM material_checkouts mc
+        LEFT JOIN employees e ON mc.employee_id = e.id
         LEFT JOIN onec_stocks os ON mc.material_ref_key = os.ref_key
         ORDER BY mc.date DESC
       `).all()
 
-      const materialReturns = db.prepare(`
+const materialReturns = db.prepare(`
         SELECT ol.id, COALESCE(ol.product_id, '') as tool_id, COALESCE(ol.product_name, '') as tool_name,
-               COALESCE(ol.order_number, '') as inventory_number, ol.employee_id,
-               'returned' as action, ol.created_at as date, ol.created_at,
-               COALESCE(ol.employee_name, '') as employee_name, 0 as price
+                COALESCE(ol.order_number, '') as inventory_number, ol.employee_id,
+                'returned' as action, ol.created_at as date, ol.created_at,
+                COALESCE(ol.employee_name, e.name, '') as employee_name, 0 as price
         FROM operation_logs ol
+        LEFT JOIN employees e ON ol.employee_id = e.id
         WHERE ol.operation_type = 'material_returned'
         ORDER BY ol.created_at DESC
       `).all()
 
-      const creationOps = db.prepare(`
+    const creationOps = db.prepare(`
         SELECT ol.id, COALESCE(ol.product_id, '') as tool_id, COALESCE(ol.product_name, '') as tool_name,
-               COALESCE(ol.order_number, '') as inventory_number, ol.employee_id,
-               'created' as action, ol.created_at as date, ol.created_at,
-               COALESCE(ol.employee_name, '') as employee_name, 0 as price
+                COALESCE(ol.order_number, '') as inventory_number, ol.employee_id,
+                CASE ol.operation_type
+                  WHEN 'tool_created' THEN 'created'
+                  WHEN 'material_created' THEN 'material_created'
+                  WHEN 'qr_codes_generated' THEN 'qr_codes_generated'
+                END as action, ol.created_at as date, ol.created_at,
+                COALESCE(ol.employee_name, e.name, '') as employee_name, 0 as price
         FROM operation_logs ol
+        LEFT JOIN employees e ON ol.employee_id = e.id
         WHERE ol.operation_type IN ('tool_created', 'material_created', 'qr_codes_generated')
         ORDER BY ol.created_at DESC
       `).all()
@@ -3177,7 +3214,7 @@ const server = http.createServer(async (req, res) => {
   if (pathname === '/sklad/api/shipments/history' && req.method === 'GET') {
     try {
       const shipments = db.prepare(`
-        SELECT id, employee_name, created_at, order_number, product_name, details
+        SELECT id, employee_name, employee_id, created_at, order_number, product_name, details
         FROM operation_logs WHERE operation_type = 'qr_code_shipped'
         ORDER BY created_at DESC
       `).all()
@@ -3189,8 +3226,8 @@ const server = http.createServer(async (req, res) => {
         timestamp.setSeconds(0, 0)
         const key = `${timestamp.toISOString()}-${shipment.employee_name}`
 
-        if (!groupedShipments.has(key)) {
-          groupedShipments.set(key, { id: key, date: shipment.created_at, userName: shipment.employee_name, orders: new Set(), count: 0 })
+   if (!groupedShipments.has(key)) {
+           groupedShipments.set(key, { id: key, date: shipment.created_at, userName: shipment.employee_name, employeeId: shipment.employee_id, orders: new Set(), count: 0 })
         }
 
         const group = groupedShipments.get(key)
@@ -3201,8 +3238,7 @@ const server = http.createServer(async (req, res) => {
       })
 
       const result = Array.from(groupedShipments.values())
-        .map(item => ({ id: item.id, date: item.date, userName: item.userName, count: item.count, orders: Array.from(item.orders) }))
-        .slice(0, 100)
+        .map(item => ({ id: item.id, date: item.date, userName: item.userName, employeeId: item.employeeId, count: item.count, orders: Array.from(item.orders) }))
 
       sendJSON(res, 200, { shipments: result, total: shipments.length })
     } catch (err) {

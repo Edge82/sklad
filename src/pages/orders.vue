@@ -188,6 +188,7 @@
               <th class="w-40 text-center!">Выполнено</th>
               <th class="w-32 text-right!">Кол-во</th>
               <th class="w-24 text-center!">Резерв</th>
+              <th class="w-32 text-center!">Место хранения</th>
               <th v-if="userStore.canSeePrices" class="w-40 text-right!">Сумма</th>
             </tr>
           </thead>
@@ -223,6 +224,7 @@
                 </n-tag>
                 <span v-else class="text-gray-500">0</span>
               </td>
+              <td class="text-center!">{{ getStorageBin(item) }}</td>
               <td v-if="userStore.canSeePrices" class="text-right! font-mono px-4">{{ formatCurrency(item.totalPrice || 0) }}</td>
             </tr>
           </tbody>
@@ -254,12 +256,12 @@
 
     <!-- Просмотр деталей заказа -->
     <n-modal
-      v-model:show="showDetailsModal"
-      preset="card"
-      :auto-focus="false"
-      title="Детали заказа"
-      class="w-225!"
-    >
+       v-model:show="showDetailsModal"
+       preset="card"
+       :auto-focus="false"
+       title="Детали заказа"
+       class="w-full! max-w-[900px]! min-w-[600px]!"
+     >
       <OrderDetails
         v-if="selectedOrderForDetails"
         :order="selectedOrderForDetails"
@@ -517,9 +519,7 @@ const handleShowQR = async (order: Order) => {
 const handleRowClick = async (row: Order) => {
   selectedOrderForInvoices.value = row
   viewMode.value = 'invoices'
-  if (inventoryStore.items.length === 0) {
-    await inventoryStore.loadStocksFromApi()
-  }
+  await inventoryStore.loadStocksFromApi()
   expandedInvoiceKeys.value = []
 
   // Если у заказа нет позиций, подгружаем их из 1С
@@ -545,6 +545,21 @@ const getOrderItemReserve = (item: any): number => {
     return matched.reserveDetails?.get(selectedOrderForInvoices.value.id) || 0
   }
   return 0
+}
+
+const getStorageBin = (item: any): string => {
+  const matched = inventoryStore.items.find(
+    (s: any) => (s.name === item.productName || s.ref_key === item.productId || s.id === item.productId)
+    && (s.type === 'product' || s.categoryId === '99')
+  ) || inventoryStore.items.find(
+    (s: any) => s.name === item.productName || s.ref_key === item.productId || s.id === item.productId
+  )
+  if (!matched) return '-'
+  const bin = matched.storageBin
+  if (bin && bin !== 'None') return bin
+  const loc = matched.location
+  if (loc && loc !== 'None') return loc
+  return '-'
 }
 
 const getItemQRProgress = (orderId: string, productId: string): { scanned: number, total: number, percent: number, scannedWarehouse: number } => {
