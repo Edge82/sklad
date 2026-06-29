@@ -17,6 +17,9 @@ import TransferOrders from '@/pages/transferorders.vue'
 import FinishedProducts from '@/pages/finished-products.vue'
 import MyTools from '@/pages/my-tools.vue'
 import ToolDetail from '@/pages/tool-detail.vue'
+import Hardware from '@/pages/hardware.vue'
+import HardwareDetail from '@/pages/hardware-detail.vue'
+import MyHardware from '@/pages/my-hardware.vue'
 
 const routes: RouteRecordRaw[] = [
   {
@@ -62,6 +65,21 @@ const routes: RouteRecordRaw[] = [
     path: '/tools/:refKey',
     component: ToolDetail,
     meta: { title: 'Инструмент — детали' }
+  },
+  {
+    path: '/hardware',
+    component: Hardware,
+    meta: { title: 'Фурнитура' }
+  },
+  {
+    path: '/hardware/:refKey',
+    component: HardwareDetail,
+    meta: { title: 'Фурнитура — детали' }
+  },
+  {
+    path: '/profile/hardware',
+    component: MyHardware,
+    meta: { title: 'Фурнитура в работе' }
   },
   {
     path: '/profile',
@@ -144,6 +162,28 @@ router.beforeEach((to, _from, next) => {
   // Проверка для /shipment
   if (to.path.startsWith('/shipment')) {
     if (!userRole || !['admin', 'manager'].includes(userRole)) {
+      next('/inventory')
+      return
+    }
+  }
+
+  // Проверка для /tools (только кладовщик, менеджер, администратор), но не /profile/tools
+  if ((to.path === '/tools' || to.path.startsWith('/tools/')) && !to.path.startsWith('/profile/')) {
+    if (!userRole || !['admin', 'manager', 'storekeeper'].includes(userRole)) {
+      next('/inventory')
+      return
+    }
+  }
+
+  // Проверка для /hardware (только кладовщик, менеджер, администратор)
+  if (to.path.startsWith('/hardware') && !to.path.startsWith('/hardware/')) {
+    if (!userRole || !['admin', 'manager', 'storekeeper'].includes(userRole)) {
+      next('/inventory')
+      return
+    }
+  }
+  if (to.path.startsWith('/hardware/')) {
+    if (!userRole || !['admin', 'manager', 'storekeeper'].includes(userRole)) {
       next('/inventory')
       return
     }

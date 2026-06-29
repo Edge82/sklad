@@ -10,7 +10,7 @@
           Назад к инструментам
         </n-button>
         <n-divider vertical />
-        <n-h1 v-if="stock" class="m-0">{{ stock.name }}</n-h1>
+        <n-h1 class="m-0">{{ stock ? stock.name : '...' }}</n-h1>
       </div>
 
       <n-grid :cols="5" :x-gap="12" :y-gap="12">
@@ -42,6 +42,12 @@
           <n-card size="small" class="metric-card" style="border: 2px solid #d03050">
             <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">В 1С</n-text>
             <n-h3 class="m-0 leading-none" style="color: #d03050">{{ totalQuantity }}</n-h3>
+          </n-card>
+        </n-gi>
+        <n-gi v-else>
+          <n-card size="small" class="metric-card">
+            <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">В 1С</n-text>
+            <n-h3 class="m-0 leading-none">{{ totalQuantity }}</n-h3>
           </n-card>
         </n-gi>
       </n-grid>
@@ -281,7 +287,7 @@ watch(() => router.currentRoute.value.params.refKey, loadData)
 
 <style scoped>
 .tool-detail-page {
-  max-width: 1200px;
+  max-width: 1600px;
   margin: 0 auto;
   padding: 0 24px;
 }

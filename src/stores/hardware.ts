@@ -9,7 +9,7 @@ function notifyUserOpsRefresh() {
   }
 }
 
-interface MaterialItem {
+interface HardwareItem {
   id: string
   name: string
   inventoryNumber: string
@@ -24,6 +24,8 @@ interface MaterialItem {
   currentStock: number
   availableStock: number
   checkedOut: number
+  onecQuantity: number
+  hasDiscrepancy: boolean
   unit: string
   sku: string
   refKey: string
@@ -33,34 +35,36 @@ interface MaterialItem {
   updatedAt?: string
 }
 
-export const useToolsStore = defineStore('tools', () => {
-  const items = ref<MaterialItem[]>([])
+export const useHardwareStore = defineStore('hardware', () => {
+  const items = ref<HardwareItem[]>([])
   const checkouts = ref<any[]>([])
   const loading = ref(false)
   const error = ref<string | null>(null)
 
-  const tools = computed(() => items.value)
+  const hardware = computed(() => items.value)
 
-  const inStockTools = computed(() =>
+  const inStockItems = computed(() =>
     items.value.filter(t => t.availableStock > 0)
   )
 
-  const issuedTools = computed(() =>
+  const issuedItems = computed(() =>
     items.value.filter(t => t.checkedOut > 0)
   )
 
-  const repairTools = computed(() => [] as MaterialItem[])
+  const discrepancyItems = computed(() =>
+    items.value.filter(t => t.hasDiscrepancy)
+  )
 
-  async function loadToolsFromApi() {
+  async function loadHardwareFromApi() {
     loading.value = true
     error.value = null
     try {
       const [stocksRes, checkoutsRes] = await Promise.all([
-        fetch(`${API_BASE}/onec/stocks?category=${encodeURIComponent('Инвентарь, МБП, хоз.принадлежности')}`),
+        fetch(`${API_BASE}/onec/stocks?category=${encodeURIComponent('Фурнитура (торг)')}`),
         fetch(`${API_BASE}/onec/stock-checkouts`)
       ])
 
-      if (!stocksRes.ok) throw new Error('Failed to load materials')
+      if (!stocksRes.ok) throw new Error('Failed to load hardware')
       const stocksData = await stocksRes.json()
       const rawStocks = stocksData.value || []
 
@@ -71,7 +75,7 @@ export const useToolsStore = defineStore('tools', () => {
       }
       checkouts.value = checkoutData
 
-     items.value = rawStocks.map((stock: any) => {
+      items.value = rawStocks.map((stock: any) => {
         const itemCheckouts = checkoutData.filter((c: any) => c.material_ref_key === stock.ref_key)
         const checkedOutQty = itemCheckouts.reduce((s: number, c: any) => s + Number(c.quantity || 0), 0)
         const onecQuantity = Number(stock.quantity || 0)
@@ -85,27 +89,27 @@ export const useToolsStore = defineStore('tools', () => {
 
         const issuedInfo = itemCheckouts.length > 0 ? itemCheckouts[0] : null
 
-         return {
+        return {
           id: stock.ref_key || stock.id,
           name: stock.name || stock.product || 'Без названия',
           inventoryNumber: stock.sku || stock.product || '',
-          type: 'hand_tool',
+          type: 'hardware',
           price: Number(stock.purchasePrice || 0),
           status,
           issuedTo: issuedInfo?.employee_id || null,
           issuedToName: issuedInfo?.employee_name || null,
           issuedAt: issuedInfo?.date || null,
           location: stock.storageBin || '',
-         qrCode: stock.barcode || '',
-         currentStock,
-         availableStock,
-         checkedOut: checkedOutQty,
-         onecQuantity,
-         hasDiscrepancy,
-         unit: stock.unit || 'шт',
-         sku: stock.sku || '',
-         refKey: stock.ref_key || stock.id,
-category: stock.category || '',
+          qrCode: stock.barcode || '',
+          currentStock,
+          availableStock,
+          checkedOut: checkedOutQty,
+          onecQuantity,
+          hasDiscrepancy,
+          unit: stock.unit || 'шт',
+          sku: stock.sku || '',
+          refKey: stock.ref_key || stock.id,
+          category: stock.category || '',
           warehouse: stock.warehouse || '',
           createdAt: stock.synced_at || undefined,
           updatedAt: stock.synced_at || undefined
@@ -113,37 +117,37 @@ category: stock.category || '',
       })
     } catch (err) {
       error.value = err instanceof Error ? err.message : 'Unknown error'
-      console.error('Error loading materials:', err)
+      console.error('Error loading hardware:', err)
     } finally {
       loading.value = false
     }
   }
 
-  async function issueTool(refKey: string, employeeId: string, employeeName: string, quantity: number = 1) {
+  async function issueHardware(refKey: string, employeeId: string, employeeName: string, quantity: number = 1) {
     try {
       const response = await fetch(`${API_BASE}/onec/stocks/${refKey}/issue`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ employeeId, employeeName, quantity })
+        body: JSON.stringify({ employeeId, employeeName, quantity, operationType: 'hardware_issued' })
       })
 
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}))
-        throw new Error(errData.error || 'Failed to issue material')
+        throw new Error(errData.error || 'Failed to issue hardware')
       }
 
       const data = await response.json()
-      await loadToolsFromApi()
+      await loadHardwareFromApi()
       notifyUserOpsRefresh()
       return data
     } catch (err) {
       error.value = err instanceof Error ? err.message : 'Unknown error'
-      console.error('Error issuing material:', err)
+      console.error('Error issuing hardware:', err)
       throw err
     }
   }
 
-  async function returnTool(id: string, quantity: number = 0) {
+  async function returnHardware(id: string, quantity: number = 0) {
     try {
       const checkout = checkouts.value.find((c: any) => c.id === id)
       const refKey = checkout?.material_ref_key || id
@@ -153,37 +157,37 @@ category: stock.category || '',
       const response = await fetch(`${API_BASE}/onec/stocks/${refKey}/return`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ employeeId, quantity: qty })
+        body: JSON.stringify({ employeeId, quantity: qty, operationType: 'hardware_returned' })
       })
 
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}))
-        throw new Error(errData.error || 'Failed to return material')
+        throw new Error(errData.error || 'Failed to return hardware')
       }
 
       const data = await response.json()
-      await loadToolsFromApi()
+      await loadHardwareFromApi()
       notifyUserOpsRefresh()
       return data
     } catch (err) {
       error.value = err instanceof Error ? err.message : 'Unknown error'
-      console.error('Error returning material:', err)
+      console.error('Error returning hardware:', err)
       throw err
     }
   }
 
-  function getToolById(id: string) {
+  function getHardwareById(id: string) {
     return items.value.find(t => t.id === id)
   }
 
-  function getToolsIssuedToEmployee(employeeId: string) {
-    const toolsRefKeys = new Set(items.value.map((i: any) => i.refKey))
-    const empCheckouts = checkouts.value.filter((c: any) => c.employee_id === employeeId && toolsRefKeys.has(c.material_ref_key))
+  function getHardwareIssuedToEmployee(employeeId: string) {
+    const hardwareRefKeys = new Set(items.value.map((i: any) => i.refKey))
+    const empCheckouts = checkouts.value.filter((c: any) => c.employee_id === employeeId && hardwareRefKeys.has(c.material_ref_key))
     return empCheckouts.map((c: any) => ({
       id: c.id,
       name: c.material_name,
       inventoryNumber: c.sku || '',
-      type: 'hand_tool',
+      type: 'hardware',
       price: 0,
       status: 'issued',
       issuedTo: c.employee_id,
@@ -201,40 +205,19 @@ category: stock.category || '',
     }))
   }
 
-  async function addTool() {
-  }
-
-  async function updateTool() {
-  }
-
-  async function deleteTool() {
-  }
-
-  async function reportBreakdown() {
-  }
-
-  async function loadBreakdowns() {
-    return []
-  }
-
   return {
-    tools,
+    hardware,
     items,
     checkouts,
     loading,
     error,
-    inStockTools,
-    issuedTools,
-    repairTools,
-    loadToolsFromApi,
-    issueTool,
-    returnTool,
-    reportBreakdown,
-    getToolById,
-    getToolsIssuedToEmployee,
-    addTool,
-    updateTool,
-    deleteTool,
-    loadBreakdowns
+    inStockItems,
+    issuedItems,
+    discrepancyItems,
+    loadHardwareFromApi,
+    issueHardware,
+    returnHardware,
+    getHardwareById,
+    getHardwareIssuedToEmployee
   }
 })

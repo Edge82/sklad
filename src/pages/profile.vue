@@ -161,6 +161,28 @@
             Нажмите, чтобы посмотреть подробности
           </n-text>
         </n-card>
+
+        <!-- Фурнитура в работе -->
+        <n-card
+          v-if="userStore.user"
+          title="Фурнитура в работе"
+          class="mt-4 cursor-pointer hover:border-[#18a058] transition-colors"
+          @click="$router.push('/profile/hardware')"
+        >
+          <div class="flex items-center gap-3">
+            <n-icon size="32" color="#f0a020">
+              <BuildOutline />
+            </n-icon>
+            <div>
+              <n-h3 class="m-0 leading-none">{{ issuedHardware.length }}</n-h3>
+              <n-text depth="3" class="text-xs">{{ issuedHardware.length === 1 ? 'позиция' : issuedHardware.length >= 2 && issuedHardware.length <= 4 ? 'позиции' : 'позиций' }}</n-text>
+            </div>
+          </div>
+          <n-divider class="my-3" />
+          <n-text depth="3" class="text-xs">
+            Нажмите, чтобы посмотреть подробности
+          </n-text>
+        </n-card>
       </n-gi>
     </n-grid>
   </div>
@@ -171,6 +193,7 @@ import { ref, reactive, onMounted, computed, onUnmounted, onActivated } from 'vu
 import { useUserStore } from '@/stores/user'
 import { useEmployeesStore } from '@/stores/employees'
 import { useToolsStore } from '@/stores/tools'
+import { useHardwareStore } from '@/stores/hardware'
 import type { User } from '@/types'
 import {
   NGrid,
@@ -200,12 +223,14 @@ import {
   BusinessOutline,
   CalendarOutline,
   TimeOutline,
-  ConstructOutline
+  ConstructOutline,
+  BuildOutline
 } from '@vicons/ionicons5'
 
 const userStore = useUserStore()
 const employeesStore = useEmployeesStore()
 const toolsStore = useToolsStore()
+const hardwareStore = useHardwareStore()
 const formRef = ref<FormInst | null>(null)
 const message = useMessage()
 
@@ -326,6 +351,26 @@ async function loadAllOperations() {
           subtitle: log.qr_code || '',
           employeeName: resolvedName
         })
+      } else if (opType.startsWith('hardware_')) {
+        const hwTitles: Record<string, string> = {
+          hardware_issued: `Получена фурнитура: ${log.product_name || ''}`,
+          hardware_returned: `Сдана фурнитура: ${log.product_name || ''}`
+        }
+        const hwActions: Record<string, string> = {
+          hardware_issued: 'issued',
+          hardware_returned: 'returned'
+        }
+        operations.push({
+          type: 'tool',
+          id: `hw-${log.id}`,
+          title: hwTitles[opType] || `Фурнитура: ${log.product_name || ''}`,
+          date: new Date(log.created_at),
+          items: [],
+          action: hwActions[opType] || 'unknown',
+          subtitle: log.qr_code || '',
+          employeeName: resolvedName,
+          isHardware: true
+        })
       } else if (opType === 'transfer_order') {
         operations.push({
           type: 'movement',
@@ -385,6 +430,19 @@ const issuedTools = computed(() => {
   })
   if (!employee) return []
   return toolsStore.getToolsIssuedToEmployee(employee.id)
+})
+
+// Фурнитура в работе
+const issuedHardware = computed(() => {
+  if (!userStore.user?.id) return []
+  const currentUserId = parseFloat(String(userStore.user?.id))
+  const employee = employeesStore.employees.find(e => {
+    if (!e.userId) return false
+    const empUserId = parseFloat(String(e.userId))
+    return !isNaN(empUserId) && empUserId === currentUserId
+  })
+  if (!employee) return []
+  return hardwareStore.getHardwareIssuedToEmployee(employee.id)
 })
 
 // Тип для формы (без служебных полей)
@@ -472,16 +530,21 @@ const operationsColumns: any[] = [
     title: 'Тип',
     key: 'type',
     ellipsis: { tooltip: true },
-    render: (row: any) => {
-      if (row.type === 'invoice') return 'Накладная'
-      if (row.type === 'tool') {
-        if (row.action === 'issued') return 'Выдача инструмента'
-        if (row.action === 'returned') return 'Возврат инструмента'
-        if (row.action === 'created') return 'Создание инструмента'
-        return 'Операция с инструментом'
+   render: (row: any) => {
+        if (row.type === 'invoice') return 'Накладная'
+        if (row.type === 'tool') {
+          if (row.isHardware) {
+            if (row.action === 'issued') return 'Выдача фурнитуры'
+            if (row.action === 'returned') return 'Возврат фурнитуры'
+            return 'Операция с фурнитурой'
+          }
+          if (row.action === 'issued') return 'Выдача инструмента'
+          if (row.action === 'returned') return 'Возврат инструмента'
+          if (row.action === 'created') return 'Создание инструмента'
+          return 'Операция с инструментом'
+        }
+        return 'Перемещение'
       }
-      return 'Перемещение'
-    }
   },
   {
     title: 'Ответственный',
@@ -527,11 +590,13 @@ onMounted(async () => {
     loadAllOperations()
   }
   window.addEventListener('refreshToolOperations', refreshHandler)
+  window.addEventListener('refreshHardwareOperations', refreshHandler)
   window.addEventListener('refreshUserOperations', refreshHandler)
 
   // onUnmounted должен быть до await
   onUnmounted(() => {
     window.removeEventListener('refreshToolOperations', refreshHandler)
+    window.removeEventListener('refreshHardwareOperations', refreshHandler)
     window.removeEventListener('refreshUserOperations', refreshHandler)
   })
 
@@ -541,6 +606,10 @@ onMounted(async () => {
 
   if (toolsStore.tools.length === 0) {
     toolsStore.loadToolsFromApi()
+  }
+
+  if (hardwareStore.hardware.length === 0) {
+    hardwareStore.loadHardwareFromApi()
   }
 
   })
@@ -554,6 +623,10 @@ onActivated(async () => {
 
   if (toolsStore.tools.length === 0) {
     toolsStore.loadToolsFromApi()
+  }
+
+  if (hardwareStore.hardware.length === 0) {
+    hardwareStore.loadHardwareFromApi()
   }
 
   })

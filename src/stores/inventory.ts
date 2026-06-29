@@ -1011,8 +1011,8 @@ export const useInventoryStore = defineStore('inventory', () => {
               maxStock: item.maxStock || currentStock * 2,
               reserved: reserved,
               available: available,
-              location: item.location ?? item.warehouse ?? 'Основной склад',  // Используем ?? чтобы не заменять пустые строки
-              warehouse: item.warehouse || 'Основной склад',
+              location: item.location ?? item.warehouse ?? '',
+              warehouse: item.warehouse || '',
               purchasePrice: Number(item.purchasePrice || 0),
               averagePrice: Number(item.averagePrice || item.purchasePrice || 0),
               lastPurchasePrice: Number(item.lastPurchasePrice || item.purchasePrice || 0),

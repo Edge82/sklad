@@ -1189,21 +1189,21 @@ const saveCreateOrder = async () => {
   createSaving.value = true
   createResult.value = null
 
-  try {
-    const itemsPayload = createForm.items.map((item: CreateItem) => ({
-      nomenclatureKey: item.nomenclatureKey,
-      productName: item.productName,
-      barcode: item.barcode,
-      quantity: item.quantity,
-      unitKey: item.unitKey,
-      storageBin: item.storageBin,
-      price: item.price || 0,
-      customerOrderKey: item.customerOrderKey || undefined,
-      customerOrderNumber: item.customerOrderNumber || undefined,
-      selectedProduct: item.selectedProduct || undefined
-    }))
+   try {
+      const itemsPayload = createForm.items.map((item: CreateItem) => ({
+        nomenclatureKey: item.nomenclatureKey,
+        productName: item.productName,
+        barcode: item.barcode,
+        quantity: item.quantity,
+        unitKey: item.unitKey,
+        storageBin: item.storageBin,
+        price: item.price || 0,
+        customerOrderKey: item.customerOrderKey ?? '',
+        customerOrderNumber: item.customerOrderNumber ?? '',
+        selectedProduct: item.selectedProduct ?? ''
+      }))
 
-    // If editing existing local order, use PUT
+      // If editing existing local order, use PUT
     if (editingOrderRefKey.value) {
       const res = await fetch(`/sklad/api/transfer-orders/${editingOrderRefKey.value}/items`, {
         method: 'PUT',
@@ -1242,11 +1242,11 @@ const saveCreateOrder = async () => {
         destinationWarehouseKey: createForm.destinationWarehouseKey,
         destinationWarehouseName: warehouseOptions.value.find(o => o.value === createForm.destinationWarehouseKey)?.label || '',
         items: itemsPayload,
-        customerOrderKey: createForm.customerOrderKey || undefined,
+        customerOrderKey: createForm.customerOrderKey || '',
         customerOrderNumber: createForm.customerOrderKey
-          ? ordersStore.orders.find(o => o.id === createForm.customerOrderKey)?.orderNumber
-          : undefined,
-        selectedProduct: createForm.selectedProduct || undefined
+          ? (ordersStore.orders.find(o => o.id === createForm.customerOrderKey)?.orderNumber || '')
+          : '',
+        selectedProduct: createForm.selectedProduct || ''
       })
     })
 
@@ -1302,21 +1302,21 @@ const normalizeBarcode = (code: string): string => {
 const saveCreateAndSendTo1C = async () => {
   if (!canSaveCreate.value) return
   createSaving.value = true
-  try {
-    const itemsPayload = createForm.items.map((item: CreateItem) => ({
-      nomenclatureKey: item.nomenclatureKey,
-      productName: item.productName,
-      barcode: item.barcode,
-      quantity: item.quantity,
-      unitKey: item.unitKey,
-      storageBin: item.storageBin,
-      price: item.price || 0,
-      customerOrderKey: item.customerOrderKey || undefined,
-      customerOrderNumber: item.customerOrderNumber || undefined,
-      selectedProduct: item.selectedProduct || undefined
-    }))
+ try {
+      const itemsPayload = createForm.items.map((item: CreateItem) => ({
+        nomenclatureKey: item.nomenclatureKey,
+        productName: item.productName,
+        barcode: item.barcode,
+        quantity: item.quantity,
+        unitKey: item.unitKey,
+        storageBin: item.storageBin,
+        price: item.price || 0,
+        customerOrderKey: item.customerOrderKey ?? '',
+        customerOrderNumber: item.customerOrderNumber ?? '',
+        selectedProduct: item.selectedProduct ?? ''
+      }))
 
-    const res = await fetch('/sklad/api/transfer-orders/create', {
+      const res = await fetch('/sklad/api/transfer-orders/create', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -1328,11 +1328,11 @@ const saveCreateAndSendTo1C = async () => {
         destinationWarehouseKey: createForm.destinationWarehouseKey,
         destinationWarehouseName: warehouseOptions.value.find(o => o.value === createForm.destinationWarehouseKey)?.label || '',
         items: itemsPayload,
-        customerOrderKey: createForm.customerOrderKey || undefined,
-        customerOrderNumber: createForm.customerOrderKey
-          ? ordersStore.orders.find(o => o.id === createForm.customerOrderKey)?.orderNumber
-          : undefined,
-        selectedProduct: createForm.selectedProduct || undefined
+        customerOrderKey: createForm.customerOrderKey || '',
+         customerOrderNumber: createForm.customerOrderKey
+           ? (ordersStore.orders.find(o => o.id === createForm.customerOrderKey)?.orderNumber || '')
+           : '',
+         selectedProduct: createForm.selectedProduct || ''
       })
     })
 
@@ -2405,13 +2405,16 @@ watch(
       saveTimeout = setTimeout(async () => {
         try {
           const itemsPayload = items.map((item: any) => ({
-            nomenclatureKey: item.Номенклатура_Key || item.nomenclatureKey,
-            productName: item.nomenclatureName || item.productName,
+            nomenclatureKey: item.Номенклатура_Key || item.nomenclatureKey || '',
+            productName: item.nomenclatureName || item.productName || '',
             barcode: item.barcode || '',
             quantity: item.Количество || item.quantity || 0,
             unitKey: item.unitKey || '',
             storageBin: item.storageBin || '',
-            price: Number(item.price || item.Цена || 0)
+            price: Number(item.price || item.Цена || 0),
+            customerOrderKey: item.customerOrderKey ?? '',
+            customerOrderNumber: item.customerOrderNumber ?? '',
+            selectedProduct: item.selectedProduct ?? ''
           }))
           await fetch(`/sklad/api/transfer-orders/${selectedOrder.value!.Ref_Key}/items`, {
             method: 'PUT',

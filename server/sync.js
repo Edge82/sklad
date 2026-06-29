@@ -141,7 +141,8 @@ function syncStocksIncremental(stocks) {
       const existingSku = existingRecord?.sku || ''
 
       // Не затираем barcode при синхронизации, если его нет в 1С
-      const barcodeToSave = stock.barcode || (stock.sku !== existingSku ? stock.sku : existingBarcode) || existingBarcode
+      // barcode — только реальный штрихкод, никогда не заполняем из sku
+      const barcodeToSave = stock.barcode || existingBarcode
       const skuToSave = stock.sku || existingSku
 
       db.prepare(`UPDATE onec_stocks SET
@@ -184,7 +185,8 @@ function syncStocksIncremental(stocks) {
           unitValue = stock.unit
         }
 
-        const barcodeToSave = stock.barcode || stock.sku || ''
+        // barcode — только реальный штрихкод, никогда не заполняем из sku
+        const barcodeToSave = stock.barcode || ''
 
         db.prepare(`INSERT INTO onec_stocks
           (ref_key, name, sku, barcode, product, warehouse, location, quantity, current_stock, unit, unit_key, category, status, reserved, purchasePrice, averagePrice, reservesByOrder, image, local_only, last_receipt, onec_image_key)
@@ -576,8 +578,8 @@ async function syncTransferOrderItems() {
 
           let actualBarcode = ''
           if (item.Номенклатура_Key) {
-            const stockRec = db.prepare('SELECT barcode, sku FROM onec_stocks WHERE ref_key = ?').get(item.Номенклатура_Key)
-            actualBarcode = stockRec?.barcode || stockRec?.sku || ''
+            const stockRec = db.prepare('SELECT barcode FROM onec_stocks WHERE ref_key = ?').get(item.Номенклатура_Key)
+            actualBarcode = stockRec?.barcode || ''
           }
 
           // Preserve existing data: scannedQty, storageBin, selectedProduct, price

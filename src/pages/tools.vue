@@ -401,14 +401,6 @@ const confirmIssue = async () => {
 
 
 const columns: DataTableColumns<any> = [
-  {
-    title: 'Артикул',
-    key: 'inventoryNumber',
-    width: 140,
-    render(row) {
-      return h('span', { class: 'font-mono text-gray-400 text-xs' }, row.inventoryNumber || '—')
-    }
-  },
   { title: 'Наименование', key: 'name' },
   {
     title: 'Ед. изм.',
@@ -471,6 +463,14 @@ const columns: DataTableColumns<any> = [
     key: 'location',
     render(row) {
       return row.location || '—'
+    }
+  },
+  {
+    title: 'Склад',
+    key: 'warehouse',
+    width: 150,
+    render(row) {
+      return row.warehouse || '—'
     }
   },
   {

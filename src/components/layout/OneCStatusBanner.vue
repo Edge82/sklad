@@ -129,6 +129,10 @@
         {{ isRefreshing ? 'Проверка...' : 'Проверить соединение с 1С' }}
       </n-button>
 
+      <n-button type="warning" block :loading="isSyncing" @click="fullSync">
+        {{ isSyncing ? 'Синхронизация...' : 'Полная синхронизация с 1С' }}
+      </n-button>
+
       <n-button text tag="p" class="text-xs text-gray-600 text-center">
         URL: {{ baseUrl }}
       </n-button>
@@ -178,6 +182,7 @@ const showBanner = ref(true)
 const showDetails = ref(false)
 const status = ref<OneCStatus | null>(null)
 const isRefreshing = ref(false)
+const isSyncing = ref(false)
 
 const connectionStatus = computed(() => status.value?.connectionStatus || 'unknown')
 const lastSyncTime = computed(() => {
@@ -276,15 +281,34 @@ async function fetchStatus() {
 }
 
 async function refreshStatus() {
-  isRefreshing.value = true
-  try {
-    await fetchStatus()
-  } catch (err) {
-    console.error('Error refreshing status:', err)
-  } finally {
-    isRefreshing.value = false
-  }
-}
+   isRefreshing.value = true
+   try {
+     await fetchStatus()
+   } catch (err) {
+     console.error('Error refreshing status:', err)
+   } finally {
+     isRefreshing.value = false
+   }
+ }
+
+ async function fullSync() {
+   isSyncing.value = true
+   try {
+     const response = await fetch('/sklad/api/sync/1c', {
+       method: 'POST',
+       headers: { 'Content-Type': 'application/json' }
+     })
+     if (!response.ok) {
+       throw new Error(`HTTP ${response.status}`)
+     }
+     await response.json()
+     syncEvents.emit('sync-completed')
+   } catch (err) {
+     console.error('Error during full sync:', err)
+   } finally {
+     isSyncing.value = false
+   }
+ }
 
 let interval: ReturnType<typeof setInterval> | null = null
 

@@ -133,7 +133,7 @@
         <n-space align="center" :size="[16, 12]">
           <n-input
             v-model:value="searchQuery"
-            placeholder="Поиск по названию или артикулу..."
+            placeholder="Поиск по названию или клиенту..."
             clearable
             class="w-96!"
           >
@@ -502,12 +502,16 @@ const filteredItems = computed(() => {
       ].filter(Boolean)))
     }
 
-    const matchesQuery = (item: InventoryItem) =>
-      item.name.toLowerCase().includes(query) ||
-      item.sku.toLowerCase().includes(query) ||
-      (item.barcode && item.barcode.includes(query)) ||
-      item.description?.toLowerCase().includes(query) ||
-      getOrderNumbers(item).some(on => on.toLowerCase().includes(query))
+    const matchesQuery = (item: InventoryItem) => {
+      const orderNumbers = getOrderNumbers(item)
+      const customerName = orderNumbers.length > 0
+        ? ordersStore.orders.find(o => orderNumbers.includes(o.orderNumber))?.customerName?.toLowerCase()
+        : ''
+      return item.name.toLowerCase().includes(query) ||
+        (customerName && customerName.includes(query)) ||
+        item.description?.toLowerCase().includes(query) ||
+        orderNumbers.some(on => on.toLowerCase().includes(query))
+    }
 
     // Находим все номера заказов, где есть хотя бы одна подходящая позиция
     const matchingOrderNumbers = new Set<string>()
@@ -882,7 +886,7 @@ const columnsBase: DataTableColumns<InventoryTableRow> = [
     render: (row) => {
       if ('isGroup' in row && row.isGroup) return null
       const item = row as any
-      const value = item.storageBin || item.location || ''
+      const value = item.storageBin || ''
       return h('div', { class: 'editable-storage-cell', style: 'display: flex; align-items: center;' }, [
         h('input', {
           class: 'storage-input',

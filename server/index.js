@@ -564,7 +564,7 @@ const server = http.createServer(async (req, res) => {
     req.on('end', () => {
       try {
         const refKey = pathname.split('/')[5]
-        const { employeeId, employeeName, quantity = 1, performedBy } = JSON.parse(body)
+        const { employeeId, employeeName, quantity = 1, performedBy, operationType } = JSON.parse(body)
 
         if (!employeeId || !employeeName) {
           sendJSON(res, 400, { error: 'employeeId and employeeName are required' })
@@ -578,6 +578,12 @@ const server = http.createServer(async (req, res) => {
         }
 
         const currentQty = Number(stock.current_stock || 0)
+        const onecQty = Number(stock.quantity || 0)
+        const totalCheckouts = db.prepare('SELECT COALESCE(SUM(quantity), 0) as total FROM material_checkouts WHERE material_ref_key = ?').get(refKey)
+        if (onecQty < Number(totalCheckouts.total)) {
+          sendJSON(res, 400, { error: 'Невозможно выдать — количество в 1С меньше выданного. Проведите инвентаризацию.' })
+          return
+        }
         if (currentQty < quantity) {
           sendJSON(res, 400, { error: 'Недостаточно остатка на складе' })
           return
@@ -593,7 +599,7 @@ const server = http.createServer(async (req, res) => {
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
           `).run(checkoutId, refKey, stock.name, stock.sku || '', employeeId, employeeName, quantity, now, now)
 
-        logOperation('material_issued', {
+        logOperation(operationType || 'material_issued', {
           productName: stock.name,
           productId: refKey,
           orderNumber: stock.sku || '',
@@ -632,7 +638,7 @@ const server = http.createServer(async (req, res) => {
     req.on('end', () => {
       try {
         const refKey = pathname.split('/')[5]
-        const { employeeId, quantity = 1 } = JSON.parse(body)
+        const { employeeId, quantity = 1, operationType } = JSON.parse(body)
 
         if (!employeeId) {
           sendJSON(res, 400, { error: 'employeeId is required' })
@@ -691,7 +697,7 @@ const server = http.createServer(async (req, res) => {
           returnEmployeeName = jwtEmp.employeeName
         }
 
-        logOperation('material_returned', {
+        logOperation(operationType || 'material_returned', {
           productName: stock?.name || '',
           productId: refKey,
           orderNumber: stock?.sku || '',
@@ -932,6 +938,11 @@ const server = http.createServer(async (req, res) => {
         // Resolve customer order number from onec_orders if not set on item
         let custOrderKey = item.customerOrderKey || ''
         let custOrderNumber = item.customerOrderNumber || ''
+        // Fallback to order-level customer order if item doesn't have one
+        if (!custOrderKey) {
+          custOrderKey = order.customer_order_key || ''
+          custOrderNumber = order.customer_order_number || ''
+        }
         if (custOrderKey && !custOrderNumber) {
           const co = db.prepare('SELECT order_number FROM onec_orders WHERE ref_key = ?').get(custOrderKey)
           if (co?.order_number) custOrderNumber = co.order_number
@@ -944,13 +955,13 @@ const server = http.createServer(async (req, res) => {
           nomenclatureName: item.nomenclatureName || item.productName || 'Без названия',
           Количество: item.Количество || item.quantity || 0,
           scannedQty: item.scannedQty || 0,
-          barcode: stock?.barcode || stock?.sku || item.barcode || item.Номенклатура_Key || item.nomenclatureKey || '',
+          barcode: item.barcode || stock?.barcode || '',
           storageBin: stock?.storageBin || item.storageBin || '',
           Цена: itemPrice || stockPrice,
           price: itemPrice || stockPrice,
           customerOrderKey: custOrderKey,
           customerOrderNumber: custOrderNumber,
-          selectedProduct: item.selectedProduct || ''
+          selectedProduct: item.selectedProduct || order.selected_product || ''
         }
       })
 
@@ -1171,6 +1182,7 @@ const server = http.createServer(async (req, res) => {
                 COALESCE(e.name, to2.created_by) as created_by_name
         FROM transfer_orders to2
         LEFT JOIN employees e ON to2.created_by = e.id
+        WHERE to2.created_by != '' AND to2.created_by IS NOT NULL
         ORDER BY to2.date DESC
       `).all()
 
@@ -1252,9 +1264,9 @@ const server = http.createServer(async (req, res) => {
           INSERT INTO transfer_orders (ref_key, order_number, date, source_warehouse_key, source_warehouse_name,
             destination_warehouse_key, destination_warehouse_name, customer_order_key, customer_order_number, posted, items, synced_at, selected_product, created_by)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
-        `).run(localRefKey, orderNumber, now, sourceWarehouseKey, sourceWarehouseName || '',
-          destinationWarehouseKey, destinationWarehouseName || '', customerOrderKey || null,
-          customerOrderNumber || null, itemsJson, now, selectedProduct || null, emp.employeeId || creatorName)
+        `       ).run(localRefKey, orderNumber, now, sourceWarehouseKey, sourceWarehouseName || '',
+          destinationWarehouseKey, destinationWarehouseName || '', customerOrderKey ?? null,
+          customerOrderNumber ?? null, itemsJson, now, selectedProduct ?? null, emp.employeeId || creatorName)
 
         console.log(`[LOG] transfer_order_created: ${orderNumber} by ${creatorName}`)
         logOperation('transfer_order_created', {
@@ -3090,7 +3102,8 @@ const server = http.createServer(async (req, res) => {
         SELECT to2.id, to2.tool_id, to2.tool_name, to2.inventory_number, to2.employee_id,
                 to2.action, to2.date, to2.created_at,
                 COALESCE(e.name, to2.performed_by, '') as employee_name,
-                COALESCE(t.price, 0) as price
+                COALESCE(t.price, 0) as price,
+                '' as order_number
         FROM tool_operations to2
         LEFT JOIN employees e ON to2.employee_id = e.id
         LEFT JOIN tools t ON to2.tool_id = t.id
@@ -3101,10 +3114,13 @@ const server = http.createServer(async (req, res) => {
         SELECT mc.id, mc.material_ref_key as tool_id, mc.material_name as tool_name, mc.sku as inventory_number,
                 mc.employee_id, 'issued' as action, mc.date, mc.created_at,
                 COALESCE(mc.employee_name, e.name, '') as employee_name,
-                COALESCE(os.purchasePrice, 0) as price
+                COALESCE(os.purchasePrice, 0) as price,
+                mc.quantity as qty,
+                '' as order_number
         FROM material_checkouts mc
         LEFT JOIN employees e ON mc.employee_id = e.id
         LEFT JOIN onec_stocks os ON mc.material_ref_key = os.ref_key
+        WHERE os.category != 'Фурнитура (торг)' OR os.category IS NULL
         ORDER BY mc.date DESC
       `).all()
 
@@ -3112,10 +3128,13 @@ const materialReturns = db.prepare(`
         SELECT ol.id, COALESCE(ol.product_id, '') as tool_id, COALESCE(ol.product_name, '') as tool_name,
                 COALESCE(ol.order_number, '') as inventory_number, ol.employee_id,
                 'returned' as action, ol.created_at as date, ol.created_at,
-                COALESCE(ol.employee_name, e.name, '') as employee_name, 0 as price
+                COALESCE(ol.employee_name, e.name, '') as employee_name, 0 as price,
+                ol.details,
+                COALESCE(ol.order_number, '') as order_number
         FROM operation_logs ol
         LEFT JOIN employees e ON ol.employee_id = e.id
         WHERE ol.operation_type = 'material_returned'
+        AND ol.operation_type != 'hardware_returned'
         ORDER BY ol.created_at DESC
       `).all()
 
@@ -3127,14 +3146,45 @@ const materialReturns = db.prepare(`
                   WHEN 'material_created' THEN 'material_created'
                   WHEN 'qr_codes_generated' THEN 'qr_codes_generated'
                 END as action, ol.created_at as date, ol.created_at,
-                COALESCE(ol.employee_name, e.name, '') as employee_name, 0 as price
+                COALESCE(ol.employee_name, e.name, '') as employee_name, 0 as price,
+                COALESCE(ol.order_number, '') as order_number
         FROM operation_logs ol
         LEFT JOIN employees e ON ol.employee_id = e.id
         WHERE ol.operation_type IN ('tool_created', 'material_created', 'qr_codes_generated')
         ORDER BY ol.created_at DESC
       `).all()
 
-      const operations = [...toolOps, ...materialIssues, ...materialReturns, ...creationOps]
+      const hardwareIssues = db.prepare(`
+        SELECT ol.id, COALESCE(ol.product_id, '') as tool_id, COALESCE(ol.product_name, '') as tool_name,
+                COALESCE(ol.order_number, '') as inventory_number, ol.employee_id,
+                'hardware_issued' as action, ol.created_at as date, ol.created_at,
+                COALESCE(ol.employee_name, e.name, '') as employee_name,
+                COALESCE(os.purchasePrice, 0) as price,
+                ol.details,
+                COALESCE(ol.order_number, '') as order_number
+        FROM operation_logs ol
+        LEFT JOIN employees e ON ol.employee_id = e.id
+        LEFT JOIN onec_stocks os ON ol.product_id = os.ref_key
+        WHERE ol.operation_type = 'hardware_issued'
+        ORDER BY ol.created_at DESC
+      `).all()
+
+      const hardwareReturns = db.prepare(`
+        SELECT ol.id, COALESCE(ol.product_id, '') as tool_id, COALESCE(ol.product_name, '') as tool_name,
+                COALESCE(ol.order_number, '') as inventory_number, ol.employee_id,
+                'hardware_returned' as action, ol.created_at as date, ol.created_at,
+                COALESCE(ol.employee_name, e.name, '') as employee_name,
+                COALESCE(os.purchasePrice, 0) as price,
+                ol.details,
+                COALESCE(ol.order_number, '') as order_number
+        FROM operation_logs ol
+        LEFT JOIN employees e ON ol.employee_id = e.id
+        LEFT JOIN onec_stocks os ON ol.product_id = os.ref_key
+        WHERE ol.operation_type = 'hardware_returned'
+        ORDER BY ol.created_at DESC
+      `).all()
+
+      const operations = [...toolOps, ...materialIssues, ...materialReturns, ...creationOps, ...hardwareIssues, ...hardwareReturns]
         .sort((a, b) => new Date(b.date || b.created_at).getTime() - new Date(a.date || a.created_at).getTime())
 
       sendJSON(res, 200, { success: true, operations })

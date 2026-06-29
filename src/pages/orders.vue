@@ -129,7 +129,7 @@
         <n-space align="center" :size="[16, 12]">
           <n-input
             v-model:value="searchQuery"
-            placeholder="Поиск по номеру или клиенту"
+            placeholder="Поиск по номеру, клиенту или комментарию"
             clearable
             class="w-96!"
           >
@@ -185,10 +185,11 @@
             <tr>
               <th class="w-16 text-left!">№</th>
               <th class="text-left!">Наименование</th>
-              <th class="w-40 text-center!">Выполнено</th>
+              <th class="w-40 text-center!">Укомплектовано</th>
               <th class="w-32 text-right!">Кол-во</th>
               <th class="w-24 text-center!">Резерв</th>
               <th class="w-32 text-center!">Место хранения</th>
+              <th class="w-40 text-center!">Склад</th>
               <th v-if="userStore.canSeePrices" class="w-40 text-right!">Сумма</th>
             </tr>
           </thead>
@@ -225,6 +226,7 @@
                 <span v-else class="text-gray-500">0</span>
               </td>
               <td class="text-center!">{{ getStorageBin(item) }}</td>
+              <td class="text-center!">{{ getWarehouse(item) }}</td>
               <td v-if="userStore.canSeePrices" class="text-right! font-mono px-4">{{ formatCurrency(item.totalPrice || 0) }}</td>
             </tr>
           </tbody>
@@ -444,7 +446,7 @@ const filteredOrders = computed(() => {
     result = result.filter(o =>
       o.orderNumber.toLowerCase().includes(query) ||
       o.customerName.toLowerCase().includes(query) ||
-      (o.notes && o.notes.toLowerCase().includes(query))
+      (o.comment && o.comment.toLowerCase().includes(query))
     )
   }
 
@@ -548,17 +550,24 @@ const getOrderItemReserve = (item: any): number => {
 }
 
 const getStorageBin = (item: any): string => {
-  const matched = inventoryStore.items.find(
-    (s: any) => (s.name === item.productName || s.ref_key === item.productId || s.id === item.productId)
-    && (s.type === 'product' || s.categoryId === '99')
-  ) || inventoryStore.items.find(
+  const allMatches = inventoryStore.items.filter(
     (s: any) => s.name === item.productName || s.ref_key === item.productId || s.id === item.productId
   )
-  if (!matched) return '-'
+  if (allMatches.length === 0) return '-'
+  const matched = allMatches.find((s: any) => s.warehouse === 'Готовая продукция') || allMatches[0]
   const bin = matched.storageBin
   if (bin && bin !== 'None') return bin
-  const loc = matched.location
-  if (loc && loc !== 'None') return loc
+  return '-'
+}
+
+const getWarehouse = (item: any): string => {
+  const allMatches = inventoryStore.items.filter(
+    (s: any) => s.name === item.productName || s.ref_key === item.productId || s.id === item.productId
+  )
+  if (allMatches.length === 0) return '-'
+  const mainMatch = allMatches.find((s: any) => s.warehouse === 'Основной склад') || allMatches[0]
+  const wh = mainMatch.warehouse
+  if (wh && wh !== 'None') return wh
   return '-'
 }
 

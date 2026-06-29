@@ -508,7 +508,7 @@ watch(() => props.show, (newShow) => {
       location: '',
      storageBin: '',
        lowStockThreshold: null,
-       warehouse: 'Основной склад',  // Название склада по умолчанию
+       warehouse: 'Основной склад',
       warehouseId: '',  // GUID склада из 1C
       purchasePrice: 0,
       averagePrice: 0,

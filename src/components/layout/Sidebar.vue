@@ -32,6 +32,7 @@ import {
   DocumentTextOutline,
   QrCodeOutline,
   HammerOutline,
+  BuildOutline,
   SyncOutline
 } from '@vicons/ionicons5'
 import type { MenuOption } from 'naive-ui'
@@ -83,12 +84,23 @@ const menuOptions = computed<MenuOption[]>(() => {
     }
   ]
 
-  // Инструменты доступны всем ролям
-  options.push({
-    label: 'Инструменты',
-    key: '/tools',
-    icon: renderIcon(HammerOutline)
-  })
+  // Инструменты — только кладовщик, менеджер, администратор
+  if (['admin', 'manager', 'storekeeper'].includes(userStore.user?.role || '')) {
+    options.push({
+      label: 'Инструменты',
+      key: '/tools',
+      icon: renderIcon(HammerOutline)
+    })
+  }
+
+  // Фурнитура — только кладовщик, менеджер, администратор
+  if (['admin', 'manager', 'storekeeper'].includes(userStore.user?.role || '')) {
+    options.push({
+      label: 'Фурнитура',
+      key: '/hardware',
+      icon: renderIcon(BuildOutline)
+    })
+  }
 
   // Сотрудники доступны только директору и менеджеру
   if (userStore.canManageEmployees) {

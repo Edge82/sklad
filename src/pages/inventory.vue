@@ -750,7 +750,7 @@ const columnsBase: DataTableColumns<InventoryItem> = [
       const item = row as InventoryItem
       return h('div', { class: 'flex items-center gap-1' }, [
         h(NIcon, { size: '14' }, () => h(LocationOutline)),
-        h('span', item.warehouse || 'Не указано')
+        h('span', item.warehouse || '—')
       ])
     }
   },

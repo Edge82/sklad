@@ -297,7 +297,7 @@ export async function fetch1CStocks() {
   console.log('📦 Загружаем материалы: номенклатура + единицы + остатки...')
 
   const nomenclature = await fetch1COData('Catalog_Номенклатура', {
-    '$select': 'Ref_Key,Description,Артикул,ЕдиницаИзмерения_Key,КатегорияНоменклатуры_Key,DeletionMark,ФайлКартинки_Key',
+    '$select': 'Ref_Key,Description,Артикул,ЕдиницаИзмерения_Key,КатегорияНоменклатуры_Key,DeletionMark,ФайлКартинки_Key,Склад_Key',
     '$top': '10000'
   })
 
@@ -454,7 +454,7 @@ export async function fetch1CStocks() {
       const qty = m.quantity
       const delta = m.isReceipt ? qty : -qty
       balanceMap.set(nomKey, (balanceMap.get(nomKey) || 0) + delta)
-      if (!warehouseByNom.has(nomKey) && m.warehouse) {
+      if (m.warehouse) {
         warehouseByNom.set(nomKey, m.warehouse)
       }
       if (m.isReceipt && m.date) {
@@ -477,8 +477,14 @@ export async function fetch1CStocks() {
     if (n.DeletionMark) continue
     const qty = balanceMap.get(n.Ref_Key) || 0
     const unitName = uomMap.get(n.ЕдиницаИзмерения_Key) || 'шт'
-    const whKey = warehouseByNom.get(n.Ref_Key) || ''
-    const whName = warehouseMap.get(whKey) || 'Основной склад'
+    // Склад из карточки номенклатуры — приоритетный (текущее место хранения)
+    let whKey = ''
+    if (n.Склад_Key && n.Склад_Key !== '00000000-0000-0000-0000-000000000000') {
+      whKey = n.Склад_Key
+    } else {
+      whKey = warehouseByNom.get(n.Ref_Key) || ''
+    }
+    const whName = warehouseMap.get(whKey) || ''
     const price = priceMap.get(n.Ref_Key)
     const latestPrice = price?.latest || 0
     const avgPrice = price?.average || 0

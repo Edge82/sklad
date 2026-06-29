@@ -186,7 +186,6 @@
         <n-table :single-line="false" size="medium">
           <thead>
             <tr>
-              <th>Артикул</th>
               <th>Наименование</th>
               <th class="text-right">Цена</th>
               <th class="text-right">Количество</th>
@@ -194,7 +193,6 @@
           </thead>
           <tbody>
             <tr v-for="(item, idx) in selectedInvoice.items" :key="idx">
-              <td><n-text depth="3">{{ item.article ?? '—' }}</n-text></td>
               <td><n-text strong>{{ item.productName }}</n-text></td>
               <td class="text-right">{{ userStore.canSeePrices ? (item.price || 0).toLocaleString() + ' ₽' : '-' }}</td>
               <td class="text-right">
@@ -222,7 +220,7 @@
 import { ref, computed, h, onMounted, onActivated, watch } from 'vue'
 import {
   NText, NCard, NDataTable, NButton, NIcon, NSpace, NInput,
-  NDescriptions, NDescriptionsItem, NTag,
+  NDescriptions, NDescriptionsItem, NTag, NTooltip,
   NTable, NH3, NSelect, NGrid, NGi, NH1
 } from 'naive-ui'
 import {
@@ -282,6 +280,7 @@ const transferOrders = ref<Array<{
   items: string
   selected_product: string
   created_by: string
+  created_by_name: string
 }>>([])
 
 const toolOperations = ref<Array<{
@@ -294,6 +293,10 @@ const toolOperations = ref<Array<{
   date: string
   employee_name: string
   created_at: string
+  price?: number
+  details?: string
+  qty?: number
+  order_number?: string
 }>>([])
 
 const resolveWorkerName = (createdBy: string) => {
@@ -309,7 +312,8 @@ const destinationOptions = [
   { label: 'Готовая продукция', value: 'Готовая продукция' },
   { label: 'Клиент', value: 'Клиент' },
   { label: 'Перемещение', value: 'Перемещение' },
-  { label: 'Инструмент', value: 'Инструмент' }
+  { label: 'Инструмент', value: 'Инструмент' },
+  { label: 'Фурнитура', value: 'Фурнитура' }
 ]
 
 const currentPage = ref(1)
@@ -383,8 +387,8 @@ const allInvoices = computed(() => {
       const parsed = JSON.parse(order.items)
       if (Array.isArray(parsed)) {
         items = parsed.map((i: any) => ({
-          productName: i.productName || '',
-          quantity: Number(i.quantity) || 0,
+          productName: i.nomenclatureName || i.productName || '',
+          quantity: Number(i.Количество || i.quantity) || 0,
           unit: i.unit || 'шт',
           article: i.barcode || '',
           price: Number(i.price) || 0,
@@ -393,6 +397,7 @@ const allInvoices = computed(() => {
     } catch { /* ignore */ }
     if (items.length === 0) return
     const totalAmount = items.reduce((sum, i) => sum + (i.price || 0) * (i.quantity || 0), 0)
+    const createdByName = order.created_by_name || order.created_by || '—'
     invoices.push({
       id: order.ref_key,
       employeeId: '',
@@ -403,8 +408,8 @@ const allInvoices = computed(() => {
       items,
       createdAt: order.date,
       updatedAt: order.date,
-      createdBy: order.created_by || '—',
-      workerName: resolveWorkerName(order.created_by),
+      createdBy: createdByName,
+      workerName: createdByName === '—' ? '—' : createdByName,
       workerId: 'system',
       operationLabel: 'Перемещение между складами',
       movementType: 'transfer',
@@ -418,20 +423,40 @@ const allInvoices = computed(() => {
       returned: 'Возврат инструмента',
       created: 'Создание инструмента',
       material_created: 'Вывод материала',
-      qr_codes_generated: 'Генерация QR-кодов'
+      qr_codes_generated: 'Генерация QR-кодов',
+      hardware_issued: 'Выдана фурнитура',
+      hardware_returned: 'Возврат фурнитуры'
     }
     const label = actionLabels[op.action] || op.action || 'Операция'
-    const destination = op.action === 'qr_codes_generated' ? 'QR-коды' : (op.action === 'material_created' ? 'Материал' : 'Инструмент')
+    const destination = op.action === 'qr_codes_generated' ? 'QR-коды' : (op.action === 'material_created' ? 'Материал' : (op.action.startsWith('hardware_') ? 'Фурнитура' : 'Инструмент'))
+    const hwDesc = op.action.startsWith('hardware_')
+      ? `${op.tool_name}`
+      : op.action === 'qr_codes_generated'
+        ? (op.inventory_number || 'Без номера')
+        : `${op.tool_name} (${op.inventory_number})`
+
+    // Parse quantity: hardware from details (double-escaped JSON), tools issued from qty, tools returned from details
+    let hwQty = 1
+    if (op.action === 'issued' && op.qty) {
+      hwQty = Number(op.qty) || 1
+    } else if (op.details) {
+      try {
+        const inner = JSON.parse(op.details)
+        const parsed = typeof inner === 'string' ? JSON.parse(inner) : inner
+        hwQty = Number(parsed.quantity) || 1
+      } catch { /* use default 1 */ }
+    }
+
     invoices.push({
       id: op.id,
       employeeId: op.employee_id,
       date: op.date,
-      orderNumber: op.action === 'qr_codes_generated' ? (op.inventory_number || 'Без номера') : `${op.tool_name} (${op.inventory_number})`,
+      orderNumber: op.order_number || '—',
       destination,
       totalAmount: 0,
       items: [{
         productName: op.tool_name,
-        quantity: 1,
+        quantity: hwQty,
         unit: 'шт',
         article: op.inventory_number,
         price: Number(op.price) || 0,
@@ -443,7 +468,7 @@ const allInvoices = computed(() => {
       workerId: op.employee_id,
       operationLabel: label,
       movementType: 'tool',
-      movementCount: 1
+      movementCount: hwQty
     })
   })
 
@@ -574,14 +599,12 @@ const columns: DataTableColumns<InvoiceWithWorker> = [
           default: () => [
             h('thead', [
               h('tr', [
-                h('th', 'Артикул'),
                 h('th', 'Наименование'),
                 h('th', { class: 'text-right' }, { default: () => 'Цена' }),
                 h('th', { class: 'text-right' }, { default: () => 'Количество' })
               ])
             ]),
             h('tbody', items.map(item => h('tr', [
-              h('td', item.article || '—'),
               h('td', item.productName),
               h('td', { class: 'text-right' }, userStore.canSeePrices ? (item.price || 0).toLocaleString() + ' ₽' : '-'),
               h('td', { class: 'text-right' }, `${item.quantity} ${item.unit}`)
@@ -620,14 +643,20 @@ const columns: DataTableColumns<InvoiceWithWorker> = [
       const isIncoming = row.operationLabel === 'Поступил на склад'
       const isShipment = row.operationLabel.startsWith('Отгружен')
       const type: 'success' | 'warning' | 'info' = isIncoming ? 'success' : (isShipment ? 'warning' : 'info')
+      const label = row.operationLabel
+      const truncated = label.length > 30 ? label.slice(0, 30) + '…' : label
 
-      return h(NTag, {
-        type,
-        bordered: false,
-        round: true
-      }, {
-        default: () => row.operationLabel,
-        icon: () => h(NIcon, null, { default: () => isIncoming ? h(BusinessOutline) : h(CarOutline) })
+      return h(NTooltip, { trigger: 'hover' }, {
+        default: () => truncated,
+        trigger: () => h(NTag, {
+          type,
+          bordered: false,
+          round: true,
+          style: 'max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;'
+        }, {
+          default: () => h('span', { style: 'overflow: hidden; text-overflow: ellipsis; white-space: nowrap;' }, truncated),
+          icon: () => h(NIcon, null, { default: () => isIncoming ? h(BusinessOutline) : h(CarOutline) })
+        })
       })
     }
   },
