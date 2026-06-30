@@ -161,6 +161,7 @@
 
       <n-card border-variant="dark" class="orders-table-wrapper">
         <n-data-table
+          :key="tableKey"
           class="orders-table"
           :columns="columns"
           :data="filteredOrders"
@@ -274,7 +275,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, h, computed, reactive, onMounted, onActivated, watch } from 'vue'
+import { ref, h, computed, reactive, onMounted, onActivated, watch, onUnmounted } from 'vue'
 import { useOrdersStore } from '@/stores/orders'
 import { useQRCodesStore } from '@/stores/qrCodes'
 import { useUserStore } from '@/stores/user'
@@ -344,8 +345,8 @@ const handleSyncOrders = async () => {
   isSyncingOrders.value = true
   try {
     await integrationStore.syncOrders()
-    message.success('Заказы успешно загружены из 1С')
-    syncEvents.emit('sync-completed', { type: 'orders', timestamp: new Date().toISOString() })
+    // Синк запущен в фоне, ждём SSE и перезагружаем
+    message.success('Синхронизация заказов запущена')
   } catch (err: any) {
     message.error(`Ошибка синхронизации: ${err.message}`)
   } finally {
@@ -353,17 +354,29 @@ const handleSyncOrders = async () => {
   }
 }
 
-// Автоматическая загрузка данных при инициализации (один раз)
+// Автоматическая загрузка данных при инициализации
 onMounted(async () => {
-  if (ordersStore.orders.length === 0) {
-    handleSyncOrders()
-  }
+  await ordersStore.loadOrdersFromApi()
 })
 
 onActivated(async () => {
-  if (ordersStore.orders.length === 0) {
-    handleSyncOrders()
-  }
+  await ordersStore.loadOrdersFromApi()
+})
+
+const tableKey = ref(0)
+
+function handleSyncCompleted() {
+  tableKey.value++
+  ordersStore.loadOrdersFromApi()
+  message.success('Заказы обновлены')
+}
+
+onMounted(() => {
+  syncEvents.on('sync-completed', handleSyncCompleted)
+})
+
+onUnmounted(() => {
+  syncEvents.off('sync-completed', handleSyncCompleted)
 })
 
 const showQRModal = ref(false)

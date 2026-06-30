@@ -210,8 +210,8 @@
           </div>
         </div>
 
-        <n-data-table :columns="columns" :data="filteredItems" :pagination="pagination"
-          :row-key="(row: any) => row.id" striped @update:sorter="handleSorterChange"
+        <n-data-table :key="tableKey" :columns="columns" :data="filteredItems" :pagination="pagination"
+          :row-key="(row: any) => `${tableKey}-${row.id}`" striped @update:sorter="handleSorterChange"
           :row-props="rowProps" max-height="calc(100vh - 350px)"
         />
       </n-card>
@@ -255,7 +255,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, h, watch, onMounted, onActivated } from 'vue'
+import { ref, reactive, computed, h, watch, onMounted, onActivated, onUnmounted } from 'vue'
 import * as XLSX from 'xlsx'
 import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
@@ -317,10 +317,8 @@ const message = useMessage()
 onMounted(async () => {
   inventoryStore.loadCategories()
   inventoryStore.loadWarehouses()
-  if (inventoryStore.items.length === 0 || !integrationStore.lastSyncTime) {
-    await handleSync1C()
-  }
-
+  // Всегда загружаем актуальные данные с сервера
+  await inventoryStore.loadStocksFromApi()
   if (ordersStore.orders.length === 0) {
     try {
       await integrationStore.syncOrders()
@@ -333,10 +331,8 @@ onMounted(async () => {
 onActivated(async () => {
   inventoryStore.loadCategories()
   inventoryStore.loadWarehouses()
-  if (inventoryStore.items.length === 0 || !integrationStore.lastSyncTime) {
-    await handleSync1C()
-  }
-
+  // При возврате на страницу — обновляем данные
+  await inventoryStore.loadStocksFromApi()
   if (ordersStore.orders.length === 0) {
     try {
       await integrationStore.syncOrders()
@@ -346,14 +342,28 @@ onActivated(async () => {
   }
 })
 
+// Автообновление при завершении синхронизации (через SSE или manual sync)
+function handleSyncCompleted() {
+  tableKey.value++
+  inventoryStore.loadStocksFromApi()
+  message.success('Данные обновлены')
+}
+
+onMounted(() => {
+  syncEvents.on('sync-completed', handleSyncCompleted)
+})
+
+onUnmounted(() => {
+  syncEvents.off('sync-completed', handleSyncCompleted)
+})
+
 // Функции интеграции
 const handleSync1C = async () => {
   await integrationStore.syncStocks()
   if (integrationStore.error) {
     message.error(integrationStore.error)
   } else {
-    message.success('Синхронизация с 1С завершена успешно')
-    syncEvents.emit('sync-completed', { type: 'inventory', timestamp: new Date().toISOString() })
+    message.success('Синхронизация запущена, данные обновятся автоматически')
   }
 }
 
@@ -374,6 +384,7 @@ const printData = reactive({
 
 // Фильтры
 const searchQuery = ref('')
+const tableKey = ref(0)
 const filters = reactive({
   category: undefined as string | undefined,
   status: undefined as string | undefined,
@@ -417,6 +428,12 @@ const pagination = computed(() => ({
 watch([searchQuery, filters, advancedFilters], () => {
   currentPage.value = 1
 }, { deep: true })
+
+// Принудительный ре-рендер таблицы при изменении данных
+watch(() => integrationStore.lastSyncTime, () => {
+  tableKey.value++
+  inventoryStore.loadStocksFromApi().catch(() => {})
+})
 
 // Опции фильтров
 const categoryOptions = computed<SelectOption[]>(() => {

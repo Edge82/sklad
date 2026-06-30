@@ -48,6 +48,7 @@ import {
   syncTransferOrderItems, syncTransferOrderStatuses
 } from './sync.js'
 import db, { testUsers } from './db.js'
+import { broadcastSyncEvent, onSyncEvent } from './sync-events.js'
 
 // Загружаем кэш при старте
 loadUnitsCache()
@@ -72,6 +73,37 @@ const server = http.createServer(async (req, res) => {
 
   const url = new URL(req.url, `http://${req.headers.host}`)
   const pathname = url.pathname
+
+  // SSE — Server-Sent Events для уведомлений о синхронизации
+  if (pathname === '/sklad/api/sync/events' && req.method === 'GET') {
+    res.setHeader('Content-Type', 'text/event-stream')
+    res.setHeader('Cache-Control', 'no-cache')
+    res.setHeader('Connection', 'keep-alive')
+    res.setHeader('X-Accel-Buffering', 'no')
+    res.flushHeaders()
+
+    const sendSSE = (event, data) => {
+      res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
+    }
+
+    sendSSE('connected', { timestamp: new Date().toISOString() })
+
+    const interval = setInterval(() => {
+      sendSSE('heartbeat', { timestamp: new Date().toISOString() })
+    }, 30000)
+
+    const sseHandler = (syncEvent) => {
+      sendSSE(syncEvent.type, syncEvent.payload)
+    }
+
+    const cleanup = onSyncEvent(sseHandler)
+
+    req.on('close', () => {
+      clearInterval(interval)
+      cleanup()
+    })
+    return
+  }
 
   // Ping / version check
   if (pathname === '/sklad/api/ping' && req.method === 'GET') {
@@ -208,6 +240,17 @@ const server = http.createServer(async (req, res) => {
     }
     const statusCode = lastSyncTime.connectionStatus === 'failed' || lastSyncTime.connectionStatus === 'unavailable' ? 503 : 200
     sendJSON(res, statusCode, status)
+    return
+  }
+
+  // Sync status (is sync running now?)
+  if (pathname === '/sklad/api/sync/status' && req.method === 'GET') {
+    sendJSON(res, 200, {
+      isSyncing: lastSyncTime.status === 'syncing',
+      lastSync: lastSyncTime.value,
+      lastSyncByType: lastSyncTime.lastSyncByType,
+      syncStatus: lastSyncTime.status,
+    })
     return
   }
 
@@ -564,7 +607,7 @@ const server = http.createServer(async (req, res) => {
     req.on('end', () => {
       try {
         const refKey = pathname.split('/')[5]
-        const { employeeId, employeeName, quantity = 1, performedBy, operationType } = JSON.parse(body)
+        const { employeeId, employeeName, quantity = 1, performedBy, operationType, orderNumber } = JSON.parse(body)
 
         if (!employeeId || !employeeName) {
           sendJSON(res, 400, { error: 'employeeId and employeeName are required' })
@@ -595,9 +638,9 @@ const server = http.createServer(async (req, res) => {
 
         const checkoutId = Math.random().toString(36).substr(2, 9)
         db.prepare(`
-          INSERT INTO material_checkouts (id, material_ref_key, material_name, sku, employee_id, employee_name, quantity, date, created_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-          `).run(checkoutId, refKey, stock.name, stock.sku || '', employeeId, employeeName, quantity, now, now)
+          INSERT INTO material_checkouts (id, material_ref_key, material_name, sku, employee_id, employee_name, quantity, date, created_at, order_number)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `).run(checkoutId, refKey, stock.name, stock.sku || '', employeeId, employeeName, quantity, now, now, orderNumber || '')
 
         logOperation(operationType || 'material_issued', {
           productName: stock.name,
@@ -619,7 +662,8 @@ const server = http.createServer(async (req, res) => {
             employeeId,
             employeeName,
             quantity,
-            date: now
+            date: now,
+            orderNumber: orderNumber || ''
           },
           remainingStock: currentQty - quantity
         })
@@ -1543,90 +1587,81 @@ const server = http.createServer(async (req, res) => {
 
   // Sync all
   if (pathname === '/sklad/api/sync/1c' && req.method === 'POST') {
-    try {
-      const syncResult = await syncWith1C()
-      sendJSON(res, 200, {
-        status: 'synced',
-        timestamp: syncResult.timestamp,
-        usedFallback: syncResult.usedFallback,
-        results: syncResult.results,
-        error: syncResult.error || null,
-        data: cache
-      })
-    } catch (err) {
-      sendJSON(res, 500, { error: err.message })
-    }
+    sendJSON(res, 202, { status: 'started', message: 'Синхронизация запущена в фоне' })
+    ;(async () => {
+      try {
+        broadcastSyncEvent({ type: 'sync:started', payload: { syncType: 'full' } })
+        const syncResult = await syncWith1C()
+        broadcastSyncEvent({ type: 'sync:done', payload: { syncType: 'full', results: syncResult.results, timestamp: syncResult.timestamp } })
+      } catch (err) {
+        broadcastSyncEvent({ type: 'sync:error', payload: { syncType: 'full', error: err.message } })
+      }
+    })()
     return
   }
 
-  // Sync only orders
+  // Sync only orders (async)
   if (pathname === '/sklad/api/sync/orders' && req.method === 'POST') {
-    try {
-      const orders1C = await fetch1COrders()
-      const orderStats = syncOrdersIncremental(orders1C)
-      loadCacheFromDB()
-      updateLastSyncTime({ lastSyncByType: { ...lastSyncTime.lastSyncByType, orders: new Date().toISOString() } })
-
-      sendJSON(res, 200, {
-        status: 'synced',
-        type: 'orders',
-        timestamp: lastSyncTime.lastSyncByType.orders,
-        results: orderStats
-      })
-    } catch (err) {
-      sendJSON(res, 500, { error: err.message })
-    }
+    sendJSON(res, 202, { status: 'started', message: 'Синхронизация заказов запущена' })
+    ;(async () => {
+      try {
+        broadcastSyncEvent({ type: 'sync:started', payload: { syncType: 'orders' } })
+        const orders1C = await fetch1COrders()
+        const orderStats = syncOrdersIncremental(orders1C)
+        loadCacheFromDB()
+        updateLastSyncTime({ lastSyncByType: { ...lastSyncTime.lastSyncByType, orders: new Date().toISOString() } })
+        broadcastSyncEvent({ type: 'sync:done', payload: { syncType: 'orders', results: orderStats, timestamp: lastSyncTime.lastSyncByType.orders } })
+      } catch (err) {
+        broadcastSyncEvent({ type: 'sync:error', payload: { syncType: 'orders', error: err.message } })
+      }
+    })()
     return
   }
 
-  // Sync only stocks (materials)
+  // Sync only stocks (materials) — async
   if (pathname === '/sklad/api/sync/stocks' && req.method === 'POST') {
-    try {
-      const stocks1C = await fetch1CStocks()
-      const reserveMap = await calculateReserves()
-      const stocksWithReserves = stocks1C.map(stock => {
-        const reserveData = reserveMap.get(stock.ref_key)
-        return {
-          ...stock,
-          reserved: reserveData ? reserveData.total : 0,
-          reservesByOrder: reserveData ? reserveData.byOrder : {}
-        }
-      })
-      const stockStats = syncStocksIncremental(stocksWithReserves)
-      loadCacheFromDB()
-      updateLastSyncTime({ lastSyncByType: { ...lastSyncTime.lastSyncByType, stocks: new Date().toISOString() } })
-
-      sendJSON(res, 200, {
-        status: 'synced',
-        type: 'stocks',
-        timestamp: lastSyncTime.lastSyncByType.stocks,
-        results: stockStats
-      })
-    } catch (err) {
-      sendJSON(res, 500, { error: err.message })
-    }
+    sendJSON(res, 202, { status: 'started', message: 'Синхронизация материалов запущена' })
+    ;(async () => {
+      try {
+        broadcastSyncEvent({ type: 'sync:started', payload: { syncType: 'stocks' } })
+        const stocks1C = await fetch1CStocks()
+        const reserveMap = await calculateReserves()
+        const stocksWithReserves = stocks1C.map(stock => {
+          const reserveData = reserveMap.get(stock.ref_key)
+          return {
+            ...stock,
+            reserved: reserveData ? reserveData.total : 0,
+            reservesByOrder: reserveData ? reserveData.byOrder : {}
+          }
+        })
+        const stockStats = syncStocksIncremental(stocksWithReserves)
+        loadCacheFromDB()
+        updateLastSyncTime({ lastSyncByType: { ...lastSyncTime.lastSyncByType, stocks: new Date().toISOString() } })
+        broadcastSyncEvent({ type: 'sync:done', payload: { syncType: 'stocks', results: stockStats, timestamp: lastSyncTime.lastSyncByType.stocks } })
+      } catch (err) {
+        broadcastSyncEvent({ type: 'sync:error', payload: { syncType: 'stocks', error: err.message } })
+      }
+    })()
     return
   }
 
-  // Sync transfer orders
+  // Sync transfer orders (async)
   if (pathname === '/sklad/api/sync/transfer-orders' && req.method === 'POST') {
-    try {
-      const transferOrders1C = await fetch1CTransferOrders()
-      const transferOrderStats = syncTransferOrdersIncremental(transferOrders1C)
-      await syncTransferOrderItems()
-      await syncTransferOrderStatuses()
-      loadCacheFromDB()
-      updateLastSyncTime({ lastSyncByType: { ...lastSyncTime.lastSyncByType, transfer_orders: new Date().toISOString() } })
-
-      sendJSON(res, 200, {
-        status: 'synced',
-        type: 'transfer_orders',
-        timestamp: lastSyncTime.lastSyncByType.transfer_orders,
-        results: transferOrderStats
-      })
-    } catch (err) {
-      sendJSON(res, 500, { error: err.message })
-    }
+    sendJSON(res, 202, { status: 'started', message: 'Синхронизация перемещений запущена' })
+    ;(async () => {
+      try {
+        broadcastSyncEvent({ type: 'sync:started', payload: { syncType: 'transfer_orders' } })
+        const transferOrders1C = await fetch1CTransferOrders()
+        const transferOrderStats = syncTransferOrdersIncremental(transferOrders1C)
+        await syncTransferOrderItems()
+        await syncTransferOrderStatuses()
+        loadCacheFromDB()
+        updateLastSyncTime({ lastSyncByType: { ...lastSyncTime.lastSyncByType, transfer_orders: new Date().toISOString() } })
+        broadcastSyncEvent({ type: 'sync:done', payload: { syncType: 'transfer_orders', results: transferOrderStats, timestamp: lastSyncTime.lastSyncByType.transfer_orders } })
+      } catch (err) {
+        broadcastSyncEvent({ type: 'sync:error', payload: { syncType: 'transfer_orders', error: err.message } })
+      }
+    })()
     return
   }
 
@@ -3907,4 +3942,29 @@ server.listen(PORT, '0.0.0.0', async () => {
   }, 3600000)
 
   console.log('⏰ Automatic sync scheduled: Transfer Orders every 1 hour')
+
+  // Автоматическая полная синхронизация каждые 15 минут
+  setInterval(async () => {
+    if (lastSyncTime.isSyncing) {
+      console.log('[AUTO SYNC] Пропускаю — синхронизация уже идёт')
+      return
+    }
+    try {
+      lastSyncTime.isSyncing = true
+      broadcastSyncEvent({ type: 'sync:started', payload: { syncType: 'auto' } })
+      console.log('[AUTO SYNC] Начинаю полную синхронизацию...')
+      const syncResult = await syncWith1C()
+      updateLastSyncTime({ isSyncing: false })
+      broadcastSyncEvent({ type: 'sync:done', payload: { syncType: 'auto', results: syncResult.results, timestamp: syncResult.timestamp } })
+      console.log(`[AUTO SYNC] Готово: ${JSON.stringify(syncResult.results)} at ${new Date().toLocaleTimeString()}`)
+      writeSyncLog(`Auto-sync: ${JSON.stringify(syncResult.results)}`)
+    } catch (err) {
+      updateLastSyncTime({ isSyncing: false })
+      broadcastSyncEvent({ type: 'sync:error', payload: { syncType: 'auto', error: err.message } })
+      console.error('[AUTO SYNC ERROR]:', err.message)
+      writeSyncLog(`Auto-sync error: ${err.message}`)
+    }
+  }, 900000)
+
+  console.log('⏰ Automatic full sync scheduled: every 15 minutes')
 })

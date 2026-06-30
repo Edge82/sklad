@@ -128,6 +128,9 @@
       <n-form-item label="Кому выдать" path="employeeId" required>
         <n-select v-model:value="issueForm.employeeId" :options="employeeOptions" placeholder="Выберите сотрудника" filterable />
       </n-form-item>
+      <n-form-item label="Заказ покупателя">
+        <n-select v-model:value="issueForm.orderId" :options="orderOptions" placeholder="Выберите заказ (необязательно)" filterable clearable />
+      </n-form-item>
     </n-form>
     <template #footer>
       <div class="flex justify-end gap-2">
@@ -144,6 +147,7 @@ import { useRouter } from 'vue-router'
 import { NTag, NButton, NSpace, NIcon, NText, NGrid, NGi, NCard, NDataTable, NInput, NSelect, NModal, NForm, NFormItem, useMessage, type DataTableColumns } from 'naive-ui'
 import { useHardwareStore } from '@/stores/hardware'
 import { useEmployeesStore } from '@/stores/employees'
+import { useOrdersStore } from '@/stores/orders'
 import { useUserStore } from '@/stores/user'
 import { AlertCircleOutline, CashOutline, HammerOutline, ConstructOutline, CheckmarkCircleOutline, CloseCircleOutline, SearchOutline, SyncOutline, LogInOutline } from '@vicons/ionicons5'
 
@@ -151,6 +155,7 @@ const router = useRouter()
 const hardwareStore = useHardwareStore()
 const userStore = useUserStore()
 const employeesStore = useEmployeesStore()
+const ordersStore = useOrdersStore()
 const message = useMessage()
 
 const items = computed(() => hardwareStore.hardware)
@@ -202,13 +207,16 @@ const totalStockValue = computed(() => filteredItems.value.reduce((sum, i) => su
 const showIssueModal = ref(false)
 const selectedItem = ref<any>(null)
 const issuing = ref(false)
-const issueForm = reactive({ employeeId: null as string | null, quantity: 1 })
+const issueForm = reactive({ employeeId: null as string | null, quantity: 1, orderId: null as string | null })
 const employeeOptions = computed(() => employeesStore.employees.map(e => ({ label: e.name, value: e.id })))
+const orderOptions = computed(() => ordersStore.orders.map(o => ({ label: `${o.orderNumber} — ${o.customerName}`, value: o.id })))
 
-const handleIssue = (item: any) => {
+const handleIssue = async (item: any) => {
   selectedItem.value = item
   issueForm.employeeId = null
   issueForm.quantity = 1
+  issueForm.orderId = null
+  await ordersStore.loadOrdersFromApi()
   showIssueModal.value = true
 }
 
@@ -218,9 +226,11 @@ const confirmIssue = async () => {
   if (!issueForm.quantity || issueForm.quantity < 1) { message.warning('Укажите количество'); return }
   const employee = employeesStore.employees.find(e => e.id === issueForm.employeeId)
   if (!employee) return
+  const selectedOrder = ordersStore.orders.find(o => o.id === issueForm.orderId)
+  const orderNumber = selectedOrder ? selectedOrder.orderNumber : ''
   issuing.value = true
   try {
-    await hardwareStore.issueHardware(selectedItem.value.refKey, employee.id, employee.name, issueForm.quantity)
+    await hardwareStore.issueHardware(selectedItem.value.refKey, employee.id, employee.name, issueForm.quantity, orderNumber)
     message.success(`Выдано ${issueForm.quantity} шт: ${employee.name}`)
     showIssueModal.value = false
   } catch (err: any) { message.error(err.message || 'Ошибка при выдаче') }

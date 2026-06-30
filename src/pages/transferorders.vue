@@ -170,6 +170,7 @@
 
           <n-data-table
           v-else
+          :key="transferTableKey"
           :columns="columns"
           :data="filteredOrders"
           :pagination="pagination"
@@ -562,8 +563,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, onActivated, h, onBeforeUnmount, watch, nextTick } from 'vue'
+import { ref, reactive, computed, onMounted, onActivated, h, onBeforeUnmount, watch, nextTick, onUnmounted } from 'vue'
 import { useStockBalances } from '@/composables/useStockBalances'
+import { syncEvents } from '@/utils/syncEvents'
 import { useMessage } from 'naive-ui'
 import {
   NDataTable,
@@ -878,10 +880,7 @@ const handleSync = async () => {
   syncing.value = true
   try {
     await syncTransferOrders()
-    // После синхронизации перезагружаем список заказов
-    const data = await fetchTransferOrders()
-    orders.value = data
-    message.success('Заказы на перемещение синхронизированы с 1С')
+    message.success('Синхронизация запущена, данные обновятся автоматически')
   } catch (error) {
     console.error('Ошибка при синхронизации:', error)
     message.error('Ошибка при синхронизации с 1С')
@@ -2490,6 +2489,22 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleKeyDown)
   if (saveTimeout) clearTimeout(saveTimeout)
   if (scanTimeout) clearTimeout(scanTimeout)
+})
+
+const transferTableKey = ref(0)
+
+function handleTransferSyncCompleted() {
+  transferTableKey.value++
+  fetchTransferOrders().then(data => { orders.value = data }).catch(() => {})
+  message.success('Данные обновлены')
+}
+
+onMounted(() => {
+  syncEvents.on('sync-completed', handleTransferSyncCompleted)
+})
+
+onUnmounted(() => {
+  syncEvents.off('sync-completed', handleTransferSyncCompleted)
 })
 
 const handleDeleteLocalOrder = async (order: TransferOrder) => {

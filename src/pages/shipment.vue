@@ -530,13 +530,8 @@ const filteredInvoices = computed(() => {
 })
 
 const loadAllData = async () => {
-  if (employeesStore.employees.length === 0) {
-    await employeesStore.loadEmployeesFromApi()
-  }
-
-  if (shipmentsStore.materialInvoices.length === 0) {
-    await shipmentsStore.loadInvoicesFromApi()
-  }
+  await employeesStore.loadEmployeesFromApi()
+  await shipmentsStore.loadInvoicesFromApi()
 
   try {
     const response = await fetch('/sklad/api/shipments/history')
@@ -663,7 +658,11 @@ const columns: DataTableColumns<InvoiceWithWorker> = [
   {
     title: 'Заказ',
     key: 'orderNumber',
-    render: (row) => h(NText, { depth: 2, strong: true }, { default: () => row.orderNumber || '—' })
+    render: (row) => {
+      const isHardware = row.movementType === 'tool' && row.operationLabel && (row.operationLabel.includes('фурнит') || row.operationLabel.includes('Фурнит'))
+      if (isHardware) return h(NText, { depth: 3 }, { default: () => '—' })
+      return h(NText, { depth: 2, strong: true }, { default: () => row.orderNumber || '—' })
+    }
   },
   {
     title: 'Ответственный',

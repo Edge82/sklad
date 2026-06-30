@@ -131,19 +131,16 @@ const onecQuantity = computed(() => Number(stock.value?.quantity || 0))
 const hasDiscrepancy = computed(() => onecQuantity.value < issuedTotal.value)
 
 const activeEmployees = computed(() => {
-  const map = new Map<string, { employeeId: string; employeeName: string; quantity: number; lastDate: string; checkoutIds: string[] }>()
-  for (const c of allCheckouts.value) {
-    const key = c.employee_id
-    const existing = map.get(key)
-    if (existing) {
-      existing.quantity += Number(c.quantity || 0)
-      existing.checkoutIds.push(c.id)
-      if (c.created_at > existing.lastDate) existing.lastDate = c.created_at
-    } else {
-      map.set(key, { employeeId: c.employee_id, employeeName: c.resolved_employee_name || c.employee_name || 'Неизвестно', quantity: Number(c.quantity || 0), lastDate: c.created_at, checkoutIds: [c.id] })
-    }
-  }
-  return Array.from(map.values()).sort((a, b) => b.quantity - a.quantity)
+  return allCheckouts.value
+    .map(c => ({
+      employeeId: c.employee_id,
+      employeeName: c.resolved_employee_name || c.employee_name || 'Неизвестно',
+      quantity: Number(c.quantity || 0),
+      lastDate: c.created_at,
+      checkoutIds: [c.id],
+      orderNumber: c.order_number || ''
+    }))
+    .sort((a, b) => b.lastDate.localeCompare(a.lastDate))
 })
 
 const formatCurrency = (amount: number) => new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', minimumFractionDigits: 0 }).format(amount)
@@ -194,6 +191,12 @@ const columns: DataTableColumns<any> = [
     key: 'lastDate',
     width: 180,
     render(row) { return formatDateTime(row.lastDate) }
+  },
+  {
+    title: 'Заказ',
+    key: 'orderNumber',
+    width: 140,
+    render(row) { return row.orderNumber || '—' }
   },
   {
     title: 'Статус',

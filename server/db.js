@@ -617,4 +617,14 @@ try {
   console.error('Error initializing material_checkouts table:', err.message)
 }
 
+try {
+  const cols = db.prepare("PRAGMA table_info(material_checkouts)").all()
+  if (!cols.find(c => c.name === 'order_number')) {
+    db.exec('ALTER TABLE material_checkouts ADD COLUMN order_number TEXT DEFAULT ""')
+    console.log('✓ Added order_number to material_checkouts')
+  }
+} catch (err) {
+  console.error('Error adding order_number to material_checkouts:', err.message)
+}
+
 console.log('✅ Database initialized')

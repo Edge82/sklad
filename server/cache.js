@@ -19,9 +19,10 @@ export function setUnitsCache(newCache) {
 // Переменные для отслеживания синхронизации
 export let lastSyncTime = {
   value: null,
-  status: 'pending',
+  status: 'idle',
   error: null,
   connectionStatus: 'unknown',
+  isSyncing: false,
   lastSyncByType: {
     units: null,
     warehouses: null,

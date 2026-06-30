@@ -1,8 +1,9 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, onUnmounted } from 'vue'
 import { useInventoryStore } from './inventory'
 import { useOrdersStore } from './orders'
 import { API_BASE_URL } from '@/config/api'
+import { syncEvents } from '@/utils/syncEvents'
 import type { OrderItem } from '@/types'
 
 export const useIntegrationStore = defineStore('integration', () => {
@@ -13,6 +14,11 @@ export const useIntegrationStore = defineStore('integration', () => {
   const error = ref<string | null>(null)
   const lastSyncTime = ref<string | null>(typeof window !== 'undefined' ? localStorage.getItem('1c_last_sync') : null)
   const syncProgress = ref(0)
+  const isSyncing = ref(false)
+  const syncMessage = ref('')
+  const serverLastSyncStocks = ref<string | null>(null)
+  let prevLastSync = typeof window !== 'undefined' ? localStorage.getItem('1c_last_sync') : null
+  let prevLastSyncStocks: string | null = null
   const settings = ref({
     importOrders: true,
     importNomenclature: true,
@@ -21,6 +27,92 @@ export const useIntegrationStore = defineStore('integration', () => {
     exportProduction: true
   })
   const syncLogs = ref<any[]>([])
+
+  // Polling статуса синхронизации (вместо SSE)
+  let syncPollInterval: ReturnType<typeof setInterval> | null = null
+
+  async function initPrevLastSync() {
+    if (prevLastSync) return
+    try {
+      const resp = await fetch(`${API_BASE_URL}/sync/status`)
+      if (resp.ok) {
+        const data = await resp.json()
+        prevLastSync = data.lastSync || null
+        prevLastSyncStocks = data.lastSyncByType?.stocks || null
+      }
+    } catch { /* ignore */ }
+  }
+
+  function startSyncPolling() {
+    if (typeof window === 'undefined') return
+    if (syncPollInterval) return
+
+    initPrevLastSync()
+    syncPollInterval = setInterval(async () => {
+      try {
+        const resp = await fetch(`${API_BASE_URL}/sync/status`)
+        if (!resp.ok) return
+        const data = await resp.json()
+
+        if (data.isSyncing) {
+          if (!isSyncing.value) {
+            isSyncing.value = true
+            syncMessage.value = 'Синхронизация...'
+          }
+        } else {
+          if (isSyncing.value) {
+            isSyncing.value = false
+          }
+
+          // Проверяем по lastSync (полный синк)
+          const currentLastSync = data.lastSync || ''
+          const currentLastSyncStocks = data.lastSyncByType?.stocks || ''
+          let shouldReload = false
+
+          if (currentLastSync && currentLastSync !== prevLastSync) {
+            prevLastSync = currentLastSync
+            shouldReload = true
+          }
+
+          if (currentLastSyncStocks && currentLastSyncStocks !== prevLastSyncStocks) {
+            prevLastSyncStocks = currentLastSyncStocks
+            shouldReload = true
+          }
+
+          if (shouldReload) {
+            lastSyncTime.value = currentLastSync || currentLastSyncStocks
+            if (typeof window !== 'undefined') {
+              localStorage.setItem('1c_last_sync', lastSyncTime.value || '')
+            }
+
+            inventoryStore.loadStocksFromApi().catch(() => {})
+            ordersStore.loadOrdersFromApi().catch(() => {})
+
+            syncEvents.emit('sync-completed', { type: 'stocks' })
+            syncMessage.value = 'Синхронизация завершена'
+            setTimeout(() => { syncMessage.value = '' }, 5000)
+          }
+        }
+      } catch {
+        // игнорируем ошибки polling
+      }
+    }, 5000)
+  }
+
+  function stopSyncPolling() {
+    if (syncPollInterval) {
+      clearInterval(syncPollInterval)
+      syncPollInterval = null
+    }
+  }
+
+  // Подключаем polling при создании store
+  if (typeof window !== 'undefined') {
+    startSyncPolling()
+    onUnmounted(() => {
+      stopSyncPolling()
+    })
+  }
 
   async function syncWith1C() {
     loading.value = true
@@ -55,49 +147,30 @@ export const useIntegrationStore = defineStore('integration', () => {
 
   async function syncOrders() {
     try {
-      // Вызываем backend endpoint для синхронизации только заказов
-      // Таймаут 120 секунд, так как синхронизация заказов может занять время
-      const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 120000)
-
       const response = await fetch(`${API_BASE_URL}/sync/orders`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        signal: controller.signal
+        headers: { 'Content-Type': 'application/json' }
       })
-
-      clearTimeout(timeoutId)
-
-      if (!response.ok) throw new Error('Failed to sync orders')
-
-      // После синхронизации перезагружаем данные в store
-      await ordersStore.loadOrdersFromApi()
+      if (!response.ok) throw new Error('Failed to start orders sync')
+      // Сервер вернул 202 — синк идёт в фоне, SSE уведомит об окончании
+      // Данные обновятся автоматически через SSE
     } catch (err: any) {
-      if (err.name === 'AbortError') {
-        error.value = 'Синхронизация заказов прервана по таймауту'
-        console.error('Orders sync timeout:', err)
-      } else {
-        error.value = err.message || 'Ошибка загрузки заказов'
-        console.error('Orders sync error:', err)
-      }
+      error.value = err.message || 'Ошибка запуска синхронизации заказов'
+      console.error('Orders sync error:', err)
       throw err
     }
   }
 
   async function syncStocks() {
     try {
-      // Вызываем backend endpoint для синхронизации только материалов
       const response = await fetch(`${API_BASE_URL}/sync/stocks`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' }
       })
-
-      if (!response.ok) throw new Error('Failed to sync stocks')
-
-      // После синхронизации перезагружаем данные в store
-      await inventoryStore.loadStocksFromApi()
+      if (!response.ok) throw new Error('Failed to start stocks sync')
+      // Сервер вернул 202 — синк идёт в фоне, SSE уведомит об окончании
     } catch (err: any) {
-      error.value = err.message || 'Ошибка загрузки материалов'
+      error.value = err.message || 'Ошибка запуска синхронизации материалов'
       console.error('Stocks sync error:', err)
       throw err
     }
@@ -220,14 +293,17 @@ export const useIntegrationStore = defineStore('integration', () => {
     }
   }
 
-  // Полная синхронизация всех данных
+  // Полная синхронизация всех данных (асинхронная)
   async function syncAll() {
     loading.value = true
     error.value = null
 
     try {
-      await syncWith1C()
-      await syncOrders()
+      const response = await fetch(`${API_BASE_URL}/sync/1c`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      })
+      if (!response.ok) throw new Error('Failed to start full sync')
     } catch (err: any) {
       error.value = err.message || 'Ошибка полной синхронизации'
       console.error('Full sync error:', err)
@@ -241,6 +317,8 @@ export const useIntegrationStore = defineStore('integration', () => {
     error,
     lastSyncTime,
     syncProgress,
+    isSyncing,
+    syncMessage,
     settings,
     syncLogs,
     syncWith1C,
@@ -249,7 +327,9 @@ export const useIntegrationStore = defineStore('integration', () => {
     syncOrderDetails,
     createMaterialTransferDocument,
     createNomenclature,
-    syncAll
+    syncAll,
+    connectSSE: startSyncPolling,
+    disconnectSSE: stopSyncPolling
   }
 })
 

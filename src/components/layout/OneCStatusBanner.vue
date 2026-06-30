@@ -27,6 +27,9 @@
         </div>
         <div class="text-xs opacity-90 mt-1">
           Последняя синхронизация: {{ lastSyncTime || 'Никогда' }}
+          <span v-if="integrationStore.isSyncing" class="ml-2 font-semibold">
+            • Синхронизация...
+          </span>
         </div>
       </div>
     </div>
@@ -129,6 +132,11 @@
         {{ isRefreshing ? 'Проверка...' : 'Проверить соединение с 1С' }}
       </n-button>
 
+      <div v-if="integrationStore.syncMessage" class="text-sm text-center py-2">
+        <n-progress type="line" :percentage="integrationStore.isSyncing ? 66 : 100" :show-indicator="false" color="#2080f0" />
+        {{ integrationStore.syncMessage }}
+      </div>
+
       <n-button type="warning" block :loading="isSyncing" @click="fullSync">
         {{ isSyncing ? 'Синхронизация...' : 'Полная синхронизация с 1С' }}
       </n-button>
@@ -151,10 +159,12 @@ import {
   NListItem,
   NAlert,
   NDivider,
-  NSpace
+  NSpace,
+  NProgress
 } from 'naive-ui'
 import { AlertCircleOutline, CheckmarkCircleOutline } from '@vicons/ionicons5'
 import { syncEvents } from '../../utils/syncEvents'
+import { useIntegrationStore } from '../../stores/integration'
 
 interface OneCStatus {
   baseUrl: string
@@ -178,6 +188,7 @@ interface OneCStatus {
   }
 }
 
+const integrationStore = useIntegrationStore()
 const showBanner = ref(true)
 const showDetails = ref(false)
 const status = ref<OneCStatus | null>(null)
@@ -291,24 +302,25 @@ async function refreshStatus() {
    }
  }
 
- async function fullSync() {
-   isSyncing.value = true
-   try {
-     const response = await fetch('/sklad/api/sync/1c', {
-       method: 'POST',
-       headers: { 'Content-Type': 'application/json' }
-     })
-     if (!response.ok) {
-       throw new Error(`HTTP ${response.status}`)
-     }
-     await response.json()
-     syncEvents.emit('sync-completed')
-   } catch (err) {
-     console.error('Error during full sync:', err)
-   } finally {
-     isSyncing.value = false
-   }
- }
+async function fullSync() {
+    isSyncing.value = true
+    try {
+      const response = await fetch('/sklad/api/sync/1c', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      })
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`)
+      }
+      // Сервер вернул 202 — синк идёт в фоне
+      // SSE из integrationStore уведомит об окончании
+    } catch (err) {
+      console.error('Error during full sync:', err)
+    } finally {
+      // Не сбрасываем isSyncing — он будет сброшен через SSE
+      setTimeout(() => { isSyncing.value = false }, 100)
+    }
+  }
 
 let interval: ReturnType<typeof setInterval> | null = null
 
@@ -317,7 +329,7 @@ onMounted(() => {
   fetchStatus()
 
   // Обновляем каждый час
-  interval = setInterval(fetchStatus, 3600000)
+  interval = setInterval(fetchStatus, 60000)
   
   // Обновляем время в реальном времени каждую секунду
   timerInterval = setInterval(() => {

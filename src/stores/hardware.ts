@@ -123,12 +123,12 @@ export const useHardwareStore = defineStore('hardware', () => {
     }
   }
 
-  async function issueHardware(refKey: string, employeeId: string, employeeName: string, quantity: number = 1) {
+  async function issueHardware(refKey: string, employeeId: string, employeeName: string, quantity: number = 1, orderNumber: string = '') {
     try {
       const response = await fetch(`${API_BASE}/onec/stocks/${refKey}/issue`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ employeeId, employeeName, quantity, operationType: 'hardware_issued' })
+        body: JSON.stringify({ employeeId, employeeName, quantity, operationType: 'hardware_issued', orderNumber })
       })
 
       if (!response.ok) {
