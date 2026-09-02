@@ -27,7 +27,8 @@ export let lastSyncTime = {
     units: null,
     warehouses: null,
     stocks: null,
-    orders: null
+    orders: null,
+    transfer_orders: null
   }
 }
 

@@ -27,7 +27,8 @@ export const useQRCodesStore = defineStore('qrCodes', () => {
     employeeName?: string,
     labelInfo?: string,
     labelOrder?: string,
-    isPackage?: boolean
+    isPackage?: boolean,
+    storageBin?: string
   }) {
     loading.value = true
     error.value = null
@@ -47,7 +48,8 @@ export const useQRCodesStore = defineStore('qrCodes', () => {
           employeeName: params.employeeName,
           labelInfo: params.labelInfo,
           labelOrder: params.labelOrder,
-          isPackage: params.isPackage
+          isPackage: params.isPackage,
+          storageBin: params.storageBin || ''
         })
       })
 
@@ -70,6 +72,7 @@ export const useQRCodesStore = defineStore('qrCodes', () => {
           info: code.label_info || params.labelInfo || ''  // Use actual value or empty
         },
         isPackage: code.is_package || params.isPackage || false,
+        currentLocation: code.storage_bin || params.storageBin || '',
         status: code.status as QRCodeStatus,
         isActive: true,
         version: 1,

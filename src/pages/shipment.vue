@@ -162,6 +162,7 @@
           :pagination="pagination"
           :row-key="(row: any) => row.id"
           v-model:expanded-row-keys="expandedKeys"
+          max-height="calc(100vh - 350px)"
           :row-props="rowProps"
         />
       </div>

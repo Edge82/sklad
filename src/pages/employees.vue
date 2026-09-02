@@ -210,6 +210,7 @@
             :pagination="pagination"
             :row-key="(row: Employee) => row.id"
             striped
+            max-height="calc(100vh - 350px)"
             :row-props="(row: Employee) => ({
               class: 'cursor-pointer',
               onClick: () => viewEmployee(row.id, 'slim')

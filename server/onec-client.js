@@ -599,6 +599,21 @@ async function processOrders(orders) {
             prodName = 'Неизвестный товар'
           }
 
+          // Resolve unit
+          let unitDesc = 'шт'
+          if (item.ЕдиницаИзмерения_Key) {
+            const cachedUnit = cache.units?.find((u) => u.ref_key === item.ЕдиницаИзмерения_Key)
+            if (cachedUnit) {
+              unitDesc = cachedUnit.description
+            } else {
+              // Fallback: look up from onec_stocks by product ref_key
+              try {
+                const stockUnit = db.prepare('SELECT unit FROM onec_stocks WHERE ref_key = ? LIMIT 1').get(prodId)
+                if (stockUnit?.unit) unitDesc = stockUnit.unit
+              } catch (e) { /* ignore */ }
+            }
+          }
+
           return {
             id: item.LineNumber || `${orderId}-${Math.random()}`,
             orderId: orderId,
@@ -608,7 +623,7 @@ async function processOrders(orders) {
             quantity: Number(item.Количество) || 0,
             unitPrice: Number(item.Цена) || 0,
             totalPrice: Number(item.Сумма) || 0,
-            unit: item.ЕдиницаИзмерения_Key ? (cache.units?.find((u) => u.ref_key === item.ЕдиницаИзмерения_Key)?.description || 'шт') : 'шт',
+            unit: unitDesc,
             plannedQuantity: Number(item.Количество) || 0,
             actualQuantity: 0,
             remainingQuantity: Number(item.Количество) || 0,
@@ -848,11 +863,31 @@ export function loadCacheFromDB() {
       status: (s.currentStock || 0) > 0 ? 'in_stock' : 'out_of_stock',
       reservesByOrder: s.reservesByOrder ? JSON.parse(s.reservesByOrder) : {}
     }))
-    cache.orders = db.prepare('SELECT ref_key as id, order_number, date, customer, status, items_count as items, amount, items as items_json, painting, comment FROM onec_orders').all().map(o => ({
+    cache.orders = db.prepare('SELECT ref_key as id, order_number, date, customer, status, items_count as items, amount, items as items_json, painting, comment FROM onec_orders').all().map(o => {
+      let items = o.items_json ? JSON.parse(o.items_json) : []
+      // Enrich unit from onec_stocks if not set or is default 'шт'
+      if (items.length > 0) {
+        items = items.map((item) => {
+          if (!item.unit || item.unit === 'шт') {
+            try {
+              const prodId = item.productId || item.Номенклатура_Key || ''
+              if (prodId) {
+                const stock = db.prepare('SELECT unit FROM onec_stocks WHERE ref_key = ? LIMIT 1').get(prodId)
+                if (stock?.unit && stock.unit !== 'шт') {
+                  item.unit = stock.unit
+                }
+              }
+            } catch (e) { /* ignore */ }
+          }
+          return item
+        })
+   }
+    return {
       ...o,
       notes: o.painting,
-      items: o.items_json ? JSON.parse(o.items_json) : []
-    }))
+      items
+    }
+  })
     console.log('✓ Loaded cache from database')
   } catch (err) {
     console.error('Error loading cache from DB:', err.message)

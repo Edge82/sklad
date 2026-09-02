@@ -61,13 +61,13 @@
     </n-card>
 
     <!-- Позиции заказа -->
-    <n-card title="Позиции заказа" class="mb-4">
+    <n-card title="Позиции заказа" class="mb-4 order-items-card">
       <div v-if="loading" class="flex flex-col items-center justify-center py-12 gap-3">
         <n-spin size="large" />
         <n-text depth="3">Загрузка позиций из 1С...</n-text>
       </div>
-      <div v-else-if="order.items && order.items.length > 0" class="overflow-x-auto">
-        <n-table striped>
+      <div v-else-if="order.items && order.items.length > 0" style="max-height: 500px; overflow: auto;">
+        <table class="sticky-header-table">
         <thead>
            <tr>
              <th style="width:40px">№</th>
@@ -111,7 +111,7 @@
              <td v-if="userStore.canSeePrices" class="font-bold text-lg text-right">{{ formatCurrency(order.totalAmount) }}</td>
            </tr>
          </tfoot>
-      </n-table>
+      </table>
       </div>
       <div v-else class="py-12">
         <n-empty description="В этом заказе пока нет позиций" />
@@ -208,7 +208,6 @@ import {
   NTag,
   NGrid,
   NGi,
-  NTable,
   NIcon,
   NList,
   NListItem,
@@ -439,6 +438,38 @@ const getStatusColor = (status: Order['status']) => {
 <style scoped>
 .order-details {
   max-width: 100%;
+}
+
+:deep(.sticky-header-table thead th) {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background-color: #1a1a1e;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+}
+
+/* n-card по умолчанию имеет overflow: hidden — это ломает sticky */
+:deep(.order-items-card .n-card__content) {
+  overflow: visible !important;
+}
+
+:deep(.order-items-card .n-card) {
+  overflow: visible !important;
+}
+
+/* Тёмный скроллбар — как на странице заказов */
+:deep(.sticky-header-table)::-webkit-scrollbar {
+  width: 8px;
+}
+:deep(.sticky-header-table)::-webkit-scrollbar-track {
+  background: #1a1a1e;
+}
+:deep(.sticky-header-table)::-webkit-scrollbar-thumb {
+  background: #555;
+  border-radius: 4px;
+}
+:deep(.sticky-header-table)::-webkit-scrollbar-thumb:hover {
+  background: #777;
 }
 
 @media print {

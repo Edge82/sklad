@@ -174,6 +174,7 @@
           :columns="columns"
           :data="filteredOrders"
           :pagination="pagination"
+          max-height="calc(100vh - 350px)"
           :bordered="false"
           :single-line="false"
           size="small"
@@ -295,7 +296,7 @@
                 :single-line="false"
                 size="small"
                 striped
-                :row-props="orderItemRowProps"
+                :row-props="isLocalOrder ? orderItemRowProps : undefined"
               />
             </div>
           </n-card>
@@ -458,9 +459,14 @@
   </div>
 
   <!-- Модал создания нового заказа на перемещение -->
-  <n-modal v-model:show="showCreateModal" :mask-closable="false" :close-on-esc="false" preset="card" style="width: 1100px; max-width: 98vw" :title="editingOrderRefKey ? 'Редактировать товары' : 'Новый заказ на перемещение'" :segmented="{ content: true }">
+  <n-modal v-model:show="showCreateModal" :mask-closable="false" :close-on-esc="false" preset="card" style="width: 1400px; max-width: 98vw" :title="editingOrderRefKey ? 'Редактировать товары' : 'Новый заказ на перемещение'" :segmented="{ content: true }">
     <div class="space-y-4">
-      <n-grid :cols="2" :x-gap="12">
+      <n-grid :cols="3" :x-gap="12">
+        <n-gi>
+          <n-form-item label="Дата">
+            <n-date-picker v-model:value="createForm.dateValue" type="date" placeholder="Авто (сегодня)" clearable size="small" />
+          </n-form-item>
+        </n-gi>
         <n-gi>
           <n-form-item label="Склад отправитель" required>
             <n-select v-model:value="createForm.sourceWarehouseKey" :options="warehouseOptions" filterable placeholder="Выберите склад" />
@@ -560,7 +566,8 @@
     @submit="handleEditItemSubmit"
     @update:show="(val) => !val && (editingItemId = null)"
   />
-</template>
+
+ </template>
 
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, onActivated, h, onBeforeUnmount, watch, nextTick, onUnmounted } from 'vue'
@@ -583,7 +590,9 @@ import {
   NH3,
   NAlert,
   NInput,
+  NInputNumber,
   NModal,
+  NTooltip,
   NSelect,
   NFormItem,
   type InputInst
@@ -679,6 +688,31 @@ const handleEditItemSubmit = (data: Partial<InventoryItem>) => {
   message.success('Товар обновлён')
   inventoryStore.loadStocksFromApi().catch(() => {})
 }
+
+const generateItemBarcode = (row) => {
+  const prefix = 'MAT'
+  const year = new Date().getFullYear().toString().substring(2)
+  const random = Math.random().toString(36).substring(2, 8).toUpperCase()
+  row.barcode = `${prefix}-${year}-${random}`
+  saveItemField(row, 'barcode', row.barcode)
+}
+
+const saveItemField = async (row, field, value) => {
+  const nomenclatureKey = row.Номенклатура_Key || row.nomenclatureKey
+  if (!nomenclatureKey) return
+  try {
+    const res = await fetch(`/sklad/api/onec/stocks/${encodeURIComponent(nomenclatureKey)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ [field]: value })
+    })
+    if (!res.ok) throw new Error('Ошибка сохранения')
+    row[field] = value
+    message.success('Сохранено')
+  } catch {
+    message.error('Ошибка сохранения')
+  }
+}
 const loading = ref(false)
 const syncing = ref(false)
 const loadingDetails = ref(false)
@@ -732,7 +766,9 @@ interface CreateItem {
   customerOrderKey: string
   customerOrderNumber: string
   selectedProduct: string
+  note?: string
   _qtyInput?: string
+  availableStock?: number
 }
 
 const isLocalOrder = computed(() =>
@@ -744,6 +780,7 @@ const createForm = reactive({
   destinationWarehouseKey: '',
   customerOrderKey: '',
   selectedProduct: '',
+  dateValue: null as number | null,
   items: [] as CreateItem[]
 })
 
@@ -774,16 +811,36 @@ const orderDetailStockDataMap = ref<Map<string, any>>(new Map())
 const orderDetailBarcodeInputRef = ref<InputInst | null>(null)
 let orderDetailSearchTimer: ReturnType<typeof setTimeout> | null = null
 
-const canSaveCreate = computed(() =>
-  !createResult.value &&
-  createForm.sourceWarehouseKey &&
-  createForm.destinationWarehouseKey &&
-  createForm.sourceWarehouseKey !== createForm.destinationWarehouseKey &&
-  createForm.items.length > 0 &&
-  !createSaving.value
-)
+const canSaveCreate = computed(() => {
+  if (createResult.value || createSaving.value) return false
+  if (!createForm.sourceWarehouseKey || !createForm.destinationWarehouseKey) return false
+  if (createForm.sourceWarehouseKey === createForm.destinationWarehouseKey) return false
+  if (createForm.items.length === 0) return false
+  for (const item of createForm.items) {
+    const avail = (item as CreateItem).availableStock || 0
+    if (avail > 0 && (item as CreateItem).quantity > avail) return false
+  }
+  return true
+})
 
-const handleProductSearch = () => {
+const focusLastQtyInput = () => {
+    nextTick(() => {
+      const rows = document.querySelectorAll('.n-data-table tbody tr')
+      if (rows.length > 0) {
+        const lastRow = rows[rows.length - 1]
+        const cells = lastRow.children
+        if (cells[3]) {
+          const input = cells[3].querySelector('.n-input__input-el') as HTMLInputElement
+          if (input) {
+            input.focus()
+            input.select()
+          }
+        }
+      }
+    })
+  }
+
+ const handleProductSearch = () => {
   const query = createBarcodeBuffer.value
   if (!query || query.length < 2) {
     searchOptions.value = []
@@ -828,6 +885,7 @@ const handleProductSelectResult = (opt: { label: string; value: string }) => {
       productName: stock.name || stock.product || 'Без названия',
       barcode: stock.barcode || '',
       quantity: 1,
+      _qtyInput: undefined,
       sku: stock.sku || '',
       unit: stock.unit || 'шт',
       unitKey: stock.unit_key || '',
@@ -835,14 +893,15 @@ const handleProductSelectResult = (opt: { label: string; value: string }) => {
       price: Number(stock.purchasePrice || stock.averagePrice || 0),
       customerOrderKey: '',
       customerOrderNumber: '',
-      selectedProduct: ''
+      selectedProduct: '',
+      availableStock: stock.current_stock || stock.quantity || 0
     })
     message.success(`✓ Добавлен: ${stock.name || stock.product}`)
   }
   createBarcodeBuffer.value = ''
-  searchOptions.value = []
-  nextTick(() => createBarcodeInputRef.value?.focus())
-}
+   searchOptions.value = []
+   focusLastQtyInput()
+ }
 
 // Auto-detect barcode scanner AND product name search
 watch(createBarcodeBuffer, (val) => {
@@ -939,37 +998,58 @@ const createItemsColumns: DataTableColumns<CreateItem> = [
   {
     title: 'Товар',
     key: 'productName',
-    ellipsis: true
+    render: (row) => h('div', { style: 'word-break: break-word; white-space: normal' }, row.productName || '-')
   },
   {
-    title: 'Артикул',
+    title: 'На складе',
     key: 'sku',
     width: 100,
-    render: (row) => row.sku || '-'
+    align: 'center',
+    render: (row) => {
+      const avail = row.availableStock || 0
+      return h('span', { style: 'color: ' + (avail > 0 ? '#18a058' : '#ff7d51') }, String(avail))
+    }
   },
-  {
+ {
     title: 'Кол-во',
     key: 'quantity',
     width: 80,
     align: 'center',
-    render: (row, index) => h(NInput, {
-      value: createForm.items[index]?._qtyInput ?? String(row.quantity).replace('.', ','),
-      size: 'small',
-      style: 'width: 60px; text-align: center',
-      onInput: (val: string) => {
-        if (createForm.items[index]) {
-          createForm.items[index]._qtyInput = val
-        }
-      },
-      onBlur: () => {
-        const item = createForm.items[index]
-        if (item?._qtyInput != null) {
-          const num = parseFloat(String(item._qtyInput).replace(',', '.'))
-          item.quantity = isNaN(num) ? item.quantity : Math.max(0.001, num)
-          delete item._qtyInput
-        }
-      }
-    })
+    render: (row, index) => {
+      const qty = createForm.items[index]?.quantity || 0
+      const avail = row.availableStock || 0
+      const overStock = avail > 0 && qty > avail
+      return h(NTooltip, {
+        trigger: 'hover',
+        disabled: !overStock,
+      }, {
+        trigger: () => h(NInput, {
+          value: createForm.items[index]?._qtyInput ?? (createForm.items[index]?.quantity != null ? String(createForm.items[index].quantity) : ''),
+          type: 'text',
+          size: 'small',
+          style: 'width: 70px',
+          placeholder: '',
+          status: overStock ? 'error' : undefined,
+          onInput: (val: string) => {
+            if (createForm.items[index]) {
+              createForm.items[index]._qtyInput = val
+              const normalized = val.replace(',', '.')
+              createForm.items[index].quantity = parseFloat(normalized) || 0
+            }
+          },
+          onBlur: () => {
+            if (createForm.items[index]) {
+              createForm.items[index]._qtyInput = String(createForm.items[index].quantity)
+            }
+          },
+          onFocus: (e: FocusEvent) => {
+            const target = e.target as HTMLInputElement
+            target?.select()
+          },
+        }),
+        default: () => h('span', null, `На складе: ${avail} ${row.unit || ''}`),
+      })
+    }
   },
   {
     title: 'Заказ покупателя',
@@ -1019,11 +1099,31 @@ const createItemsColumns: DataTableColumns<CreateItem> = [
       })
     }
   },
-  {
+{
     title: 'Место хранения',
     key: 'storageBin',
-    width: 130,
-    render: (row) => row.storageBin || '-'
+    width: 150,
+    render: (row) => {
+      if (selectedOrder.value?.statusDescription !== 'В работе (ячейки)') {
+        return row.storageBin || '-'
+      }
+      return row.storageBin || '-'
+    }
+ },
+  {
+    title: 'Примечание',
+    key: 'note',
+    width: 160,
+    render: (row, index) => h(NInput, {
+      value: createForm.items[index]?.note || '',
+      size: 'small',
+      placeholder: '—',
+      onInput: (val: string) => {
+        if (createForm.items[index]) {
+          createForm.items[index].note = val
+        }
+      }
+    })
   },
   {
     title: '',
@@ -1079,6 +1179,7 @@ const openCreateModal = async () => {
   createForm.items = []
   createForm.customerOrderKey = ''
   createForm.selectedProduct = ''
+  createForm.dateValue = null
   createBarcodeBuffer.value = ''
   createResult.value = null
   showCreateModal.value = true
@@ -1169,7 +1270,8 @@ const handleCreateScan = async () => {
         customerOrderNumber: createForm.customerOrderKey
           ? (ordersStore.orders.find(o => o.id === createForm.customerOrderKey)?.orderNumber || '')
           : '',
-        selectedProduct: ''
+        selectedProduct: '',
+        availableStock: found.current_stock || found.quantity || 0
       })
       message.success(`✓ Добавлен: ${found.name}`)
     } else {
@@ -1189,7 +1291,7 @@ const saveCreateOrder = async () => {
   createResult.value = null
 
    try {
-      const itemsPayload = createForm.items.map((item: CreateItem) => ({
+       const itemsPayload = createForm.items.map((item: CreateItem) => ({
         nomenclatureKey: item.nomenclatureKey,
         productName: item.productName,
         barcode: item.barcode,
@@ -1199,10 +1301,11 @@ const saveCreateOrder = async () => {
         price: item.price || 0,
         customerOrderKey: item.customerOrderKey ?? '',
         customerOrderNumber: item.customerOrderNumber ?? '',
-        selectedProduct: item.selectedProduct ?? ''
+        selectedProduct: item.selectedProduct ?? '',
+        note: item.note || ''
       }))
 
-      // If editing existing local order, use PUT
+       // If editing existing local order, use PUT
     if (editingOrderRefKey.value) {
       const res = await fetch(`/sklad/api/transfer-orders/${editingOrderRefKey.value}/items`, {
         method: 'PUT',
@@ -1235,18 +1338,19 @@ const saveCreateOrder = async () => {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${localStorage.getItem('auth_token') || ''}`
       },
-      body: JSON.stringify({
-        sourceWarehouseKey: createForm.sourceWarehouseKey,
-        sourceWarehouseName: warehouseOptions.value.find(o => o.value === createForm.sourceWarehouseKey)?.label || '',
-        destinationWarehouseKey: createForm.destinationWarehouseKey,
-        destinationWarehouseName: warehouseOptions.value.find(o => o.value === createForm.destinationWarehouseKey)?.label || '',
-        items: itemsPayload,
-        customerOrderKey: createForm.customerOrderKey || '',
-        customerOrderNumber: createForm.customerOrderKey
-          ? (ordersStore.orders.find(o => o.id === createForm.customerOrderKey)?.orderNumber || '')
-          : '',
-        selectedProduct: createForm.selectedProduct || ''
-      })
+       body: JSON.stringify({
+          sourceWarehouseKey: createForm.sourceWarehouseKey,
+          sourceWarehouseName: warehouseOptions.value.find(o => o.value === createForm.sourceWarehouseKey)?.label || '',
+          destinationWarehouseKey: createForm.destinationWarehouseKey,
+          destinationWarehouseName: warehouseOptions.value.find(o => o.value === createForm.destinationWarehouseKey)?.label || '',
+          items: itemsPayload,
+          customerOrderKey: createForm.customerOrderKey || '',
+          customerOrderNumber: createForm.customerOrderKey
+            ? (ordersStore.orders.find(o => o.id === createForm.customerOrderKey)?.orderNumber || '')
+            : '',
+          selectedProduct: createForm.selectedProduct || '',
+          date: formatDateTimeFor1C(createForm.dateValue)
+        })
     })
 
     const result = await res.json()
@@ -1301,8 +1405,8 @@ const normalizeBarcode = (code: string): string => {
 const saveCreateAndSendTo1C = async () => {
   if (!canSaveCreate.value) return
   createSaving.value = true
- try {
-      const itemsPayload = createForm.items.map((item: CreateItem) => ({
+try {
+       const itemsPayload = createForm.items.map((item: CreateItem) => ({
         nomenclatureKey: item.nomenclatureKey,
         productName: item.productName,
         barcode: item.barcode,
@@ -1312,16 +1416,17 @@ const saveCreateAndSendTo1C = async () => {
         price: item.price || 0,
         customerOrderKey: item.customerOrderKey ?? '',
         customerOrderNumber: item.customerOrderNumber ?? '',
-        selectedProduct: item.selectedProduct ?? ''
+        selectedProduct: item.selectedProduct ?? '',
+        note: item.note || ''
       }))
 
-      const res = await fetch('/sklad/api/transfer-orders/create', {
+       const res = await fetch('/sklad/api/transfer-orders/create', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${localStorage.getItem('auth_token') || ''}`
       },
-      body: JSON.stringify({
+body: JSON.stringify({
         sourceWarehouseKey: createForm.sourceWarehouseKey,
         sourceWarehouseName: warehouseOptions.value.find(o => o.value === createForm.sourceWarehouseKey)?.label || '',
         destinationWarehouseKey: createForm.destinationWarehouseKey,
@@ -1329,9 +1434,10 @@ const saveCreateAndSendTo1C = async () => {
         items: itemsPayload,
         customerOrderKey: createForm.customerOrderKey || '',
          customerOrderNumber: createForm.customerOrderKey
-           ? (ordersStore.orders.find(o => o.id === createForm.customerOrderKey)?.orderNumber || '')
-           : '',
-         selectedProduct: createForm.selectedProduct || ''
+          ? (ordersStore.orders.find(o => o.id === createForm.customerOrderKey)?.orderNumber || '')
+          : '',
+         selectedProduct: createForm.selectedProduct || '',
+         date: createForm.dateValue ? formatDateTimeFor1C(createForm.dateValue) : undefined
       })
     })
 
@@ -1455,7 +1561,8 @@ const addItemToLocalOrder = async (stock: any) => {
     quantity: item.Количество || item.quantity || 1,
     unitKey: item.unitKey || '',
     storageBin: item.storageBin || '',
-    price: Number(item.price || item.Цена || 0)
+    price: Number(item.price || item.Цена || 0),
+    note: item.note || ''
   }))
 
   if (currentItems.some((i: any) => i.nomenclatureKey === (stock.ref_key || stock.Ref_Key || stock.Номенклатура_Key))) {
@@ -1470,7 +1577,8 @@ const addItemToLocalOrder = async (stock: any) => {
     quantity: 1,
     unitKey: stock.unit_key || '',
     storageBin: stock.storageBin || '',
-    price: Number(stock.purchasePrice || stock.averagePrice || 0)
+    price: Number(stock.purchasePrice || stock.averagePrice || 0),
+    note: ''
   })
 
   try {
@@ -1622,6 +1730,12 @@ const formatDate = (dateStr: string) => {
   }
 }
 
+const formatDateTimeFor1C = (timestamp: number | null) => {
+  const d = timestamp ? new Date(timestamp) : new Date()
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+}
+
 // Вычисляемые свойства для статистики
 const activeCellsCount = computed(() =>
   orders.value.filter(o => (o.statusDescription || '') === 'В работе (ячейки)').length
@@ -1702,6 +1816,13 @@ const columns: DataTableColumns<TransferOrder> = [
     }
   },
   {
+    title: 'Комментарий',
+    key: 'comment',
+    width: 200,
+    ellipsis: true,
+    render: (row) => row.comment || '-'
+  },
+  {
     title: 'Состояние',
     key: 'statusDescription',
     width: 140,
@@ -1741,14 +1862,26 @@ const itemsColumns: DataTableColumns<any> = [
     title: 'Товар',
     key: 'nomenclatureName',
     width: 300,
-    ellipsis: true,
-    render: (row) => row.nomenclatureName
+    render: (row) => h('div', { style: 'word-break: break-word; white-space: normal' }, row.nomenclatureName || '-')
   },
   {
     title: 'Штрих код',
     key: 'barcode',
-    width: 120,
-    render: (row) => row.barcode || '-'
+    width: 160,
+    render: (row) => {
+      if (selectedOrder.value?.statusDescription !== 'В работе (ячейки)') {
+        return row.barcode || '-'
+      }
+      return h('div', { class: 'flex items-center gap-1' }, [
+        h('span', { style: 'flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap' }, row.barcode || '-'),
+        h(NButton, {
+          type: 'primary',
+          ghost: true,
+          size: 'tiny',
+          onClick: () => generateItemBarcode(row)
+        }, { default: () => h(NIcon, {}, { default: () => h(CloudUploadOutline) }) })
+      ])
+    }
   },
   {
     title: 'Заказ покупателя',
@@ -1757,10 +1890,24 @@ const itemsColumns: DataTableColumns<any> = [
     render: (row) => row.customerOrderNumber || '-'
   },
   {
-    title: 'Место хранения',
+    title: 'Место хранения (склад ТМЦ)',
     key: 'storageBin',
     width: 150,
-    render: (row) => row.storageBin || '-'
+    render: (row) => {
+      if (selectedOrder.value?.statusDescription !== 'В работе (ячейки)') {
+        return row.storageBin || '-'
+      }
+      return h(NInput, {
+        value: row.storageBin || '',
+        placeholder: 'А/2',
+        size: 'small',
+        style: { width: '130px' },
+        onInput: (val: string) => { row.storageBin = val },
+        onBlur: () => {
+          saveItemField(row, 'storageBin', row.storageBin || '')
+        }
+      })
+    }
   },
   {
     title: 'Количество',
@@ -1826,6 +1973,12 @@ const itemsColumns: DataTableColumns<any> = [
         }, { default: () => '+' })
       ])
     }
+  },
+  {
+    title: 'Примечание',
+    key: 'note',
+    width: 200,
+    render: (row) => h('div', { style: 'word-break: break-word; white-space: normal' }, row.note || '-')
   }
 ]
 
@@ -1834,8 +1987,7 @@ const localItemsColumns: DataTableColumns<any> = [
     title: 'Товар',
     key: 'nomenclatureName',
     width: 300,
-    ellipsis: true,
-    render: (row) => row.nomenclatureName
+    render: (row) => h('div', { style: 'word-break: break-word; white-space: normal' }, row.nomenclatureName || '-')
   },
   {
     title: 'Штрих код',
@@ -1860,54 +2012,18 @@ const localItemsColumns: DataTableColumns<any> = [
     key: 'Количество',
     width: 180,
     align: 'center',
-    render: (row, index) => {
+    render: (row) => {
       const qty = row.Количество || 0
-
-      return h('div', { class: 'flex items-center gap-2 justify-center' }, [
-        h(NButton, {
-          text: true,
-          type: 'primary',
-          size: 'small',
-          onClick: () => {
-            if (qty > 0) {
-              row.Количество = qty - 1
-            }
-          }
-        }, { default: () => '−' }),
-        h(NInput, {
-          value: row._qtyInput ?? String(qty).replace('.', ','),
-          type: 'text',
-          size: 'small',
-          style: { width: '80px', textAlign: 'center' },
-          onInput: (val: string) => {
-            if (row) {
-              row._qtyInput = val
-            }
-          },
-          onBlur: () => {
-            if (row._qtyInput != null) {
-              const num = parseFloat(String(row._qtyInput).replace(',', '.'))
-              row.Количество = isNaN(num) ? qty : Math.max(0, num)
-              delete row._qtyInput
-            }
-          },
-          onKeydown: (e: KeyboardEvent) => {
-            if (e.key === 'Enter') {
-              const target = e.target as HTMLInputElement
-              target?.blur()
-            }
-          }
-        }),
-        h(NButton, {
-          text: true,
-          type: 'primary',
-          size: 'small',
-          onClick: () => {
-            row.Количество = qty + 1
-          }
-        }, { default: () => '+' })
-      ])
+      return h('span', {
+        style: { display: 'inline-block', textAlign: 'center', minWidth: '60px' }
+      }, String(qty).replace('.', ','))
     }
+  },
+  {
+    title: 'Примечание',
+    key: 'note',
+    width: 200,
+    render: (row) => h('div', { style: 'word-break: break-word; white-space: normal' }, row.note || '-')
   }
 ]
 
@@ -1939,13 +2055,13 @@ const itemsScanColumns: DataTableColumns<any> = [
   {
     title: 'Товар',
     key: 'nomenclatureName',
-    ellipsis: true
+    render: (row) => h('div', { style: 'word-break: break-word; white-space: normal' }, row.nomenclatureName || '-')
   },
-  {
+ {
     title: 'Штрих код',
     key: 'barcode',
-    width: 150,
-    render: (row) => h('code', {}, row.barcode || '-')
+    width: 160,
+    render: (row) => row.barcode || '-'
   },
   {
     title: 'Заказ покупателя',
@@ -2018,6 +2134,12 @@ const itemsScanColumns: DataTableColumns<any> = [
         }, { default: () => '+' })
       ])
     }
+  },
+  {
+    title: 'Примечание',
+    key: 'note',
+    width: 200,
+    render: (row) => h('div', { style: 'word-break: break-word; white-space: normal' }, row.note || '-')
   }
 ]
 
@@ -2025,7 +2147,7 @@ const saveScannedDataToStorage = () => {
   if (!selectedOrder.value?.items) return
 
   const scannedData = selectedOrder.value.items.map(item => ({
-    barcode: item.barcode,
+    barcode: item.barcode || item.nomenclatureKey || item.Номенклатура_Key || '',
     scannedQty: item.scannedQty || 0
   }))
 
@@ -2040,7 +2162,8 @@ const loadScannedDataFromStorage = (orderId: string) => {
     const scannedData = JSON.parse(stored)
     if (selectedOrder.value?.items) {
       selectedOrder.value.items.forEach(item => {
-        const found = scannedData.find((s: any) => s.barcode === item.barcode)
+        const itemKey = item.barcode || item.nomenclatureKey || item.Номенклатура_Key || ''
+          const found = scannedData.find((s: any) => s.barcode === itemKey)
         if (found) {
           item.scannedQty = found.scannedQty
         }
@@ -2075,9 +2198,10 @@ const openOrder = async (orderId: string) => {
     try {
       const scans = await loadTransferOrderScans(orderId)
       if (selectedOrder.value?.items && scans) {
-        selectedOrder.value.items.forEach(item => {
-          if (scans[item.barcode || '']) {
-            item.scannedQty = scans[item.barcode || '']
+       selectedOrder.value.items.forEach(item => {
+          const itemKey = item.barcode || item.nomenclatureKey || item.Номенклатура_Key || ''
+          if (scans[itemKey]) {
+            item.scannedQty = scans[itemKey]
           }
         })
       }
@@ -2233,7 +2357,7 @@ const sendTo1C = async () => {
 }
 }
 
-const openAddItemsModal = () => {
+const openAddItemsModal = async () => {
   editingOrderRefKey.value = selectedOrder.value?.Ref_Key || null
   showCreateModal.value = true
   if (selectedOrder.value?.items) {
@@ -2249,8 +2373,29 @@ const openAddItemsModal = () => {
       price: Number(item.price || item.Цена || 0),
       customerOrderKey: item.customerOrderKey || '',
       customerOrderNumber: item.customerOrderNumber || '',
-      selectedProduct: item.selectedProduct || ''
+      selectedProduct: item.selectedProduct || '',
+      note: item.note || '',
+      availableStock: 0
     }))
+
+    // Загрузить остатки на складе для каждого товара
+    const nomenclatureKeys = [...new Set(createForm.items.map((i: CreateItem) => i.nomenclatureKey).filter(Boolean))]
+    if (nomenclatureKeys.length > 0) {
+      try {
+        const res = await fetch(`/sklad/api/onec/stocks?ref_keys=${encodeURIComponent(nomenclatureKeys.join(','))}`)
+        const data = await res.json()
+        const stocks = data.value || []
+        const stockMap = new Map(stocks.map((s: any) => [s.ref_key, s]))
+        createForm.items.forEach((item: CreateItem) => {
+          const stock = stockMap.get(item.nomenclatureKey)
+          if (stock) {
+            ;(item as CreateItem).availableStock = stock.current_stock || stock.quantity || 0
+          }
+        })
+      } catch {
+        // Остатки не загрузились — оставим 0
+      }
+    }
   }
   createForm.sourceWarehouseKey = selectedOrder.value?.sourceWarehouseKey || ''
   createForm.destinationWarehouseKey = selectedOrder.value?.destinationWarehouseKey || ''
@@ -2413,7 +2558,8 @@ watch(
             price: Number(item.price || item.Цена || 0),
             customerOrderKey: item.customerOrderKey ?? '',
             customerOrderNumber: item.customerOrderNumber ?? '',
-            selectedProduct: item.selectedProduct ?? ''
+            selectedProduct: item.selectedProduct ?? '',
+            note: item.note ?? ''
           }))
           await fetch(`/sklad/api/transfer-orders/${selectedOrder.value!.Ref_Key}/items`, {
             method: 'PUT',
@@ -2496,7 +2642,6 @@ const transferTableKey = ref(0)
 function handleTransferSyncCompleted() {
   transferTableKey.value++
   fetchTransferOrders().then(data => { orders.value = data }).catch(() => {})
-  message.success('Данные обновлены')
 }
 
 onMounted(() => {

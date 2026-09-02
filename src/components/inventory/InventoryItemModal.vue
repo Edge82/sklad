@@ -20,9 +20,9 @@
                     class="w-full" />
                 </n-form-item>
 
-                <n-form-item label="Штрих-код (QR-код)" path="barcode">
+                <n-form-item label="Штрих-код">
                   <n-input-group>
-                    <n-input v-model:value="formData.barcode" placeholder="ID изделия или штрих-код" />
+                    <n-input :value="formData.barcode" placeholder="Нажмите «Генерация» для создания" readonly class="barcode-no-hover" />
                     <n-button @click="generateBarcode" type="primary" ghost>
                       Генерация
                     </n-button>
@@ -93,9 +93,9 @@
                 </n-form-item>
 
                 <div class="font-bold mb-4 border-b pb-1 text-gray-500">ЛОКАЛЬНЫЕ ПОЛЯ</div>
-                <n-form-item label="Штрих-код (QR-код)" path="barcode">
+                <n-form-item label="Штрих-код">
                   <n-input-group>
-                    <n-input v-model:value="formData.barcode" placeholder="Сгенерируйте код" />
+                    <n-input :value="formData.barcode" placeholder="Нажмите кнопку для генерации" readonly class="barcode-no-hover" />
                     <n-button @click="generateBarcode" type="primary" secondary>
                       <template #icon>
                         <n-icon><CloudUploadOutline /></n-icon>
@@ -189,9 +189,9 @@
           <div class="font-bold border-b pb-2 text-gray-500" style="margin-top: 24px; margin-bottom: 16px; padding-left: 16px;">РЕДАКТИРУЕМЫЕ ПОЛЯ</div>
 
           <div style="padding-left: 16px;">
-            <n-form-item label="Штрих-код (QR-код)" path="barcode">
-              <n-input-group>
-                <n-input v-model:value="formData.barcode" placeholder="Введите штрих-код или QR-код" />
+            <n-form-item label="Штрих-код">
+               <n-input-group>
+                 <n-input :value="formData.barcode" placeholder="Нажмите кнопку для генерации" readonly class="barcode-no-hover" />
                 <n-button @click="generateBarcode" type="primary" secondary>
                   <template #icon>
                     <n-icon><CloudUploadOutline /></n-icon>
@@ -205,9 +205,16 @@
               </n-input-group>
             </n-form-item>
 
-            <n-form-item label="Место хранения (полка/ячейка)" path="storageBin">
-              <n-input v-model:value="formData.storageBin" placeholder="Например: Ячейка-1 или А/2" />
-            </n-form-item>
+            <template v-if="showMultiWarehouse">
+              <n-form-item label="Место хранения (Склад ТМЦ)">
+                <n-input v-model:value="storageBinTmcValue" placeholder="Например: Ячейка-1 или А/2" />
+              </n-form-item>
+            </template>
+            <template v-else>
+              <n-form-item label="Место хранения (полка/ячейка)" path="storageBin">
+                <n-input v-model:value="formData.storageBin" placeholder="Например: Ячейка-1 или А/2" />
+              </n-form-item>
+            </template>
 
             <n-form-item label="Показывать остаток меньше" path="lowStockThreshold">
               <n-input-number v-model:value="formData.lowStockThreshold" :min="0" placeholder="Например: 5 — подсветит если остаток меньше" class="w-full" />
@@ -353,6 +360,9 @@ const props = defineProps<{
   show: boolean
   itemId?: string | null
   mode?: 'material' | 'product'
+  showMultiWarehouse?: boolean
+  multiWarehouseItems?: Array<{ refKey: string; warehouse: string; storageBin: string; barcode: string; lowStockThreshold: number | null; image: string }>
+  hasFgRecord?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -371,6 +381,17 @@ const showPrintModal = ref(false)
 const printInfo = ref('')
 const scale = ref(1)
 const landscape = ref(false)
+const storageBinTmcValue = ref('')
+const initialTmcStorageBin = ref('')
+
+const getSafeBarcode = (val: string | undefined | null): string => {
+  if (!val) return ''
+  if (val.startsWith('QR-') || val.startsWith('qr-')) return ''
+  // Только штрих-коды с префиксом PRD-/MAT- или числовые (EAN/UPC)
+  if (/^(PRD|MAT)-\d{2}-/i.test(val)) return val
+  if (/^\d{8,}$/.test(val.replace(/\s/g, ''))) return val
+  return ''
+}
 
 const unitOptions1C = ref<{ label: string, value: string }[]>([])
 const warehouseOptions1C = ref<{ label: string, value: string }[]>([])
@@ -477,18 +498,27 @@ watch(() => props.show, (newShow) => {
     if (item) {
       Object.assign(formData, {
         ...item,
-        image: item.image || '',
+        image: (props.showMultiWarehouse && props.multiWarehouseItems?.[0]) ? (props.multiWarehouseItems[0].image || '') : (item.image || ''),
         sku: item.sku || '',  // Артикул из 1С (не изменяется)
-        barcode: item.barcode || '',  // Штрих-код из БД (локальное поле)
+        barcode: getSafeBarcode(props.showMultiWarehouse && props.multiWarehouseItems?.[0] ? props.multiWarehouseItems[0].barcode : item.barcode),  // В multi-warehouse режиме barcode берём из ТМЦ записи
         unit: item.unit || item.unitId || '',  // unit (название) в приоритете перед unitId (GUID)
         warehouseId: item.warehouseId || '',  // warehouseId из 1C
         warehouse: item.warehouse || '',  // Название склада для отображения
         categoryId: item.categoryId || '',  // categoryId из 1C
         location: item.location || '',  // Место хранения из 1C
         storageBin: item.storageBin || '',  // Ячейка/полка из БД
-        lowStockThreshold: item.lowStockThreshold || null  // Порог малого остатка
+        lowStockThreshold: (props.showMultiWarehouse && props.multiWarehouseItems?.[0]) ? (props.multiWarehouseItems[0].lowStockThreshold ?? null) : (item.lowStockThreshold || null)  // В multi-warehouse режиме берём из ТМЦ
       })
       initialDataStr.value = JSON.stringify(formData)
+
+      // Multi-warehouse: загружаем storageBin для ТМЦ
+      if (props.showMultiWarehouse && props.multiWarehouseItems?.[0]) {
+        storageBinTmcValue.value = props.multiWarehouseItems[0].storageBin || ''
+        initialTmcStorageBin.value = storageBinTmcValue.value
+      } else {
+        storageBinTmcValue.value = ''
+        initialTmcStorageBin.value = ''
+      }
     }
   } else if (newShow && !props.itemId) {
     // Сброс формы для нового элемента
@@ -522,11 +552,31 @@ watch(() => props.show, (newShow) => {
       type: props.mode || 'material'
     })
     initialDataStr.value = JSON.stringify(formData)
+    storageBinTmcValue.value = ''
+    initialTmcStorageBin.value = ''
+    fgRefKey.value = null
   }
 })
 
+const fgRefKey = ref<string | null>(null)
+
 const isDirty = computed(() => {
-  return JSON.stringify(formData) !== initialDataStr.value
+  const formDirty = JSON.stringify(formData) !== initialDataStr.value
+  const tmcDirty = storageBinTmcValue.value !== initialTmcStorageBin.value
+  return formDirty || tmcDirty
+})
+
+const storageBinTmcItem = computed(() => {
+  if (!props.showMultiWarehouse || !props.multiWarehouseItems?.[0]) return null
+  return props.multiWarehouseItems[0]
+})
+
+const storageBinTmc = computed({
+  get: () => {
+    if (!storageBinTmcItem.value) return ''
+    return storageBinTmcValue.value
+  },
+  set: (val: string) => { storageBinTmcValue.value = val }
 })
 
 const categoryOptions = computed(() => {
@@ -893,22 +943,68 @@ const handleSubmit = async () => {
       totalValue: formData.currentStock * formData.averagePrice
     }
 
-    // Save local fields (barcode, storageBin, image) to local DB only
+    // Save local fields to local DB only
     const itemIdToUse = props.itemId || created1C?.id || item.id
-    if (itemIdToUse && (formData.barcode || formData.storageBin || formData.image || formData.lowStockThreshold != null)) {
+    const safeBarcode = (formData.barcode && !formData.barcode.startsWith('QR-') && !formData.barcode.startsWith('qr-')) ? formData.barcode : ''
+
+    // В multi-warehouse режиме barcode всегда сохраняем в ТМЦ-запись
+    if (props.showMultiWarehouse) {
+      let tmcRefKey = null
+      if (storageBinTmcItem.value) {
+        tmcRefKey = storageBinTmcItem.value.refKey
+      }
+
+      if (tmcRefKey) {
+         if (tmcRefKey === itemIdToUse) {
+            // Значения одинаковые — сохраняем в одну запись
+            try {
+              await fetch(`${API_BASE_URL}/onec/stocks/${encodeURIComponent(tmcRefKey)}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  barcode: safeBarcode,
+                  storageBin: storageBinTmcValue.value || '',
+                  image: formData.image || '',
+                  lowStockThreshold: formData.lowStockThreshold != null ? formData.lowStockThreshold : undefined
+                })
+              })
+            } catch (err) {
+              console.error('Error saving local fields:', err)
+            }
+        } else {
+          // Разные записи: barcode и storageBin ТМЦ → ТМЦ, storageBin ГП → ГП
+          try {
+            await fetch(`${API_BASE_URL}/onec/stocks/${encodeURIComponent(tmcRefKey)}`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                barcode: safeBarcode,
+                storageBin: storageBinTmcValue.value || '',
+                image: formData.image || '',
+                lowStockThreshold: formData.lowStockThreshold != null ? formData.lowStockThreshold : undefined
+              })
+            })
+          } catch (err) {
+            console.error('Error saving ТМЦ local fields:', err)
+          }
+        }
+      } else {
+ 
+      }
+    } else if (itemIdToUse) {
+      // Обычный режим: всё в одну запись
       try {
         const response = await fetch(`${API_BASE_URL}/onec/stocks/${itemIdToUse}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-             barcode: formData.barcode || '',  // Штрих-код (локальное поле)
-             storageBin: formData.storageBin || '',  // Место хранения (полка/ячейка)
-             image: formData.image || '',  // Картинка (base64)
-             lowStockThreshold: formData.lowStockThreshold != null ? formData.lowStockThreshold : undefined  // Порог малого остатка
-           })
+            barcode: safeBarcode,
+            storageBin: formData.storageBin || '',
+            image: formData.image || '',
+            lowStockThreshold: formData.lowStockThreshold != null ? formData.lowStockThreshold : undefined
+          })
         })
         if (response.ok) {
-          // Перезагружаем данные из API чтобы убедиться что они сохранены
           try {
             await inventoryStore.loadStocksFromApi()
           } catch (err) {
@@ -961,6 +1057,7 @@ const handleSubmit = async () => {
 </script>
 
 <style scoped>
+
 .barcode-print-overlay {
   position: fixed;
   top: 0;
@@ -1133,5 +1230,12 @@ const handleSubmit = async () => {
 <style>
 .n-image-preview-container {
   z-index: 100001 !important;
+}
+
+.barcode-no-hover.n-input {
+  --n-border-hover: 1px solid rgba(255,255,255,0.1) !important;
+  --n-border-focus: 1px solid rgba(255,255,255,0.1) !important;
+  --n-color-focus: rgba(255,255,255,0.1) !important;
+  --n-box-shadow-focus: 0 0 0 0 transparent !important;
 }
 </style>

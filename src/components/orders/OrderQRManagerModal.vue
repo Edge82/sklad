@@ -1,12 +1,13 @@
 <template>
   <!-- Модальное окно самой печати (превью и отправка на принтер) -->
-  <QRPrintModal
+   <QRPrintModal
     :show="showSinglePrintModal"
     @update:show="handleClosePrint"
     :title="singlePrintData.title"
     :code="singlePrintData.code"
     :description="singlePrintData.description"
     :is-package="singlePrintData.isPackage"
+    :storage-bin="singlePrintData.storageBin"
   />
 
   <n-modal
@@ -125,6 +126,19 @@
             <n-form-item label="Количество">
               <n-input-number v-model:value="genForm.count" :min="1" :max="1000" />
             </n-form-item>
+            <n-form-item label="Место хранения ГП" :show-feedback="false">
+              <n-select
+                v-model:value="genForm.storageBin"
+                :options="storageBinOptions"
+                placeholder="Выберите место хранения"
+                filterable
+                :class="{ 'n-form-item-feedback--error': storageBinError }"
+              />
+            </n-form-item>
+            <div v-if="storageBinError" class="text-red-400 text-xs mt-1 -mb-2">
+              Укажите место хранения готовой продукции
+            </div>
+            <div class="h-3"></div>
             <n-form-item label="Инфо на этикетке">
               <n-input
                 v-model:value="genForm.labelInfo"
@@ -139,6 +153,7 @@
               <div class="preview-line">Заказ: {{ orderNumber }}</div>
               <div class="preview-name text-lg">{{ previewName }}</div>
               <div v-if="genForm.labelInfo" class="preview-info opacity-70">{{ genForm.labelInfo }}</div>
+              <div v-if="genForm.storageBin" class="preview-storage opacity-70 mt-1">📍 {{ genForm.storageBin }}</div>
               <div v-if="genForm.isPackage" class="text-[10px] text-blue-400 font-bold mt-1">📦 Код упаковки</div>
               <div class="text-[10px] opacity-50 mt-2">Будет создано {{ genForm.count }} шт.</div>
             </div>
@@ -193,6 +208,7 @@ import {
   NSpace, NIcon, NInputNumber, NForm, NFormItem, NSelect,
   NDivider, NEmpty, NInput, NCheckbox, useDialog, useMessage
 } from 'naive-ui'
+import { API_BASE_URL } from '@/config/api'
 import {
   PrintOutline, TrashOutline, QrCodeOutline
 } from '@vicons/ionicons5'
@@ -219,6 +235,26 @@ const message = useMessage()
 const isGenerating = ref(false)
 const lastGeneratedCodes = ref<QRType[]>([])
 const landscape = ref(false)
+const storageBinError = ref(false)
+
+// Справочник мест хранения
+const storageBins = ref<Array<{ id: number; name: string }>>([])
+
+const loadStorageBins = async () => {
+  try {
+    const res = await fetch(`${API_BASE_URL}/storage-bins`)
+    if (res.ok) {
+      const data = await res.json()
+      storageBins.value = (data.storageBins || []).map((b: any) => ({ id: b.id, name: b.name }))
+    }
+  } catch (err) {
+    console.error('Error loading storage bins:', err)
+  }
+}
+
+const storageBinOptions = computed(() =>
+  storageBins.value.map(b => ({ label: b.name, value: b.name }))
+)
 
 const handleClosePrint = (val: boolean) => {
   showSinglePrintModal.value = val
@@ -247,7 +283,8 @@ const genForm = ref({
   count: 1,
   productName: '',
   labelInfo: '',
-  isPackage: false
+  isPackage: false,
+  storageBin: ''
 })
 
 const showSinglePrintModal = ref(false)
@@ -255,30 +292,40 @@ const singlePrintData = ref({
   title: '',
   code: '',
   description: '',
-  isPackage: false
+  isPackage: false,
+  storageBin: ''
 })
 
 const canPrintLast = computed(() => lastGeneratedCodes.value.length > 0)
 
+// Реальный productId из выбранной опции
+const resolvedProductId = computed(() => {
+  if (!genForm.value.productId) return ''
+  const opt = productOptions.value.find(o => o.value === genForm.value.productId)
+  return opt?._productId || genForm.value.productId
+})
+
 // Проверяем, есть ли у выбранного изделия упаковочные коды
 const hasPackageCodesForSelected = computed(() => {
-  if (!genForm.value.productId) return false
+  if (!resolvedProductId.value) return false
   return qrStore.qrCodes.some(q =>
-    q.productId === genForm.value.productId && q.isPackage
+    q.productId === resolvedProductId.value && q.isPackage
   )
 })
 
 // При смене позиции проверяем, есть ли уже упаковочные коды
-watch(() => genForm.value.productId, (newId) => {
-  if (newId) {
-    const item = props.items.find(i => (i.productId || i.id) === newId)
+watch(() => genForm.value.productId, (newVal) => {
+  if (newVal) {
+    const opt = productOptions.value.find(o => o.value === newVal)
+    const pid = opt?._productId || newVal
+    const item = props.items.find(i => (i.productId || i.id) === pid)
     if (item) {
       genForm.value.productName = item.productName || item.itemName || ''
       genForm.value.labelInfo = ''
 
       // Проверяем, есть ли у этого изделия уже упаковочные коды
       const existingPackageCodes = qrStore.qrCodes.filter(q =>
-        q.productId === newId && q.isPackage
+        q.productId === pid && q.isPackage
       )
       genForm.value.isPackage = existingPackageCodes.length > 0
     }
@@ -290,24 +337,26 @@ const orderCodes = computed(() => {
   return qrStore.qrCodes.filter(q => q.orderId === props.orderId)
 })
 
-const productOptions = computed(() =>
-  props.items.map(item => ({
-    label: `${item.productName || item.itemName} (в заказе: ${item.quantity} ${item.unit || 'шт.'})`,
-    value: item.productId || item.id
-  }))
-)
+const productOptions = computed(() => {
+  const seen = new Set<string>()
+  return props.items.map(item => {
+    let val = item.productId || item.id
+    if (seen.has(val)) {
+      val = `${val}_${item.id}`
+    }
+    seen.add(val)
+    return {
+      label: `${item.productName || item.itemName} (в заказе: ${item.quantity} ${item.unit || 'шт.'})`,
+      value: val,
+      _productId: item.productId || item.id,
+      _itemId: item.id
+    }
+  })
+})
 
 // Обрабатываем ситуацию, когда в productId попадает некрасивый ID (UUID) вместо названия
 const displayProductId = computed({
-  get: () => {
-    const id = genForm.value.productId
-    if (!id) return null
-    // Если id есть в списке опций, возвращаем его (Naive UI сам подставит label)
-    if (productOptions.value.some(opt => opt.value === id)) return id
-    // Если id нет в списке, ищем его в props.items и берем нормальное имя
-    const item = props.items.find(i => (i.productId || i.id) === id)
-    return item ? (item.productName || item.itemName) : id
-  },
+  get: () => genForm.value.productId,
   set: (val: string | null) => {
     genForm.value.productId = val
   }
@@ -322,16 +371,18 @@ const previewName = computed(() => {
 onMounted(() => {
   document.addEventListener('visibilitychange', handleVisibilityChange)
   window.addEventListener('focus', restoreFocus)
+  loadStorageBins()
 
   if (props.items.length === 1) {
     const item = props.items[0]
     if (item) {
-      genForm.value.productId = item.productId || item.id
+      const opt = productOptions.value[0]
+      genForm.value.productId = opt?.value || (item.productId || item.id)
       genForm.value.productName = item.productName || item.itemName || ''
       genForm.value.labelInfo = ''
       // Проверяем упаковочные коды
       const existingPackageCodes = qrStore.qrCodes.filter(q =>
-        q.productId === genForm.value.productId && q.isPackage
+        q.productId === (item.productId || item.id) && q.isPackage
       )
       genForm.value.isPackage = existingPackageCodes.length > 0
     }
@@ -346,6 +397,8 @@ watch(() => props.show, async (isShown) => {
     genForm.value.labelInfo = ''
     genForm.value.count = 1
     genForm.value.isPackage = false
+    genForm.value.storageBin = ''
+    storageBinError.value = false
     lastGeneratedCodes.value = []
 
     // Загружаем существующие QR коды для этого заказа с сервера
@@ -359,10 +412,11 @@ watch(() => props.show, async (isShown) => {
     if (props.items.length === 1) {
       const item = props.items[0]
       if (item) {
-        genForm.value.productId = item.productId || item.id || null
+        const opt = productOptions.value[0]
+        genForm.value.productId = opt?.value || (item.productId || item.id)
         genForm.value.productName = item.productName || item.itemName || ''
         const existingPackageCodes = qrStore.qrCodes.filter(q =>
-          q.productId === genForm.value.productId && q.isPackage
+          q.productId === (item.productId || item.id) && q.isPackage
         )
         genForm.value.isPackage = existingPackageCodes.length > 0
       }
@@ -436,7 +490,8 @@ const handlePrint = async (code: QRType) => {
     description: infoText
       ? `Заказ: ${code.orderNumber}\n${infoText}`
       : `Заказ: ${code.orderNumber}`,
-    isPackage: code.isPackage || false
+    isPackage: code.isPackage || false,
+    storageBin: code.currentLocation || ''
   }
   showSinglePrintModal.value = true
 }
@@ -620,16 +675,22 @@ const handlePrintLastGenerated = async () => {
 
 async function handleGenerate() {
   if (!genForm.value.productId) return
-  if (isGenerating.value) return // Prevent double submission
+  if (!genForm.value.storageBin.trim()) {
+    storageBinError.value = true
+    return
+  }
+  storageBinError.value = false
+  if (isGenerating.value) return
 
-  const item = props.items.find(i => (i.productId || i.id) === genForm.value.productId)
+  const pid = resolvedProductId.value
+  const item = props.items.find(i => (i.productId || i.id) === pid)
   if (!item) return
 
   isGenerating.value = true
   try {
     // Если есть упаковочные коды — генерируем только упаковки
     const hasPackages = qrStore.qrCodes.some(q =>
-      q.productId === genForm.value.productId && q.isPackage
+      q.productId === pid && q.isPackage
     )
     if (hasPackages && !genForm.value.isPackage) {
       genForm.value.isPackage = true
@@ -638,11 +699,12 @@ async function handleGenerate() {
     const newCodes = await qrStore.generateQRCodes({
       orderId: props.orderId,
       orderNumber: props.orderNumber,
-      productId: genForm.value.productId,
+      productId: pid,
       productName: genForm.value.productName || item?.productName || item?.itemName || 'Без названия',
       labelInfo: genForm.value.labelInfo,
       count: genForm.value.count,
       isPackage: genForm.value.isPackage,
+      storageBin: genForm.value.storageBin,
       generatedBy: userStore.user?.name || 'Система'
     })
 
@@ -673,16 +735,22 @@ function handlePrintLastOnly() {
 
 async function handleGenerateAndPrint() {
   if (!genForm.value.productId) return
-  if (isGenerating.value) return // Prevent double submission
+  if (!genForm.value.storageBin.trim()) {
+    storageBinError.value = true
+    return
+  }
+  storageBinError.value = false
+  if (isGenerating.value) return
 
-  const item = props.items.find(i => (i.productId || i.id) === genForm.value.productId)
+  const pid = resolvedProductId.value
+  const item = props.items.find(i => (i.productId || i.id) === pid)
   if (!item) return
 
   isGenerating.value = true
   try {
     // Если есть упаковочные коды — генерируем только упаковки
     const hasPackages = qrStore.qrCodes.some(q =>
-      q.productId === genForm.value.productId && q.isPackage
+      q.productId === pid && q.isPackage
     )
     if (hasPackages && !genForm.value.isPackage) {
       genForm.value.isPackage = true
@@ -691,11 +759,12 @@ async function handleGenerateAndPrint() {
     const newCodes = await qrStore.generateQRCodes({
       orderId: props.orderId,
       orderNumber: props.orderNumber,
-      productId: genForm.value.productId,
+      productId: pid,
       productName: genForm.value.productName || item?.productName || item?.itemName || 'Без названия',
       labelInfo: genForm.value.labelInfo,
       count: genForm.value.count,
       isPackage: genForm.value.isPackage,
+      storageBin: genForm.value.storageBin,
       generatedBy: userStore.user?.name || 'Система'
     })
 

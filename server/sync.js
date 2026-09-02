@@ -632,7 +632,8 @@ async function syncTransferOrderItems() {
             price: existing?.price || 0,
             customerOrderKey: custKey || existing?.customerOrderKey || '',
             customerOrderNumber: custPres || existing?.customerOrderNumber || '',
-            selectedProduct: existing?.selectedProduct || ''
+            selectedProduct: existing?.selectedProduct || '',
+            note: existing?.note || ''
           }
         }))
         db.prepare('UPDATE transfer_orders SET items = ? WHERE ref_key = ?')

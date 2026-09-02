@@ -368,13 +368,17 @@ const server = http.createServer(async (req, res) => {
     try {
       const search = url.searchParams.get('search')
       const category = url.searchParams.get('category')
+      const refKeys = url.searchParams.get('ref_keys')
       let allStocks = db.prepare('SELECT * FROM onec_stocks ORDER BY name').all()
 
       if (category) {
         allStocks = allStocks.filter(s => (s.category || '') === category)
       }
 
-      if (search) {
+      if (refKeys) {
+        const keys = refKeys.split(',').map(k => k.trim())
+        allStocks = allStocks.filter(s => keys.includes(s.ref_key))
+      } else if (search) {
         const q = search.toLowerCase()
         allStocks = allStocks.filter(s =>
           (s.name || '').toLowerCase().includes(q) ||
@@ -486,6 +490,44 @@ const server = http.createServer(async (req, res) => {
     return
   }
 
+  // Split a combined ТМЦ+ГП record into a separate ГП record
+  if (pathname === '/sklad/api/onec/stocks/split-fg' && req.method === 'POST') {
+    let body = ''
+    req.on('data', chunk => { body += chunk.toString() })
+    req.on('end', () => {
+      try {
+        const data = JSON.parse(body)
+        const { tmcRefKey, fgStorageBin } = data
+
+        const tmcRecord = db.prepare('SELECT * FROM onec_stocks WHERE ref_key = ?').get(tmcRefKey)
+        if (!tmcRecord) {
+          sendJSON(res, 404, { error: 'ТМЦ record not found' })
+          return
+        }
+
+        const existingFg = db.prepare("SELECT id, ref_key, warehouse FROM onec_stocks WHERE name = ? AND warehouse = 'Готовая продукция'").get(tmcRecord.name)
+        if (existingFg) {
+          db.prepare('UPDATE onec_stocks SET storageBin = ? WHERE ref_key = ?')
+            .run(fgStorageBin || '', existingFg.ref_key)
+          sendJSON(res, 200, { success: true, fgRefKey: existingFg.ref_key })
+          return
+        }
+
+        const fgRefKey = `fg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+        const timestamp = moscowNow()
+        db.prepare(`INSERT INTO onec_stocks (ref_key, name, product, warehouse, quantity, current_stock, unit, category, status, barcode, storageBin, image, local_only, synced_at)
+          VALUES (?, ?, ?, 'Готовая продукция', 0, 0, 'шт', 'Готовая продукция', 'in_stock', '', ?, '', 1, ?)`
+        ).run(fgRefKey, tmcRecord.name, tmcRecord.name, fgStorageBin || '', timestamp)
+
+        sendJSON(res, 200, { success: true, fgRefKey })
+      } catch (err) {
+        console.error('Error splitting FG record:', err)
+        sendJSON(res, 500, { error: err.message })
+      }
+    })
+    return
+  }
+
   // Save local product fields (barcode, storageBin, image)
   if (pathname.match(/^\/sklad\/api\/onec\/stocks\/[^/]+$/) && (req.method === 'PUT' || req.method === 'POST')) {
     let body = ''
@@ -499,8 +541,13 @@ const server = http.createServer(async (req, res) => {
         const existing = db.prepare('SELECT id FROM onec_stocks WHERE ref_key = ?').get(nomenclatureKey)
 
         if (existing) {
+          const currentBarcode = db.prepare('SELECT barcode FROM onec_stocks WHERE ref_key = ?').get(nomenclatureKey)?.barcode || ''
+          const barcodeToSave = (barcode !== undefined && barcode !== null) ? (barcode || '') : currentBarcode
+          // Never save QR codes as barcode
+          const isSafeBarcode = (b) => { if (!b) return false; if (b.startsWith('QR-') || b.startsWith('qr-')) return false; if (/^(PRD|MAT)-\d{2}-/i.test(b)) return true; if (/^\d{8,}$/.test(b.replace(/\s/g, ''))) return true; return false; };
+          const safeBarcode = isSafeBarcode(barcodeToSave) ? barcodeToSave : isSafeBarcode(currentBarcode) ? currentBarcode : ''
           db.prepare('UPDATE onec_stocks SET barcode = ?, storageBin = ?, image = ?, lowStockThreshold = ? WHERE ref_key = ?')
-            .run(barcode || '', storageBin || '', image || '', lowStockThreshold != null ? lowStockThreshold : null, nomenclatureKey)
+            .run(safeBarcode, storageBin || '', image || '', lowStockThreshold != null ? lowStockThreshold : null, nomenclatureKey)
         } else {
           db.prepare(`INSERT INTO onec_stocks (ref_key, name, product, barcode, storageBin, warehouse, image, lowStockThreshold)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
@@ -575,6 +622,109 @@ const server = http.createServer(async (req, res) => {
     return
   }
 
+  // Bulk: get all order item data (issued fittings + storage bins) in one request
+  if (pathname === '/sklad/api/order-items/bulk-data' && req.method === 'GET') {
+    try {
+      const orderNumber = url.searchParams.get('orderNumber')
+      if (!orderNumber) {
+        sendJSON(res, 400, { error: 'orderNumber required' })
+        return
+      }
+      // Get all issued fittings for this order
+      const issuedRows = db.prepare(`
+        SELECT TRIM(material_name) as material_name, COALESCE(SUM(quantity), 0) as total
+        FROM material_checkouts
+        WHERE order_number = ?
+        GROUP BY TRIM(material_name)
+      `).all(orderNumber)
+      const issuedByMaterial = {}
+      for (const row of issuedRows) {
+        issuedByMaterial[row.material_name] = row.total
+      }
+      // Get all fittings bins for this order
+      const binRows = db.prepare(`
+        SELECT product_id, storage_bin
+        FROM order_item_fittings_bins
+        WHERE order_number = ?
+      `).all(orderNumber)
+      const binsByProduct = {}
+      for (const row of binRows) {
+        binsByProduct[row.product_id] = row.storage_bin || ''
+      }
+      sendJSON(res, 200, { success: true, issued: issuedByMaterial, bins: binsByProduct })
+    } catch (err) {
+      console.error('Error getting bulk order item data:', err)
+      sendJSON(res, 500, { error: err.message })
+    }
+    return
+  }
+
+  // Get issued fittings quantity by order and material name
+  if (pathname === '/sklad/api/onec/issued-fittings' && req.method === 'GET') {
+    try {
+      const materialName = url.searchParams.get('materialName')
+      const orderNumber = url.searchParams.get('orderNumber')
+      if (!materialName || !orderNumber) {
+        sendJSON(res, 400, { error: 'materialName and orderNumber required' })
+        return
+      }
+      const trimmed = materialName.trim()
+      const result = db.prepare(`
+        SELECT COALESCE(SUM(mc.quantity), 0) as total
+        FROM material_checkouts mc
+        WHERE TRIM(mc.material_name) = ? AND mc.order_number = ?
+      `).get(trimmed, orderNumber)
+      sendJSON(res, 200, { success: true, total: result.total })
+    } catch (err) {
+      console.error('Error getting issued fittings:', err)
+      sendJSON(res, 500, { error: err.message })
+    }
+    return
+  }
+
+  // Get fittings bin for an order item
+  if (pathname === '/sklad/api/order-items/fittings-bin' && req.method === 'GET') {
+    try {
+      const orderNumber = url.searchParams.get('orderNumber')
+      const productId = url.searchParams.get('productId')
+      if (!orderNumber || !productId) {
+        sendJSON(res, 400, { error: 'orderNumber and productId required' })
+        return
+      }
+      const row = db.prepare(`
+        SELECT storage_bin FROM order_item_fittings_bins
+        WHERE order_number = ? AND product_id = ?
+      `).get(orderNumber, productId)
+      sendJSON(res, 200, { success: true, storageBin: row ? row.storage_bin : '' })
+    } catch (err) {
+      console.error('Error getting fittings bin:', err)
+      sendJSON(res, 500, { error: err.message })
+    }
+    return
+  }
+
+  // Save fittings bin for an order item
+  if (pathname === '/sklad/api/order-items/fittings-bin' && req.method === 'PUT') {
+    try {
+      const body = await _readBody(req)
+      const { orderNumber, productId, storageBin } = body
+      if (!orderNumber || !productId) {
+        sendJSON(res, 400, { error: 'orderNumber and productId required' })
+        return
+      }
+      db.prepare(`
+        INSERT INTO order_item_fittings_bins (order_number, product_id, storage_bin)
+        VALUES (?, ?, ?)
+        ON CONFLICT(order_number, product_id) DO UPDATE SET storage_bin = ?
+      `).run(orderNumber, productId, storageBin || '', storageBin || '')
+      sendJSON(res, 200, { success: true })
+    } catch (err) {
+      console.error('Error saving fittings bin:', err)
+      sendJSON(res, 500, { error: err.message })
+    }
+    return
+  }
+
   // Checkouts for a specific material (tool detail page)
   if (pathname.match(/^\/sklad\/api\/onec\/stocks\/[^/]+\/checkouts$/) && req.method === 'GET') {
     try {
@@ -592,7 +742,23 @@ const server = http.createServer(async (req, res) => {
         FROM onec_stocks WHERE ref_key = ?
       `).get(refKey)
 
-      sendJSON(res, 200, { success: true, checkouts, stock })
+      const stockName = stock?.name
+      const fgStock = stockName
+        ? (db.prepare(`
+            SELECT ref_key, quantity, current_stock
+            FROM onec_stocks
+            WHERE name = ? AND warehouse = 'Готовая продукция'
+            LIMIT 1
+          `).get(stockName)
+          || db.prepare(`
+            SELECT ref_key, quantity, current_stock
+            FROM onec_stocks
+            WHERE name LIKE ? AND warehouse = 'Готовая продукция'
+            LIMIT 1
+          `).get(`%${stockName}%`))
+        : null
+
+      sendJSON(res, 200, { success: true, checkouts, stock, fgStock })
     } catch (err) {
       console.error('Error getting material checkouts:', err)
       sendJSON(res, 500, { error: err.message })
@@ -622,12 +788,13 @@ const server = http.createServer(async (req, res) => {
 
         const currentQty = Number(stock.current_stock || 0)
         const onecQty = Number(stock.quantity || 0)
+        const isFurniture = stock.category === 'Фурнитура (торг)' || stock.warehouse === 'Склад Фурнитуры (резерв цех)'
         const totalCheckouts = db.prepare('SELECT COALESCE(SUM(quantity), 0) as total FROM material_checkouts WHERE material_ref_key = ?').get(refKey)
-        if (onecQty < Number(totalCheckouts.total)) {
+        if (!isFurniture && onecQty < Number(totalCheckouts.total)) {
           sendJSON(res, 400, { error: 'Невозможно выдать — количество в 1С меньше выданного. Проведите инвентаризацию.' })
           return
         }
-        if (currentQty < quantity) {
+        if (!isFurniture && currentQty < quantity) {
           sendJSON(res, 400, { error: 'Недостаточно остатка на складе' })
           return
         }
@@ -793,17 +960,30 @@ const server = http.createServer(async (req, res) => {
         })
       }
 
-      const processedItems = items ? items.map((item, idx) => ({
-        id: item.LineNumber || idx + 1,
-        productId: item.Номенклатура_Key,
-        productName: item.Номенклатура____Presentation || item.Номенклатура_Presentation || 'Unknown',
-        quantity: item.Количество || 0,
-        unitPrice: item.Цена || 0,
-        totalPrice: item.Сумма || 0,
-        unit: item.ЕдиницаИзмерения_Key
-          ? (cache.units?.find((u) => u.ref_key === item.ЕдиницаИзмерения_Key)?.description || 'шт')
-          : 'шт'
-      })) : []
+      const processedItems = items ? items.map((item, idx) => {
+        let unitDesc = 'шт'
+        if (item.ЕдиницаИзмерения_Key) {
+          const cachedUnit = cache.units?.find((u) => u.ref_key === item.ЕдиницаИзмерения_Key)
+          if (cachedUnit) {
+            unitDesc = cachedUnit.description
+          } else {
+            // Fallback: look up from onec_stocks
+            try {
+              const stockUnit = db.prepare('SELECT unit FROM onec_stocks WHERE ref_key = ? LIMIT 1').get(item.Номенклатура_Key)
+              if (stockUnit?.unit) unitDesc = stockUnit.unit
+            } catch (e) { /* ignore */ }
+          }
+        }
+        return {
+          id: item.LineNumber || idx + 1,
+          productId: item.Номенклатура_Key,
+          productName: item.Номенклатура____Presentation || item.Номенклатура_Presentation || 'Unknown',
+          quantity: item.Количество || 0,
+          unitPrice: item.Цена || 0,
+          totalPrice: item.Сумма || 0,
+          unit: unitDesc
+        }
+      }) : []
 
       sendJSON(res, 200, { items: processedItems })
     } catch (err) {
@@ -859,9 +1039,41 @@ const server = http.createServer(async (req, res) => {
       // Подтягиваем per-item заказы покупателя для заказов, где их нет
       try { await syncTransferOrderItems() } catch (e) { /* ignore */ }
 
-      const orders = db.prepare('SELECT ref_key, order_number, date, source_warehouse_key, source_warehouse_name, destination_warehouse_key, destination_warehouse_name, customer_order_key, customer_order_number, posted, status_key, status_description, items FROM transfer_orders ORDER BY date DESC').all()
+      const orders = db.prepare('SELECT ref_key, order_number, date, source_warehouse_key, source_warehouse_name, destination_warehouse_key, destination_warehouse_name, customer_order_key, customer_order_number, posted, status_key, status_description, items, created_by, comment FROM transfer_orders ORDER BY date DESC').all()
 
       const result = orders.map(order => {
+         // Resolve created_by name
+         let createdByName = order.created_by || ''
+         if (createdByName) {
+           const empById = db.prepare('SELECT name FROM employees WHERE id = ? LIMIT 1').get(createdByName)
+           if (empById) {
+             createdByName = empById.name
+           } else {
+             const empByLogin = db.prepare('SELECT e.name FROM employees e JOIN users u ON e.user_id = u.id WHERE LOWER(u.login) = LOWER(?) LIMIT 1').get(createdByName)
+             if (empByLogin) {
+               createdByName = empByLogin.name
+             } else {
+               const empByName = db.prepare('SELECT name FROM employees WHERE LOWER(name) = LOWER(?) LIMIT 1').get(createdByName)
+               if (empByName) {
+                 createdByName = empByName.name
+               }
+             }
+           }
+         }
+         // Fallback: try to resolve from operation_logs by order_number or ref_key
+         if (!createdByName || createdByName === 'Неизвестно') {
+           const logByOrder = db.prepare("SELECT employee_name FROM operation_logs WHERE order_number = ? AND employee_name IS NOT NULL AND employee_name != '' AND employee_name != 'Неизвестно' ORDER BY created_at DESC LIMIT 1").get(order.order_number)
+           if (logByOrder && logByOrder.employee_name) {
+             createdByName = logByOrder.employee_name
+           }
+         }
+         // Fallback2: try by ref_key in details
+         if (!createdByName || createdByName === 'Неизвестно') {
+           const logByRef = db.prepare("SELECT employee_name FROM operation_logs WHERE details LIKE ? AND employee_name IS NOT NULL AND employee_name != '' AND employee_name != 'Неизвестно' ORDER BY created_at DESC LIMIT 1").get(`%"ref_key":"${order.ref_key}"%`)
+           if (logByRef && logByRef.employee_name) {
+             createdByName = logByRef.employee_name
+           }
+         }
         let perItemCustomerOrders = []
         let displayCustomerOrderNumber = order.customer_order_number || ''
         // Всегда проверяем per-item заказы, если есть товары — override на основе реальных данных
@@ -882,6 +1094,8 @@ const server = http.createServer(async (req, res) => {
         return {
           Ref_Key: order.ref_key,
           Number: order.order_number,
+          created_by: order.created_by || '',
+          created_by_name: createdByName || '',
           Date: order.date,
           sourceWarehouseKey: order.source_warehouse_key,
           sourceWarehouseName: order.source_warehouse_name,
@@ -892,7 +1106,8 @@ const server = http.createServer(async (req, res) => {
           perItemCustomerOrders,
           Posted: order.posted === 1,
           statusKey: order.status_key || '',
-          statusDescription: order.ref_key?.startsWith?.('LOCAL-') ? 'Черновик' : (order.status_description || 'В работе')
+          statusDescription: order.ref_key?.startsWith?.('LOCAL-') ? 'Черновик' : (order.status_description || 'В работе'),
+          comment: order.comment || ''
         }
       })
 
@@ -999,13 +1214,14 @@ const server = http.createServer(async (req, res) => {
           nomenclatureName: item.nomenclatureName || item.productName || 'Без названия',
           Количество: item.Количество || item.quantity || 0,
           scannedQty: item.scannedQty || 0,
-          barcode: item.barcode || stock?.barcode || '',
+          barcode: stock?.barcode || '',
           storageBin: stock?.storageBin || item.storageBin || '',
           Цена: itemPrice || stockPrice,
           price: itemPrice || stockPrice,
           customerOrderKey: custOrderKey,
           customerOrderNumber: custOrderNumber,
-          selectedProduct: item.selectedProduct || order.selected_product || ''
+          selectedProduct: item.selectedProduct || order.selected_product || '',
+          note: item.note || ''
         }
       })
 
@@ -1288,7 +1504,7 @@ const server = http.createServer(async (req, res) => {
     req.on('end', async () => {
       try {
         const data = JSON.parse(body)
-        const { sourceWarehouseKey, sourceWarehouseName, destinationWarehouseKey, destinationWarehouseName, items, customerOrderKey, customerOrderNumber, selectedProduct } = data
+        const { sourceWarehouseKey, sourceWarehouseName, destinationWarehouseKey, destinationWarehouseName, items, customerOrderKey, customerOrderNumber, selectedProduct, date: orderDate } = data
 
         if (!sourceWarehouseKey || !destinationWarehouseKey) {
           sendJSON(res, 400, { error: 'sourceWarehouseKey and destinationWarehouseKey are required' })
@@ -1296,11 +1512,16 @@ const server = http.createServer(async (req, res) => {
         }
 
         const emp = getEmployeeFromRequest(req, JWT_SECRET)
+        if (!emp.employeeId && !emp.employeeName) {
+          sendJSON(res, 401, { error: 'Unauthorized' })
+          return
+        }
         const creatorName = emp.employeeName || emp.employeeId || 'Неизвестно'
 
         const localRefKey = `LOCAL-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`
         const orderNumber = `LOCAL-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.random().toString(36).substr(2, 4).toUpperCase()}`
         const now = moscowNow()
+        const usedDate = orderDate || now
         const itemsJson = JSON.stringify(items || [])
 
         // Save locally only
@@ -1308,7 +1529,7 @@ const server = http.createServer(async (req, res) => {
           INSERT INTO transfer_orders (ref_key, order_number, date, source_warehouse_key, source_warehouse_name,
             destination_warehouse_key, destination_warehouse_name, customer_order_key, customer_order_number, posted, items, synced_at, selected_product, created_by)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
-        `       ).run(localRefKey, orderNumber, now, sourceWarehouseKey, sourceWarehouseName || '',
+        `       ).run(localRefKey, orderNumber, usedDate, sourceWarehouseKey, sourceWarehouseName || '',
           destinationWarehouseKey, destinationWarehouseName || '', customerOrderKey ?? null,
           customerOrderNumber ?? null, itemsJson, now, selectedProduct ?? null, emp.employeeId || creatorName)
 
@@ -1329,7 +1550,7 @@ const server = http.createServer(async (req, res) => {
           order: {
             ref_key: localRefKey,
             order_number: orderNumber,
-            date: now,
+            date: usedDate,
             sourceWarehouseKey,
             sourceWarehouseName: sourceWarehouseName || '',
             destinationWarehouseKey,
@@ -1439,7 +1660,7 @@ const server = http.createServer(async (req, res) => {
         }))
 
         const createPayload = {
-          Date: (() => {
+          Date: order.date || (() => {
             const d = new Date()
             const pad = (n) => String(n).padStart(2, '0')
             return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
@@ -2135,6 +2356,14 @@ const server = http.createServer(async (req, res) => {
           UPDATE local_qr_codes SET status = ?, scanned_at = ?, scanned_by = ? WHERE id = ?
         `).run(newStatus, now, resolvedEmployeeName || 'Unknown', qrCode.id)
 
+        // Списание со склада "Готовая продукция" при отгрузке
+        if (newStatus === 'shipped' && qrCode.product_name) {
+          const fgStock = db.prepare(`SELECT id, quantity FROM onec_stocks WHERE name = ? AND warehouse = 'Готовая продукция'`).get(qrCode.product_name)
+          if (fgStock && fgStock.quantity > 0) {
+            db.prepare(`UPDATE onec_stocks SET quantity = quantity - 1, current_stock = quantity - 1, synced_at = ? WHERE id = ?`).run(now, fgStock.id)
+          }
+        }
+
         logOperation('qr_code_scanned', {
           qrCodeId: qrCode.id,
           qrCode: qrCode.code,
@@ -2222,6 +2451,14 @@ const server = http.createServer(async (req, res) => {
         db.prepare(`
           UPDATE local_qr_codes SET status = ?, scanned_at = ?, scanned_by = ? WHERE id = ?
         `).run(statusToSet, now, resolvedEmployeeName2 || 'Unknown', qrCode.id)
+
+        // Списание со склада "Готовая продукция" при отгрузке
+        if (statusToSet === 'shipped' && qrCode.product_name) {
+          const fgStock = db.prepare(`SELECT id, quantity FROM onec_stocks WHERE name = ? AND warehouse = 'Готовая продукция'`).get(qrCode.product_name)
+          if (fgStock && fgStock.quantity > 0) {
+            db.prepare(`UPDATE onec_stocks SET quantity = quantity - 1, current_stock = quantity - 1, synced_at = ? WHERE id = ?`).run(now, fgStock.id)
+          }
+        }
 
         logOperation('qr_code_scanned', {
           qrCodeId: qrCode.id,
@@ -2761,6 +2998,117 @@ const server = http.createServer(async (req, res) => {
       sendJSON(res, 200, { employeeId, logs: finalLogs, count: finalLogs.length, limit })
     } catch (err) {
       console.error('Error fetching employee operations:', err)
+      sendJSON(res, 500, { error: err.message })
+    }
+    return
+  }
+
+  // -------------------------------------------------------
+  // Storage bins (справочник мест хранения ГП)
+  // -------------------------------------------------------
+
+  // Get all storage bins
+  if (pathname === '/sklad/api/storage-bins' && req.method === 'GET') {
+    try {
+      const bins = db.prepare('SELECT * FROM storage_bins ORDER BY name').all()
+      sendJSON(res, 200, { storageBins: bins })
+    } catch (err) {
+      console.error('Error fetching storage bins:', err)
+      sendJSON(res, 500, { error: err.message })
+    }
+    return
+  }
+
+  // Create storage bin
+  if (pathname === '/sklad/api/storage-bins' && req.method === 'POST') {
+    let body = ''
+    req.on('data', chunk => { body += chunk })
+    req.on('end', () => {
+      try {
+        const data = JSON.parse(body)
+        const { name, notes = '' } = data
+        if (!name || !name.trim()) {
+          sendJSON(res, 400, { error: 'Название обязательно' })
+          return
+        }
+        const existing = db.prepare('SELECT id FROM storage_bins WHERE name = ?').get(name.trim())
+        if (existing) {
+          sendJSON(res, 409, { error: 'Такое место хранения уже существует' })
+          return
+        }
+        const result = db.prepare('INSERT INTO storage_bins (name, notes) VALUES (?, ?)').run(name.trim(), notes)
+        sendJSON(res, 200, { success: true, id: result.lastInsertRowid })
+      } catch (err) {
+        console.error('Error creating storage bin:', err)
+        sendJSON(res, 500, { error: err.message })
+      }
+    })
+    return
+  }
+
+  // Update storage bin
+  const storageBinUpdateMatch = pathname.match(/^\/sklad\/api\/storage-bins\/(\d+)$/)
+  if (storageBinUpdateMatch && (req.method === 'PUT' || req.method === 'PATCH')) {
+    const binId = storageBinUpdateMatch[1]
+    let body = ''
+    req.on('data', chunk => { body += chunk })
+    req.on('end', () => {
+      try {
+        const data = JSON.parse(body)
+        const { name, notes } = data
+        if (name !== undefined) {
+          if (!name.trim()) {
+            sendJSON(res, 400, { error: 'Название не может быть пустым' })
+            return
+          }
+          const existing = db.prepare('SELECT id FROM storage_bins WHERE name = ? AND id != ?').get(name.trim(), binId)
+          if (existing) {
+            sendJSON(res, 409, { error: 'Такое место хранения уже существует' })
+            return
+          }
+        }
+        const updates = []
+        const params = []
+        if (name !== undefined) {
+          updates.push('name = ?')
+          params.push(name.trim())
+        }
+        if (notes !== undefined) {
+          updates.push('notes = ?')
+          params.push(notes)
+        }
+        if (updates.length === 0) {
+          sendJSON(res, 400, { error: 'Нет данных для обновления' })
+          return
+        }
+        params.push(binId)
+        const result = db.prepare(`UPDATE storage_bins SET ${updates.join(', ')} WHERE id = ?`).run(...params)
+        if (result.changes === 0) {
+          sendJSON(res, 404, { error: 'Место хранения не найдено' })
+          return
+        }
+        sendJSON(res, 200, { success: true })
+      } catch (err) {
+        console.error('Error updating storage bin:', err)
+        sendJSON(res, 500, { error: err.message })
+      }
+    })
+    return
+  }
+
+  // Delete storage bin
+  const storageBinDeleteMatch = pathname.match(/^\/sklad\/api\/storage-bins\/(\d+)$/)
+  if (storageBinDeleteMatch && req.method === 'DELETE') {
+    const binId = storageBinDeleteMatch[1]
+    try {
+      const result = db.prepare('DELETE FROM storage_bins WHERE id = ?').run(binId)
+      if (result.changes === 0) {
+        sendJSON(res, 404, { error: 'Место хранения не найдено' })
+        return
+      }
+      sendJSON(res, 200, { success: true })
+    } catch (err) {
+      console.error('Error deleting storage bin:', err)
       sendJSON(res, 500, { error: err.message })
     }
     return
@@ -3636,10 +3984,9 @@ const materialReturns = db.prepare(`
         sql += ` AND date <= ?`
         params.push(dateTo + 'T23:59:59.999Z')
       }
-      if (search) {
-        sql += ` AND (customer_order_number LIKE ? OR selected_product LIKE ?)`
-        params.push(`%${search}%`, `%${search}%`)
-      }
+      // Don't filter by search in SQL — we need all items to search per-row fields
+      // Search is applied after building orderMap (JS-level filter below)
+
       sql += ` ORDER BY date DESC`
 
       let allOrders = db.prepare(sql).all(...params)
@@ -3752,7 +4099,34 @@ const materialReturns = db.prepare(`
         }
       }
 
-      const result = Array.from(orderMap.values())
+      let result = Array.from(orderMap.values())
+
+      // JS-level filter: search by order number, product name, material name
+      if (search) {
+        const searchLower = search.toLowerCase()
+        result = result.filter(entry => {
+          const orderNum = (entry.orderNumber || '').toLowerCase()
+          if (orderNum.includes(searchLower)) return true
+          // Also check customerOrderKey
+          if (entry.customerOrderKey && entry.customerOrderKey.toLowerCase().includes(searchLower)) return true
+          // Check products
+          if (entry.products) {
+            for (const p of entry.products) {
+              if ((p.name || '').toLowerCase().includes(searchLower)) return true
+              for (const m of p.materials) {
+                if ((m.name || '').toLowerCase().includes(searchLower)) return true
+              }
+            }
+          }
+          // Check order-level materials
+          if (entry.orderMaterials) {
+            for (const m of entry.orderMaterials) {
+              if ((m.name || '').toLowerCase().includes(searchLower)) return true
+            }
+          }
+          return false
+        })
+      }
 
       sendJSON(res, 200, { success: true, data: result })
     } catch (err) {
@@ -3870,7 +4244,7 @@ const materialReturns = db.prepare(`
           db.prepare(`
             INSERT INTO onec_stocks (ref_key, name, product, warehouse, quantity, current_stock, unit, category, status, barcode, storageBin, image, local_only, synced_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          `).run(qrId, productName, productName, 'Готовая продукция', quantity || 1, quantity || 1, 'шт', 'Готовая продукция', 'in_stock', qrId, '', '', 1, timestamp)
+          `).run(qrId, productName, productName, 'Готовая продукция', quantity || 1, quantity || 1, 'шт', 'Готовая продукция', 'in_stock', '', '', '', 1, timestamp)
         }
 
         console.log('✅ [RECEIVE-FP] Invoice created successfully:', invoiceId, 'orderNumber:', orderNumber || 'БЕЗ НОМЕРА')

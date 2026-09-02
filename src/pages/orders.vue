@@ -166,6 +166,7 @@
           :columns="columns"
           :data="filteredOrders"
           :pagination="pagination"
+          max-height="calc(100vh - 350px)"
           :row-props="(row: Order) => ({
              class: 'cursor-pointer',
              onClick: () => handleRowClick(row)
@@ -176,12 +177,21 @@
 
     <!-- Режим списка накладных конкретного заказа -->
     <div v-if="viewMode === 'invoices'">
-      <n-card border-variant="dark" :title="`Заказ ${selectedOrderForInvoices?.orderNumber || ''}`" class="mb-4">
+      <n-card border-variant="dark" :title="`Заказ ${selectedOrderForInvoices?.orderNumber || ''}`" class="mb-4 invoices-card">
+        <div class="mb-3">
+          <n-input
+            v-model:value="orderDetailSearch"
+            placeholder="Поиск по позиции..."
+            clearable
+            style="width: 400px"
+          />
+        </div>
         <div v-if="loadingDetails" class="flex flex-col items-center justify-center py-8 gap-3">
           <n-spin size="large" />
           <n-text depth="3">Загрузка состава заказа...</n-text>
         </div>
-        <n-table v-else-if="selectedOrderForInvoices?.items?.length" striped size="small">
+       <div v-else-if="selectedOrderForInvoices.items.length" class="invoices-table-scroll">
+        <table class="invoices-table">
           <thead>
             <tr>
               <th class="w-16 text-left!">№</th>
@@ -189,49 +199,112 @@
               <th class="w-40 text-center!">Укомплектовано</th>
               <th class="w-32 text-right!">Кол-во</th>
               <th class="w-24 text-center!">Резерв</th>
-              <th class="w-32 text-center!">Место хранения</th>
-              <th class="w-40 text-center!">Склад</th>
+              <th class="w-24 text-center!">Выдано<br />сотруднику</th>
+              <th class="w-24 text-center!">Место хранения<br />(фурнитура заказа)</th>
+              <th class="w-32 text-center!">Склад</th>
               <th v-if="userStore.canSeePrices" class="w-40 text-right!">Сумма</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="(item, idx) in selectedOrderForInvoices.items" :key="item.id">
-              <td class="text-left!">{{ idx + 1 }}</td>
-              <td class="font-bold text-green-500 text-left!">{{ item.productName }}</td>
-              <td class="text-center!">
-                <template v-if="orderItemProgress.get(item.productId)?.total">
-                  <div class="flex justify-end text-xs mb-0.5 px-0.5" :class="(orderItemProgress.get(item.productId)?.percent || 0) >= 100 ? 'text-green-500' : 'text-amber-500'">
-                    {{ orderItemProgress.get(item.productId)?.scanned }}/{{ orderItemProgress.get(item.productId)?.total }}
-                  </div>
-                  <n-tooltip trigger="hover" placement="top">
-                    <template #trigger>
-                      <n-progress
-                        type="line"
-                        :percentage="orderItemProgress.get(item.productId)?.percent || 0"
-                        :indicator-placement="'inside'"
-                        :status="(orderItemProgress.get(item.productId)?.percent || 0) >= 100 ? 'success' : 'warning'"
-                        :processing="(orderItemProgress.get(item.productId)?.percent || 0) > 0 && (orderItemProgress.get(item.productId)?.percent || 0) < 100"
-                        :height="18"
-                      />
-                    </template>
-                    сгенерировано {{ orderItemProgress.get(item.productId)?.total || 0 }} QR кодов для деталей, на складе {{ orderItemProgress.get(item.productId)?.scannedWarehouse || 0 }} деталей с QR кодами
-                  </n-tooltip>
-                </template>
-                <span v-else class="text-gray-400">—</span>
-              </td>
-              <td class="text-right! px-4">{{ item.quantity }} {{ item.unit }}</td>
-              <td class="text-center!">
-                <n-tag v-if="getOrderItemReserve(item)" size="small" type="info">
-                  {{ getOrderItemReserve(item) }}
-                </n-tag>
-                <span v-else class="text-gray-500">0</span>
-              </td>
-              <td class="text-center!">{{ getStorageBin(item) }}</td>
-              <td class="text-center!">{{ getWarehouse(item) }}</td>
-              <td v-if="userStore.canSeePrices" class="text-right! font-mono px-4">{{ formatCurrency(item.totalPrice || 0) }}</td>
-            </tr>
+            <template v-for="(group, groupIdx) in filteredGroupedItems" :key="group.productId">
+             <tr v-for="(item, idx) in group.items" :key="item.id"
+                   class="cursor-pointer hover:bg-white/5 transition-colors">
+                <td class="text-left!"
+                    :style="group.items.length > 1 ? 'border-left: 3px solid #3b82f6; padding-left: 8px;' : ''">
+                  {{ group.globalStartIdx + idx }}
+                </td>
+              <td class="font-bold text-left! text-white">
+                   <span
+                     style="cursor: pointer;"
+  
+                     @click.stop="handleItemClick(item)"
+                   >{{ item.productName }}</span>
+                 </td>
+                <td class="text-center!">
+                  <template v-if="orderItemProgress.get(item.productId)?.total">
+                    <div class="flex justify-end text-xs mb-0.5 px-0.5" :class="(orderItemProgress.get(item.productId)?.percent || 0) >= 100 ? 'text-green-500' : 'text-amber-500'">
+                      {{ orderItemProgress.get(item.productId)?.scanned }}/{{ orderItemProgress.get(item.productId)?.total }}
+                    </div>
+                    <n-tooltip trigger="hover" placement="top">
+                      <template #trigger>
+                        <n-progress
+                          type="line"
+                          :percentage="orderItemProgress.get(item.productId)?.percent || 0"
+                          :indicator-placement="'inside'"
+                          :status="(orderItemProgress.get(item.productId)?.percent || 0) >= 100 ? 'success' : 'warning'"
+                          :processing="(orderItemProgress.get(item.productId)?.percent || 0) > 0 && (orderItemProgress.get(item.productId)?.percent || 0) < 100"
+                          :height="18"
+                        />
+                      </template>
+                      сгенерировано {{ orderItemProgress.get(item.productId)?.total || 0 }} QR кодов для деталей, на складе {{ orderItemProgress.get(item.productId)?.scannedWarehouse || 0 }} деталей с QR кодами
+                    </n-tooltip>
+                  </template>
+                  <span v-else class="text-gray-400">—</span>
+                </td>
+                <td class="text-right! px-4">{{ item.quantity }} {{ item.unit }}</td>
+               <td class="text-center!">
+                  <n-tag v-if="group.items.length === 1 && getOrderItemReserve(item)" size="small" type="info">
+                    {{ getOrderItemReserve(item) }}
+                  </n-tag>
+                </td>
+                <td class="text-center!">
+                  <span v-if="group.items.length > 1 && idx < group.items.length - 1"></span>
+                  <span v-else-if="group.items.length === 1 && getFittingsIssued(item) !== null">{{ getFittingsIssued(item) }}</span>
+                  <span v-else></span>
+                </td>
+                <td class="text-center!">
+                  <template v-if="isFittingsItem(item) && group.items.length === 1">
+                    <textarea
+                      class="storage-input"
+                      ref="(el: HTMLElement) => { if (el) { el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px' } }"
+                      :style="'width: 100%; background: transparent; border: 1px solid transparent; border-radius: 4px; padding: 2px 6px; color: #aaa; font-size: 13px; outline: none; transition: all 0.2s; resize: none; overflow: hidden; word-break: break-word; white-space: pre-wrap; font-family: inherit; line-height: 1.4;'"
+                      :value="fittingsBinsCache[item.productId] || ''"
+                      placeholder="Введите место..."
+                      rows="1"
+                      @focus="(e: FocusEvent) => { const el = e.target as HTMLElement; el.style.borderColor = '#18a058'; el.style.color = '#fff'; el.style.background = 'rgba(24,160,88,0.08)' }"
+                      @blur="(e: FocusEvent) => { const el = e.target as HTMLElement; el.style.borderColor = 'transparent'; el.style.color = '#aaa'; el.style.background = 'transparent'; saveFittingsBin(item) }"
+                      @input="(e: Event) => { const el = e.target as HTMLTextAreaElement; el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px'; fittingsBinsCache[item.productId] = el.value }"
+                    />
+                  </template>
+                </td>
+                <td class="text-center!">{{ getWarehouse(item) }}</td>
+                <td v-if="userStore.canSeePrices" class="text-right! font-mono px-4">{{ formatCurrency(item.totalPrice || 0) }}</td>
+              </tr>
+              <tr v-if="group.items.length > 1" class="font-bold" style="border-top: 2px solid #3b82f6;">
+                <td style="padding-left: 11px;"></td>
+                <td class="text-left! pl-4">Итого:</td>
+                <td class="text-center!"></td>
+                <td class="text-right! px-4">{{ group.totalQuantity }} {{ group.unit }}</td>
+                <td class="text-center!">
+                  <n-tag size="small" type="info">
+                    {{ group.totalReserve }}
+                  </n-tag>
+                </td>
+                <td class="text-center!">
+                  <span v-if="group.totalIssued !== null">{{ group.totalIssued }}</span>
+                </td>
+                <td class="text-center!">
+                  <template v-if="isFittingsItem(group.items[0])">
+                    <textarea
+                      class="storage-input"
+                      ref="(el: HTMLElement) => { if (el) { el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px' } }"
+                      :style="'width: 100%; background: transparent; border: 1px solid transparent; border-radius: 4px; padding: 2px 6px; color: #aaa; font-size: 13px; outline: none; transition: all 0.2s; resize: none; overflow: hidden; word-break: break-word; white-space: pre-wrap; font-family: inherit; line-height: 1.4;'"
+                      :value="fittingsBinsCache[group.productId] || ''"
+                      placeholder="Введите место..."
+                      rows="1"
+                      @focus="(e: FocusEvent) => { const el = e.target as HTMLElement; el.style.borderColor = '#18a058'; el.style.color = '#fff'; el.style.background = 'rgba(24,160,88,0.08)' }"
+                      @blur="(e: FocusEvent) => { const el = e.target as HTMLElement; el.style.borderColor = 'transparent'; el.style.color = '#aaa'; el.style.background = 'transparent'; saveFittingsBinByGroup(group) }"
+                      @input="(e: Event) => { const el = e.target as HTMLTextAreaElement; el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px'; fittingsBinsCache[group.productId] = el.value }"
+                    />
+                  </template>
+                </td>
+                <td></td>
+                <td v-if="userStore.canSeePrices" class="text-right! font-mono px-4">{{ formatCurrency(group.totalPrice) }}</td>
+              </tr>
+            </template>
           </tbody>
-        </n-table>
+        </table>
+        </div>
         <n-empty v-else description="Позиции не найдены" />
       </n-card>
     </div>
@@ -271,6 +344,17 @@
         :loading="loadingDetails"
       />
     </n-modal>
+
+    <InventoryItemModal
+      v-model:show="showItemModal"
+      :item-id="selectedItemForEdit"
+      mode="material"
+    :multi-warehouse-items="multiWarehouseItems"
+       :show-multi-warehouse="true"
+       :has-fg-record="hasFgRecord"
+  
+      @update:show="handleItemModalClose"
+    />
   </div>
 </template>
 
@@ -312,9 +396,11 @@ import {
   SyncOutline
 } from '@vicons/ionicons5'
 import { useIntegrationStore } from '@/stores/integration'
+import { API_BASE_URL } from '@/config/api'
 import OrderQRManagerModal from '@/components/orders/OrderQRManagerModal.vue'
-import OrderDetails from '@/components/orders/OrderDetails.vue'
+import OrderDetails from '@/components/orders/OrderDetails.vue' // legacy — модалка удалена
 import EmployeeProductionDocument from '@/components/employees/EmployeeProductionDocument.vue'
+import InventoryItemModal from '@/components/inventory/InventoryItemModal.vue'
 
 interface InvoiceRow {
   id: string
@@ -338,6 +424,12 @@ const qrCodesStore = useQRCodesStore()
 const userStore = useUserStore()
 const inventoryStore = useInventoryStore()
 const message = useMessage()
+
+const showItemModal = ref(false)
+const selectedItemForEdit = ref<string | null>(null)
+const multiWarehouseItems = ref<{ refKey: string; warehouse: string; storageBin: string; barcode: string; lowStockThreshold: number | null; image: string }[]>([])
+const hasFgRecord = ref(false)
+
 // Состояние синхронизации
 const isSyncingOrders = ref(false)
 
@@ -359,17 +451,66 @@ onMounted(async () => {
   await ordersStore.loadOrdersFromApi()
 })
 
-onActivated(async () => {
-  await ordersStore.loadOrdersFromApi()
-})
-
 const tableKey = ref(0)
 
 function handleSyncCompleted() {
   tableKey.value++
   ordersStore.loadOrdersFromApi()
-  message.success('Заказы обновлены')
+  if (viewMode.value === 'invoices' && selectedOrderForInvoices.value) {
+    loadOrderItemData(selectedOrderForInvoices.value).catch(() => {})
+  }
+  message.success('Данные обновлены')
 }
+
+const handleItemClick = (item: any) => {
+  const allMatches = inventoryStore.items.filter(
+    (s: any) => s.name === item.productName || s.ref_key === item.productId || s.id === item.productId
+  )
+  if (allMatches.length === 0) {
+    message.warning(`Материал «${item.productName}» не найден на складе`)
+    return
+  }
+  // Находим основную запись 1C для "Готовая продукция" (не local_only)
+  const fgItem = allMatches.find((s: any) => s.warehouse === 'Готовая продукция' && !s.id.startsWith('qr-')) ||
+                 allMatches.find((s: any) => s.warehouse === 'Готовая продукция') ||
+                 allMatches[0]
+  hasFgRecord.value = fgItem.warehouse === 'Готовая продукция'
+  selectedItemForEdit.value = fgItem.id
+ // ТМЦ — любая запись не на складе ГП и не QR-запись
+  const tmcItem = allMatches.find((s: any) => s.warehouse !== 'Готовая продукция' && !s.id.startsWith('QR-') && !s.id.startsWith('qr-'))
+  multiWarehouseItems.value = tmcItem ? [{
+    refKey: tmcItem.id,
+    warehouse: tmcItem.warehouse || '',
+    storageBin: tmcItem.storageBin || '',
+    barcode: tmcItem.barcode || '',
+    lowStockThreshold: tmcItem.lowStockThreshold || null,
+    image: tmcItem.image || ''
+  }] : []
+
+  showItemModal.value = true
+}
+
+const handleItemModalClose = async (val: boolean) => {
+  if (!val) {
+    selectedItemForEdit.value = null
+    multiWarehouseItems.value = []
+    hasFgRecord.value = false
+ 
+    await inventoryStore.loadStocksFromApi()
+  }
+}
+
+onMounted(() => {
+  ordersStore.loadOrdersFromApi()
+})
+
+onActivated(async () => {
+  await ordersStore.loadOrdersFromApi()
+  // Обновляем данные деталей заказа, если заказ открыт
+  if (viewMode.value === 'invoices' && selectedOrderForInvoices.value) {
+    await loadOrderItemData(selectedOrderForInvoices.value)
+  }
+})
 
 onMounted(() => {
   syncEvents.on('sync-completed', handleSyncCompleted)
@@ -385,6 +526,7 @@ const showDetailsModal = ref(false)
 const selectedOrderForQR = ref<Order | null>(null)
 const selectedOrderForDetails = ref<Order | null>(null)
 const selectedOrderForInvoices = ref<Order | null>(null)
+const orderDetailSearch = ref('')
 const selectedInvoiceDetail = ref<InvoiceRow | null>(null)
 const loadingDetails = ref(false)
 
@@ -534,8 +676,9 @@ const handleShowQR = async (order: Order) => {
 const handleRowClick = async (row: Order) => {
   selectedOrderForInvoices.value = row
   viewMode.value = 'invoices'
-  await inventoryStore.loadStocksFromApi()
   expandedInvoiceKeys.value = []
+  inventoryStore.loadStocksFromApi().catch(() => {})
+  loadOrderItemData(row).catch(() => {})
 
   // Если у заказа нет позиций, подгружаем их из 1С
   if (!row.items || row.items.length === 0) {
@@ -545,6 +688,7 @@ const handleRowClick = async (row: Order) => {
       const updated = ordersStore.orders.find(o => o.id === row.id)
       if (updated) {
         selectedOrderForInvoices.value = { ...updated }
+        await loadOrderItemData(updated)
       }
     } finally {
       loadingDetails.value = false
@@ -562,15 +706,73 @@ const getOrderItemReserve = (item: any): number => {
   return 0
 }
 
-const getStorageBin = (item: any): string => {
+const fittingsIssuedCache = ref(new Map<string, number>())
+
+const loadOrderItemData = async (order: Order) => {
+  if (!order.items || !order.orderNumber) return
+  try {
+    const res = await fetch(`/sklad/api/order-items/bulk-data?orderNumber=${encodeURIComponent(order.orderNumber)}`)
+    if (res.ok) {
+      const data = await res.json()
+      if (data.success) {
+        const newIssued = new Map<string, number>()
+        for (const item of order.items) {
+          const trimmedName = item.productName.trim()
+          const issued = data.issued[trimmedName]
+          if (issued !== undefined) {
+            newIssued.set(item.productId, issued)
+          }
+        }
+        fittingsIssuedCache.value = newIssued
+        fittingsBinsCache.value = data.bins || {}
+      }
+    }
+  } catch (err) {
+    console.error('Error fetching order item data:', err)
+  }
+}
+
+const getFittingsIssued = (item: any): number | null => {
+  if (!selectedOrderForInvoices.value) return null
+  const qty = fittingsIssuedCache.value.get(item.productId)
+  if (qty === undefined) return null
+  return qty > 0 ? qty : null
+}
+
+const isFittingsItem = (item: any): boolean => {
   const allMatches = inventoryStore.items.filter(
     (s: any) => s.name === item.productName || s.ref_key === item.productId || s.id === item.productId
   )
-  if (allMatches.length === 0) return '-'
-  const matched = allMatches.find((s: any) => s.warehouse === 'Готовая продукция') || allMatches[0]
-  const bin = matched.storageBin
-  if (bin && bin !== 'None') return bin
-  return '-'
+  return allMatches.some((s: any) =>
+    s.warehouse === 'Склад Фурнитуры (резерв цех)' ||
+    s.category === 'Фурнитура (торг)' ||
+    s.categoryId === '2'
+  )
+}
+
+const fittingsBinsCache = ref<Record<string, string>>({})
+
+
+const saveFittingsBin = (item: any) => {
+  if (!selectedOrderForInvoices.value) return
+  const order = selectedOrderForInvoices.value
+  const value = fittingsBinsCache.value[item.productId] || ''
+  fetch(`/sklad/api/order-items/fittings-bin`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ orderNumber: order.orderNumber, productId: item.productId, storageBin: value }),
+  }).catch(err => console.error('Error saving fittings bin:', err))
+}
+
+const saveFittingsBinByGroup = (group: any) => {
+  if (!selectedOrderForInvoices.value) return
+  const order = selectedOrderForInvoices.value
+  const value = fittingsBinsCache.value[group.productId] || ''
+  fetch(`/sklad/api/order-items/fittings-bin`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ orderNumber: order.orderNumber, productId: group.productId, storageBin: value }),
+  }).catch(err => console.error('Error saving fittings bin:', err))
 }
 
 const getWarehouse = (item: any): string => {
@@ -594,12 +796,61 @@ const getItemQRProgress = (orderId: string, productId: string): { scanned: numbe
 }
 
 const orderItemProgress = computed(() => {
-  if (!selectedOrderForInvoices.value) return new Map()
+  if (!selectedOrderForInvoices.value?.items) return new Map()
   const map = new Map<string, { scanned: number, total: number, percent: number, scannedWarehouse: number }>()
-  selectedOrderForInvoices.value.items.forEach(item => {
-    map.set(item.productId, getItemQRProgress(selectedOrderForInvoices.value!.id, item.productId))
-  })
+  const seen = new Set<string>()
+  for (const item of selectedOrderForInvoices.value.items) {
+    if (!seen.has(item.productId)) {
+      seen.add(item.productId)
+      map.set(item.productId, getItemQRProgress(selectedOrderForInvoices.value.id, item.productId))
+    }
+  }
   return map
+})
+
+const groupedItemsWithSummary = computed(() => {
+  if (!selectedOrderForInvoices.value?.items) return []
+  const groups = new Map<string, { productId: string, items: any[], totalQuantity: number, unit: string, totalIssued: number | null, totalPrice: number, globalStartIdx: number, totalReserve: number }>()
+  let globalIdx = 1
+  for (const item of selectedOrderForInvoices.value.items) {
+    if (!groups.has(item.productId)) {
+      groups.set(item.productId, {
+        productId: item.productId,
+        items: [],
+        totalQuantity: 0,
+        unit: item.unit,
+        totalIssued: null,
+        totalPrice: 0,
+        globalStartIdx: globalIdx,
+        totalReserve: 0,
+      })
+    }
+    const g = groups.get(item.productId)!
+    g.items.push(item)
+    g.totalQuantity += item.quantity
+    g.totalPrice += item.totalPrice || 0
+    if (g.items.length === 1) {
+      g.totalReserve = getOrderItemReserve(item) || 0
+    }
+    if (g.items.length === 1) {
+      const issued = getFittingsIssued(item)
+      g.totalIssued = issued !== null ? issued : null
+    }
+    globalIdx++
+  }
+  return Array.from(groups.values())
+})
+
+const filteredGroupedItems = computed(() => {
+  const q = orderDetailSearch.value.trim().toLowerCase()
+  if (!q) return groupedItemsWithSummary.value
+  return groupedItemsWithSummary.value.filter(group => {
+    return group.items.some(item =>
+      (item.productName || '').toLowerCase().includes(q) ||
+      (item.productId || '').toLowerCase().includes(q) ||
+      String(item.quantity || '').includes(q)
+    )
+  })
 })
 
 const goBack = () => {
@@ -679,10 +930,9 @@ const columnsBase = [
   {
     title: 'Комментарий',
     key: 'comment',
-    width: 200,
-    ellipsis: true,
+    width: 250,
     render(row: Order) {
-      return row.comment || '-'
+      return h('div', { style: 'white-space: normal; word-break: break-word; line-height: 1.4;' }, row.comment || '-')
     }
   },
   {
@@ -806,15 +1056,62 @@ const columns = computed(() => {
 }
 
 .orders-table ::v-deep(th),
-.orders-table ::v-deep(td) {
-  white-space: normal;
-  word-break: break-word;
-  overflow-wrap: break-word;
-}
+  .orders-table ::v-deep(td) {
+    white-space: normal;
+    word-break: break-word;
+    overflow-wrap: break-word;
+  }
 
 .orders-table ::v-deep(th:nth-child(2)),
 .orders-table ::v-deep(td:nth-child(2)) {
   min-width: 200px;
   max-width: 400px;
+}
+
+/* Sticky header для таблицы состава заказа */
+.invoices-table-scroll {
+  max-height: calc(100vh - 350px);
+  overflow: auto;
+}
+
+.invoices-card ::v-deep(.n-card__content) {
+  overflow: visible;
+}
+
+.invoices-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.invoices-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background-color: #1a1a1e;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+  padding: 8px 12px;
+  border-bottom: 1px solid #333;
+}
+
+
+.invoices-table tbody td {
+  padding: 8px 12px;
+  border-bottom: 1px solid #333;
+}
+
+/* Тёмный скроллбар — как на странице заказов */
+.invoices-table-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+.invoices-table-scroll::-webkit-scrollbar-track {
+  background: #1a1a1e;
+}
+.invoices-table-scroll::-webkit-scrollbar-thumb {
+  background: #555;
+  border-radius: 4px;
+}
+.invoices-table-scroll::-webkit-scrollbar-thumb:hover {
+  background: #777;
 }
 </style>

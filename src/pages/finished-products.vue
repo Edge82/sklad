@@ -273,6 +273,7 @@ const dialog = useDialog()
 const message = useMessage()
 
 onMounted(async () => {
+  loadStorageBins()
   if (inventoryStore.items.length === 0 || !integrationStore.lastSyncTime) {
     await integrationStore.syncStocks()
   }
@@ -301,6 +302,7 @@ onMounted(async () => {
 })
 
 onActivated(async () => {
+  loadStorageBins()
   if (inventoryStore.items.length === 0 || !integrationStore.lastSyncTime) {
     await integrationStore.syncStocks()
   }
@@ -692,8 +694,19 @@ const tableData = computed<InventoryTableRow[]>(() => {
 })
 
 watch(tableData, (val) => {
-  const groupIds = val.filter(r => 'isGroup' in r && r.isGroup).map(r => r.id)
-  expandedRowKeys.value = groupIds
+  // Сохраняем уже раскрытые ключи, а не сбрасываем всё
+  const currentKeys = new Set(expandedRowKeys.value)
+  const newGroupIds = new Set<string>()
+  const collectGroupIds = (items: any[]) => {
+    for (const item of items) {
+      if ('isGroup' in item && item.isGroup) {
+        newGroupIds.add(item.id)
+      }
+    }
+  }
+  collectGroupIds(val)
+  // Оставляем только те, которые всё ещё существуют
+  expandedRowKeys.value = Array.from(currentKeys).filter(k => newGroupIds.has(k))
 }, { immediate: true })
 
 const exportToExcel = () => {
@@ -880,37 +893,34 @@ const columnsBase: DataTableColumns<InventoryTableRow> = [
     }
   },
   {
-    title: 'Место хранения',
+    title: 'Место хранения (на складе ГП)',
     key: 'storageBin',
-    width: 220,
+    width: 140,
     render: (row) => {
       if ('isGroup' in row && row.isGroup) return null
       const item = row as any
       const value = item.storageBin || ''
-      return h('div', { class: 'editable-storage-cell', style: 'display: flex; align-items: center;' }, [
-        h('input', {
-          class: 'storage-input',
-          style: 'width: 100%; background: transparent; border: 1px solid transparent; border-radius: 4px; padding: 2px 6px; color: #aaa; font-size: 13px; outline: none; transition: all 0.2s;',
-          value: value,
-          placeholder: 'Введите место...',
-          onFocus: (e: FocusEvent) => {
-            const el = e.target as HTMLElement
-            el.style.borderColor = '#18a058'
-            el.style.color = '#fff'
-            el.style.background = 'rgba(24,160,88,0.08)'
+      const itemId = item.id || item.ref_key
+      return h('div', {
+        class: 'storage-bin-cell',
+        style: 'display: flex; align-items: center; gap: 4px;',
+        title: value || 'Место не определено'
+      }, [
+        h(NSelect, {
+          value: value || undefined,
+          options: storageBinOptions.value,
+          placeholder: 'Место не определено',
+          size: 'small',
+          clearable: true,
+          filterable: true,
+          style: 'max-width: 140px;',
+          onFocus: () => {
+            loadStorageBins()
           },
-          onBlur: (e: FocusEvent) => {
-            const el = e.target as HTMLElement
-            el.style.borderColor = 'transparent'
-            el.style.color = '#aaa'
-            el.style.background = 'transparent'
-          },
-          onChange: (e: Event) => {
-            const target = e.target as HTMLInputElement
-            const newValue = target.value
-            const itemId = item.id || item.ref_key
+          onUpdateValue: (val: string | undefined) => {
             if (itemId) {
-              saveStorageBin(itemId, newValue, item)
+              saveStorageBin(itemId, val || '', item)
+              item.storageBin = val || ''
             }
           }
         })
@@ -1132,6 +1142,37 @@ const handleTransactionSubmit = (transactionData: Partial<InventoryTransaction> 
 const handleSorterChange = () => {
 }
 
+// Справочник мест хранения ГП
+const storageBins = ref<Array<{ id: number; name: string }>>([])
+
+const loadStorageBins = async () => {
+  try {
+    const res = await fetch(`${API_BASE_URL}/storage-bins`)
+    if (res.ok) {
+      const data = await res.json()
+      const newBins = (data.storageBins || []).map((b: any) => ({ id: b.id, name: b.name }))
+
+      // Очищаем устаревшие storageBin у товаров
+      if (storageBins.value.length > 0) {
+        const validNames = new Set(newBins.map(b => b.name))
+        inventoryStore.items.forEach(item => {
+          if (item.storageBin && !validNames.has(item.storageBin)) {
+            inventoryStore.updateItem(item.id, { storageBin: '' })
+          }
+        })
+      }
+
+      storageBins.value = newBins
+    }
+  } catch (err) {
+    console.error('Error loading storage bins:', err)
+  }
+}
+
+const storageBinOptions = computed(() =>
+  storageBins.value.map(b => ({ label: b.name, value: b.name }))
+)
+
 // Сохранение места хранения в БД
 const saveStorageBin = async (itemId: string, value: string, item: any) => {
   try {
@@ -1142,12 +1183,17 @@ const saveStorageBin = async (itemId: string, value: string, item: any) => {
       body: JSON.stringify({ storageBin: value })
     })
     if (!response.ok) throw new Error('Failed to save')
-    // Обновляем локально
-    item.storageBin = value
+    inventoryStore.updateItem(itemId, { storageBin: value })
   } catch (err) {
     console.error('Error saving storage location:', err)
     message.error('Не удалось сохранить место хранения')
   }
+}
+
+// Проверка: значение есть в справочнике?
+const isValidStorageBin = (value: string): boolean => {
+  if (!value) return false
+  return storageBins.value.some(b => b.name === value)
 }
 
 const rowProps = (row: InventoryTableRow) => {
@@ -1230,5 +1276,26 @@ const rowProps = (row: InventoryTableRow) => {
 .storage-input::placeholder {
   color: #555;
   font-size: 12px;
+}
+
+.storage-bin-cell {
+  position: relative;
+}
+
+.storage-bin-cell:hover::after {
+  content: attr(title);
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 4px 10px;
+  background: #333;
+  color: #fff;
+  font-size: 12px;
+  white-space: nowrap;
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  z-index: 1000;
+  pointer-events: none;
 }
 </style>

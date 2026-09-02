@@ -64,6 +64,10 @@ const menuOptions = computed<MenuOption[]>(() => {
         {
           label: 'Готовая продукция',
           key: '/finished-products',
+        },
+        {
+          label: 'Места хранения',
+          key: '/storage-bins',
         }
       ]
     },

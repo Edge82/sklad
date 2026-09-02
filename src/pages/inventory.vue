@@ -41,7 +41,7 @@
               ({{ integrationStore.syncProgress }}%)
             </template>
           </n-button>
-          <n-button @click="showCreateModal = true" type="primary">
+          <n-button @click="openCreateModal" type="primary">
             <template #icon>
               <n-icon><AddOutline /></n-icon>
             </template>
@@ -218,11 +218,11 @@
 
       <!-- Модалки -->
       <InventoryItemModal
-        v-model:show="showCreateModal"
+        :show="showCreateModal"
         :item-id="selectedItemId"
         mode="material"
         @submit="handleItemSubmit"
-        @update:show="(val) => !val && (selectedItemId = null)"
+        @update:show="handleModalClose"
       />
 
       <InventoryReportModal v-model:show="showReportModal" />
@@ -346,7 +346,6 @@ onActivated(async () => {
 function handleSyncCompleted() {
   tableKey.value++
   inventoryStore.loadStocksFromApi()
-  message.success('Данные обновлены')
 }
 
 onMounted(() => {
@@ -369,6 +368,17 @@ const handleSync1C = async () => {
 
 // Модальные окна
 const showCreateModal = ref(false)
+const cameFromCreate = ref(false)
+
+const handleModalClose = (val: boolean) => {
+  selectedItemId.value = null
+  showCreateModal.value = val
+}
+
+const openCreateModal = () => {
+  selectedItemId.value = null
+  showCreateModal.value = true
+}
 const showReportModal = ref(false)
 const showIssueModal = ref(false)
 const showDetailsModal = ref(false)

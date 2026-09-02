@@ -28,6 +28,7 @@
                 <img :src="qrUrl" class="qr-image" />
                 <div class="label-title">{{ title }}</div>
                 <div v-if="extraInfo" class="qr-extra-info">{{ extraInfo }}</div>
+                <div v-if="storageBin" class="qr-storage-bin">Место: {{ storageBin }}</div>
               </div>
             </div>
           </div>
@@ -61,6 +62,7 @@ const props = defineProps<{
   code: string
   description?: string
   isPackage?: boolean
+  storageBin?: string
 }>()
 
 const emit = defineEmits(['update:show'])
@@ -188,7 +190,26 @@ function handlePrint() {
             display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
             white-space: pre-wrap; word-break: break-word;
           }
-          .qr-code-text {
+.qr-storage-bin {
+  font-size: 16pt;
+  font-weight: 900;
+  color: #000;
+  -webkit-text-stroke: 0.25px #000;
+  text-fill-color: #000;
+  line-height: 1.15;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  word-break: break-word;
+  flex-shrink: 0;
+  border-top: 0.3mm solid #ccc;
+  padding-top: 1mm;
+}
+
+.qr-code-text {
             font-size: 8pt; font-family: monospace; font-weight: 600;
             color: #444; word-break: break-all;
           }
@@ -384,6 +405,23 @@ function escapeHtml(text: string): string {
   -webkit-box-orient: vertical;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.qr-storage-bin {
+  font-size: 16pt;
+  font-weight: 900;
+  color: #000;
+  line-height: 1.15;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  word-break: break-word;
+  flex-shrink: 0;
+  border-top: 0.3mm solid #ccc;
+  padding-top: 1mm;
 }
 
 .qr-code-text {

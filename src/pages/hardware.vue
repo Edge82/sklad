@@ -5,7 +5,7 @@
         <n-h1>Фурнитура</n-h1>
         <n-text depth="3">Склад фурнитуры — выдача и возврат</n-text>
       </div>
-      <n-button v-if="!userStore.isWorker" type="primary" @click="handleSync">
+      <n-button v-if="!userStore.isWorker" type="primary" :loading="syncing" @click="handleSync">
         <template #icon><n-icon><SyncOutline /></n-icon></template>
         Синхронизировать
       </n-button>
@@ -105,7 +105,7 @@
           <n-select v-model:value="itemsPerPage" :options="pageSizeOptions" class="w-24!" />
         </div>
       </div>
-      <n-data-table :columns="columns" :data="filteredItems" :pagination="pagination" :row-props="(row: any) => ({
+      <n-data-table :columns="columns" :data="filteredItems" :pagination="pagination" max-height="calc(100vh - 350px)" :row-props="(row: any) => ({
         class: row.hasDiscrepancy ? 'discrepancy-row' : '',
         style: 'cursor: pointer',
         onClick: () => { if (row.refKey) router.push(`/hardware/${encodeURIComponent(row.refKey)}`) }
@@ -123,14 +123,15 @@
         <n-text type="success">{{ selectedItem.availableStock }} {{ selectedItem.unit || 'шт' }}</n-text>
       </n-form-item>
       <n-form-item label="Кол-во" path="quantity" required>
-        <n-input-number v-model:value="issueForm.quantity" :min="1" :max="selectedItem.availableStock" placeholder="Введите количество" />
+        <n-input-number v-model:value="issueForm.quantity" :min="1" placeholder="Введите количество" />
       </n-form-item>
       <n-form-item label="Кому выдать" path="employeeId" required>
         <n-select v-model:value="issueForm.employeeId" :options="employeeOptions" placeholder="Выберите сотрудника" filterable />
       </n-form-item>
-      <n-form-item label="Заказ покупателя">
-        <n-select v-model:value="issueForm.orderId" :options="orderOptions" placeholder="Выберите заказ (необязательно)" filterable clearable />
+      <n-form-item label="Заказ покупателя" path="orderId" :show-feedback="false" required>
+        <n-select v-model:value="issueForm.orderId" :options="orderOptions" placeholder="Выберите заказ" filterable :class="orderError ? 'n-input--status-error' : ''" />
       </n-form-item>
+      <div v-if="orderError" class="text-red-400 text-xs mt-1 -mb-2">Выберите заказ покупателя</div>
     </n-form>
     <template #footer>
       <div class="flex justify-end gap-2">
@@ -208,6 +209,7 @@ const showIssueModal = ref(false)
 const selectedItem = ref<any>(null)
 const issuing = ref(false)
 const issueForm = reactive({ employeeId: null as string | null, quantity: 1, orderId: null as string | null })
+const orderError = ref(false)
 const employeeOptions = computed(() => employeesStore.employees.map(e => ({ label: e.name, value: e.id })))
 const orderOptions = computed(() => ordersStore.orders.map(o => ({ label: `${o.orderNumber} — ${o.customerName}`, value: o.id })))
 
@@ -216,13 +218,15 @@ const handleIssue = async (item: any) => {
   issueForm.employeeId = null
   issueForm.quantity = 1
   issueForm.orderId = null
+  orderError.value = false
   await ordersStore.loadOrdersFromApi()
   showIssueModal.value = true
 }
 
 const confirmIssue = async () => {
   if (!selectedItem.value || !issueForm.employeeId) { message.warning('Выберите сотрудника'); return }
-  if (selectedItem.value.hasDiscrepancy) { message.error('Невозможно выдать — количество в 1С меньше выданного. Проведите инвентаризацию.'); return }
+  if (!issueForm.orderId) { orderError.value = true; message.warning('Выберите заказ покупателя'); return }
+  orderError.value = false
   if (!issueForm.quantity || issueForm.quantity < 1) { message.warning('Укажите количество'); return }
   const employee = employeesStore.employees.find(e => e.id === issueForm.employeeId)
   if (!employee) return
@@ -259,21 +263,19 @@ const columns: DataTableColumns<any> = [
   }},
   { title: 'Место хранения', key: 'location', render(row) { return row.location || '—' } },
   { title: 'Склад', key: 'warehouse', width: 150, render(row) { return row.warehouse || '—' } },
-  { title: 'Действия', key: 'actions', width: 140, render(row) {
-    if (userStore.isWorker) return null
-    if (row.hasDiscrepancy) {
-      return h(NButton, { size: 'tiny', type: 'error', ghost: true, onClick: (e: MouseEvent) => { e.stopPropagation(); router.push(`/hardware/${encodeURIComponent(row.refKey)}`) } }, { default: () => '🔧 Инвентаризация' })
-    }
-    if (row.availableStock > 0) {
-      return h(NButton, { size: 'tiny', type: 'primary', ghost: true, onClick: (e: MouseEvent) => { e.stopPropagation(); handleIssue(row) } }, { icon: () => h(NIcon, null, { default: () => h(LogInOutline) }), default: () => 'Выдать' })
-    }
-    return null
-  }}
+   { title: 'Действия', key: 'actions', width: 90, render(row) {
+     if (userStore.isWorker) return null
+     return h(NButton, { size: 'tiny', type: 'primary', ghost: true, onClick: (e: MouseEvent) => { e.stopPropagation(); handleIssue(row) } }, { icon: () => h(NIcon, null, { default: () => h(LogInOutline) }), default: () => 'Выдать' })
+   }}
 ]
 
+const syncing = ref(false)
+
 const handleSync = async () => {
+  syncing.value = true
   try { await hardwareStore.loadHardwareFromApi(); message.success('Данные синхронизированы') }
   catch { message.error('Ошибка синхронизации') }
+  finally { syncing.value = false }
 }
 
 onMounted(async () => { await Promise.all([hardwareStore.loadHardwareFromApi(), employeesStore.loadEmployeesFromApi()]) })

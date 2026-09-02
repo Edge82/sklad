@@ -5,7 +5,7 @@
         <n-h1>Учёт инструментов</n-h1>
         <n-text depth="3">Инвентарь, МБП, хоз.принадлежности</n-text>
       </div>
-      <n-button v-if="!userStore.isWorker" type="primary" @click="handleSync">
+      <n-button v-if="!userStore.isWorker" type="primary" :loading="syncing" @click="handleSync">
         <template #icon><n-icon><SyncOutline /></n-icon></template>
         Синхронизировать
       </n-button>
@@ -169,6 +169,7 @@
         :columns="columns"
         :data="filteredItems"
         :pagination="pagination"
+        max-height="calc(100vh - 350px)"
         :row-props="(row: any) => ({
           class: row.hasDiscrepancy ? 'discrepancy-row' : '',
           style: 'cursor: pointer',
@@ -500,12 +501,17 @@ const columns: DataTableColumns<any> = [
   }
 ]
 
+const syncing = ref(false)
+
 const handleSync = async () => {
+  syncing.value = true
   try {
     await toolsStore.loadToolsFromApi()
     message.success('Данные синхронизированы')
   } catch {
     message.error('Ошибка синхронизации')
+  } finally {
+    syncing.value = false
   }
 }
 

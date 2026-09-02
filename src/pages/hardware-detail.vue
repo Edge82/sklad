@@ -13,14 +13,25 @@
         <n-h1 class="m-0">{{ stock ? stock.name : '...' }}</n-h1>
       </div>
 
-      <n-grid :cols="5" :x-gap="12" :y-gap="12" class="items-stretch py-2">
+      <n-grid :cols="6" :x-gap="12" :y-gap="12" class="items-stretch py-2">
         <n-gi>
           <n-card size="small" class="metric-card h-full flex flex-col justify-center">
             <div class="flex items-center gap-3 py-1">
               <n-icon size="28" color="#2080f0"><CubeOutline /></n-icon>
               <div>
-                <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">На складе</n-text>
-                <n-h3 class="m-0 leading-none">{{ totalQuantity }}</n-h3>
+                <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">На складе ТМЦ</n-text>
+                <n-h3 class="m-0 leading-none">{{ effectiveTmcQuantity }}</n-h3>
+              </div>
+            </div>
+          </n-card>
+        </n-gi>
+        <n-gi>
+          <n-card size="small" class="metric-card h-full flex flex-col justify-center">
+            <div class="flex items-center gap-3 py-1">
+              <n-icon size="28" color="#18a058"><CubeOutline /></n-icon>
+              <div>
+                <n-text depth="3" class="text-[10px] uppercase font-bold tracking-wider">На складе ГП</n-text>
+                <n-h3 class="m-0 leading-none">{{ fgQuantity }}</n-h3>
               </div>
             </div>
           </n-card>
@@ -122,11 +133,14 @@ const message = useMessage()
 const loading = ref(false)
 
 const stock = ref<any>(null)
+const fgStock = ref<any>(null)
 const allCheckouts = ref<any[]>([])
 
 const issuedTotal = computed(() => allCheckouts.value.reduce((sum, c) => sum + Number(c.quantity || 0), 0))
 const totalQuantity = computed(() => Number(stock.value?.quantity || stock.value?.current_stock || 0))
-const availableStock = computed(() => totalQuantity.value - issuedTotal.value)
+const fgQuantity = computed(() => Number(fgStock.value?.quantity || fgStock.value?.current_stock || 0))
+const effectiveTmcQuantity = computed(() => totalQuantity.value - fgQuantity.value)
+const availableStock = computed(() => Number(stock.value?.current_stock ?? 0))
 const onecQuantity = computed(() => Number(stock.value?.quantity || 0))
 const hasDiscrepancy = computed(() => onecQuantity.value < issuedTotal.value)
 
@@ -232,6 +246,7 @@ const loadData = async () => {
     if (res.ok) {
       const data = await res.json()
       stock.value = data.stock
+      fgStock.value = data.fgStock || null
       allCheckouts.value = data.checkouts || []
     }
   } catch (err) { console.error('Error loading hardware detail:', err) }

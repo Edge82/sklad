@@ -627,4 +627,38 @@ try {
   console.error('Error adding order_number to material_checkouts:', err.message)
 }
 
+try {
+  const fittingsBinsTableExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='order_item_fittings_bins'").get()
+  if (!fittingsBinsTableExists) {
+    db.exec(`
+      CREATE TABLE order_item_fittings_bins (
+        order_number TEXT NOT NULL,
+        product_id TEXT NOT NULL,
+        storage_bin TEXT DEFAULT '',
+        PRIMARY KEY (order_number, product_id)
+      )
+    `)
+    console.log('✓ Created order_item_fittings_bins table')
+  }
+} catch (err) {
+  console.error('Error initializing order_item_fittings_bins table:', err.message)
+}
+
+try {
+  const storageBinsExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='storage_bins'").get()
+  if (!storageBinsExists) {
+    db.exec(`
+      CREATE TABLE storage_bins (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE,
+        notes TEXT DEFAULT '',
+        created_at TEXT DEFAULT (datetime('now'))
+      )
+    `)
+    console.log('✓ Created storage_bins table')
+  }
+} catch (err) {
+  console.error('Error initializing storage_bins table:', err.message)
+}
+
 console.log('✅ Database initialized')

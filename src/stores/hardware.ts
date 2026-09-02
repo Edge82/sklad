@@ -80,7 +80,7 @@ export const useHardwareStore = defineStore('hardware', () => {
         const checkedOutQty = itemCheckouts.reduce((s: number, c: any) => s + Number(c.quantity || 0), 0)
         const onecQuantity = Number(stock.quantity || 0)
         const currentStock = Number(stock.currentStock || stock.quantity || 0)
-        const availableStock = currentStock - checkedOutQty
+        const availableStock = currentStock
         const hasDiscrepancy = onecQuantity < checkedOutQty
 
         let status = 'in_stock'

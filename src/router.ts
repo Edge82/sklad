@@ -20,6 +20,7 @@ import ToolDetail from '@/pages/tool-detail.vue'
 import Hardware from '@/pages/hardware.vue'
 import HardwareDetail from '@/pages/hardware-detail.vue'
 import MyHardware from '@/pages/my-hardware.vue'
+import StorageBins from '@/pages/storage-bins.vue'
 
 const routes: RouteRecordRaw[] = [
   {
@@ -120,6 +121,11 @@ const routes: RouteRecordRaw[] = [
     path: '/transfer-orders',
     component: TransferOrders,
     meta: { title: 'Заказы на перемещение' }
+  },
+  {
+    path: '/storage-bins',
+    component: StorageBins,
+    meta: { title: 'Места хранения' }
   },
 ]
 

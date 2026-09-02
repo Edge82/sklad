@@ -3,7 +3,6 @@ import { createPinia } from 'pinia'
 import App from './App.vue'
 import router from './router'
 import '@/composables/useAuthFetch'
-import '@/composables/useAuthFetch'
 
 // Naive UI глобальная регистрация
 import * as Naive from 'naive-ui'

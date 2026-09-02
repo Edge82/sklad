@@ -19,6 +19,9 @@ export const useIntegrationStore = defineStore('integration', () => {
   const serverLastSyncStocks = ref<string | null>(null)
   let prevLastSync = typeof window !== 'undefined' ? localStorage.getItem('1c_last_sync') : null
   let prevLastSyncStocks: string | null = null
+  let prevLastSyncOrders: string | null = null
+  let prevLastSyncWarehouses: string | null = null
+  let prevLastSyncTransferOrders: string | null = null
   const settings = ref({
     importOrders: true,
     importNomenclature: true,
@@ -39,6 +42,9 @@ export const useIntegrationStore = defineStore('integration', () => {
         const data = await resp.json()
         prevLastSync = data.lastSync || null
         prevLastSyncStocks = data.lastSyncByType?.stocks || null
+        prevLastSyncOrders = data.lastSyncByType?.orders || null
+        prevLastSyncWarehouses = data.lastSyncByType?.warehouses || null
+        prevLastSyncTransferOrders = data.lastSyncByType?.transfer_orders || null
       }
     } catch { /* ignore */ }
   }
@@ -64,22 +70,40 @@ export const useIntegrationStore = defineStore('integration', () => {
             isSyncing.value = false
           }
 
-          // Проверяем по lastSync (полный синк)
+          // Проверяем по lastSync (полный синк) и по типам
           const currentLastSync = data.lastSync || ''
           const currentLastSyncStocks = data.lastSyncByType?.stocks || ''
+          const currentLastSyncOrders = data.lastSyncByType?.orders || ''
+          const currentLastSyncWarehouses = data.lastSyncByType?.warehouses || ''
+          const currentLastSyncTransferOrders = data.lastSyncByType?.transfer_orders || ''
           let shouldReload = false
 
           if (currentLastSync && currentLastSync !== prevLastSync) {
-            prevLastSync = currentLastSync
             shouldReload = true
           }
 
           if (currentLastSyncStocks && currentLastSyncStocks !== prevLastSyncStocks) {
-            prevLastSyncStocks = currentLastSyncStocks
+            shouldReload = true
+          }
+
+          if (currentLastSyncOrders && currentLastSyncOrders !== prevLastSyncOrders) {
+            shouldReload = true
+          }
+
+          if (currentLastSyncWarehouses && currentLastSyncWarehouses !== prevLastSyncWarehouses) {
+            shouldReload = true
+          }
+
+          if (currentLastSyncTransferOrders && currentLastSyncTransferOrders !== prevLastSyncTransferOrders) {
             shouldReload = true
           }
 
           if (shouldReload) {
+            prevLastSync = currentLastSync
+            prevLastSyncStocks = currentLastSyncStocks
+            prevLastSyncOrders = currentLastSyncOrders
+            prevLastSyncWarehouses = currentLastSyncWarehouses
+            prevLastSyncTransferOrders = currentLastSyncTransferOrders
             lastSyncTime.value = currentLastSync || currentLastSyncStocks
             if (typeof window !== 'undefined') {
               localStorage.setItem('1c_last_sync', lastSyncTime.value || '')
@@ -88,7 +112,7 @@ export const useIntegrationStore = defineStore('integration', () => {
             inventoryStore.loadStocksFromApi().catch(() => {})
             ordersStore.loadOrdersFromApi().catch(() => {})
 
-            syncEvents.emit('sync-completed', { type: 'stocks' })
+            syncEvents.emit('sync-completed', { type: 'all' })
             syncMessage.value = 'Синхронизация завершена'
             setTimeout(() => { syncMessage.value = '' }, 5000)
           }
