@@ -571,6 +571,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, onActivated, h, onBeforeUnmount, watch, nextTick, onUnmounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useStockBalances } from '@/composables/useStockBalances'
 import { syncEvents } from '@/utils/syncEvents'
 import { useMessage } from 'naive-ui'
@@ -741,6 +742,8 @@ const selectedOrder = ref<TransferOrder | null>(null)
 const scannedBarcodes = ref<Set<string>>(new Set())
 
 // Create order modal state
+const route = useRoute()
+const router = useRouter()
 const showCreateModal = ref(false)
 const createSaving = ref(false)
 const editingOrderRefKey = ref<string | null>(null)
@@ -817,7 +820,7 @@ const canSaveCreate = computed(() => {
   if (createForm.sourceWarehouseKey === createForm.destinationWarehouseKey) return false
   if (createForm.items.length === 0) return false
   for (const item of createForm.items) {
-    const avail = (item as CreateItem).availableStock || 0
+    const avail = Math.round(((item as CreateItem).availableStock || 0) * 100) / 100
     if (avail > 0 && (item as CreateItem).quantity > avail) return false
   }
   return true
@@ -1006,7 +1009,7 @@ const createItemsColumns: DataTableColumns<CreateItem> = [
     width: 100,
     align: 'center',
     render: (row) => {
-      const avail = row.availableStock || 0
+      const avail = Math.round((row.availableStock || 0) * 100) / 100
       return h('span', { style: 'color: ' + (avail > 0 ? '#18a058' : '#ff7d51') }, String(avail))
     }
   },
@@ -1017,7 +1020,7 @@ const createItemsColumns: DataTableColumns<CreateItem> = [
     align: 'center',
     render: (row, index) => {
       const qty = createForm.items[index]?.quantity || 0
-      const avail = row.availableStock || 0
+      const avail = Math.round((row.availableStock || 0) * 100) / 100
       const overStock = avail > 0 && qty > avail
       return h(NTooltip, {
         trigger: 'hover',
@@ -1827,8 +1830,14 @@ const columns: DataTableColumns<TransferOrder> = [
     key: 'statusDescription',
     width: 140,
     render: (row) => {
-      const status = row.statusDescription || 'Неизвестно'
-      const type = status === 'Завершен' ? 'error' : 'warning'
+      const status = row.statusDescription || 'Черновик'
+      const typeMap: Record<string, string> = {
+        'В работе (ячейки)': 'success',
+        'В работе (к списанию)': 'warning',
+        'Завершен (ячейки)': 'info',
+        'Завершен (списание)': 'error',
+      }
+      const type = row.Ref_Key?.startsWith('LOCAL-') ? 'info' : (typeMap[status] || 'warning')
       return h(NTag, { type }, {
         default: () => status
       })
@@ -1857,130 +1866,159 @@ const columns: DataTableColumns<TransferOrder> = [
   },
 ]
 
-const itemsColumns: DataTableColumns<any> = [
-  {
-    title: 'Товар',
-    key: 'nomenclatureName',
-    width: 300,
-    render: (row) => h('div', { style: 'word-break: break-word; white-space: normal' }, row.nomenclatureName || '-')
-  },
-  {
-    title: 'Штрих код',
-    key: 'barcode',
-    width: 160,
-    render: (row) => {
-      if (selectedOrder.value?.statusDescription !== 'В работе (ячейки)') {
-        return row.barcode || '-'
-      }
-      return h('div', { class: 'flex items-center gap-1' }, [
-        h('span', { style: 'flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap' }, row.barcode || '-'),
-        h(NButton, {
-          type: 'primary',
-          ghost: true,
-          size: 'tiny',
-          onClick: () => generateItemBarcode(row)
-        }, { default: () => h(NIcon, {}, { default: () => h(CloudUploadOutline) }) })
-      ])
-    }
-  },
-  {
-    title: 'Заказ покупателя',
-    key: 'customerOrderNumber',
-    width: 150,
-    render: (row) => row.customerOrderNumber || '-'
-  },
-  {
-    title: 'Место хранения (склад ТМЦ)',
-    key: 'storageBin',
-    width: 150,
-    render: (row) => {
-      if (selectedOrder.value?.statusDescription !== 'В работе (ячейки)') {
-        return row.storageBin || '-'
-      }
-      return h(NInput, {
-        value: row.storageBin || '',
-        placeholder: 'А/2',
-        size: 'small',
-        style: { width: '130px' },
-        onInput: (val: string) => { row.storageBin = val },
-        onBlur: () => {
-          saveItemField(row, 'storageBin', row.storageBin || '')
+const isCompletedOrder = computed(() => {
+  const status = selectedOrder.value?.statusDescription || ''
+  return status === 'Завершен (ячейки)' || status === 'Завершен (списание)'
+})
+
+const itemsColumns = computed<DataTableColumns<any>>(() => {
+  const cols: DataTableColumns<any>[] = [
+    {
+      title: 'Товар',
+      key: 'nomenclatureName',
+      width: 300,
+      render: (row) => h('div', { style: 'word-break: break-word; white-space: normal' }, row.nomenclatureName || '-')
+    },
+  ]
+
+  if (!isCompletedOrder.value) {
+    cols.push({
+      title: 'Штрих код',
+      key: 'barcode',
+      width: 160,
+      render: (row) => {
+        if (selectedOrder.value?.statusDescription !== 'В работе (ячейки)') {
+          return row.barcode || '-'
         }
-      })
-    }
-  },
-  {
-    title: 'Количество',
-    key: 'Количество',
-    width: 100,
-    align: 'center'
-  },
-  {
-    title: 'Отсканировано',
-    key: 'scannedQty',
-    width: 180,
-    align: 'center',
-    render: (row) => {
-      const scanned = row.scannedQty || 0
-      const required = row.Количество || 0
-
-      if (!scanningMode.value) {
-        return String(scanned)
+        return h('div', { class: 'flex items-center gap-1' }, [
+          h('span', { style: 'flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap' }, row.barcode || '-'),
+          h(NButton, {
+            type: 'primary',
+            ghost: true,
+            size: 'tiny',
+            onClick: () => generateItemBarcode(row)
+          }, { default: () => h(NIcon, {}, { default: () => h(CloudUploadOutline) }) })
+        ])
       }
+    })
+  }
 
-      return h('div', { class: 'flex items-center gap-2 justify-center' }, [
-        h(NButton, {
-          text: true,
-          type: 'primary',
+  cols.push(
+    {
+      title: 'Заказ покупателя',
+      key: 'customerOrderNumber',
+      width: 150,
+      render: (row) => row.customerOrderNumber || '-'
+    },
+    {
+      title: 'Место хранения (склад ТМЦ)',
+      key: 'storageBin',
+      width: 150,
+      render: (row) => {
+        if (isCompletedOrder.value) return row.storageBin || '-'
+        if (selectedOrder.value?.statusDescription !== 'В работе (ячейки)') {
+          return row.storageBin || '-'
+        }
+        return h(NInput, {
+          value: row.storageBin || '',
+          placeholder: 'А/2',
           size: 'small',
-          onClick: () => {
-            if (scanned > 0) {
-              row.scannedQty = scanned - 1
-            }
-          }
-        }, { default: () => '−' }),
-        h(NInput, {
-          value: row._scannedQtyInput ?? String(scanned).replace('.', ','),
-          type: 'text',
-          size: 'small',
-          style: { width: '80px', textAlign: 'center' },
-          onInput: (val: string) => {
-            if (row) {
-              row._scannedQtyInput = val
-            }
-          },
+          style: { width: '130px' },
+          onInput: (val: string) => { row.storageBin = val },
           onBlur: () => {
-            if (row._scannedQtyInput != null) {
-              const num = parseFloat(String(row._scannedQtyInput).replace(',', '.'))
-              row.scannedQty = isNaN(num) ? scanned : Math.max(0, Math.min(num, required + 5))
-              delete row._scannedQtyInput
-            }
-          },
-          onKeydown: (e: KeyboardEvent) => {
-            if (e.key === 'Enter') {
-              const target = e.target as HTMLInputElement
-              target?.blur()
-            }
+            saveItemField(row, 'storageBin', row.storageBin || '')
           }
-        }),
-        h(NButton, {
-          text: true,
-          type: 'primary',
-          size: 'small',
-          onClick: () => {
-            row.scannedQty = scanned + 1
-          }
-        }, { default: () => '+' })
-      ])
+        })
+      }
+    },
+    {
+      title: 'Количество',
+      key: 'Количество',
+      width: 100,
+      align: 'center'
     }
-  },
-  {
+  )
+
+  if (!isCompletedOrder.value) {
+    cols.push({
+      title: 'Отсканировано',
+      key: 'scannedQty',
+      width: 180,
+      align: 'center',
+      render: (row) => {
+        const scanned = row.scannedQty || 0
+        const required = row.Количество || 0
+
+        if (!scanningMode.value) {
+          return String(scanned)
+        }
+
+        return h('div', { class: 'flex items-center gap-2 justify-center' }, [
+          h(NButton, {
+            text: true,
+            type: 'primary',
+            size: 'small',
+            onClick: () => {
+              if (scanned > 0) {
+                row.scannedQty = scanned - 1
+              }
+            }
+          }, { default: () => '−' }),
+          h(NInput, {
+            value: row._scannedQtyInput ?? String(scanned).replace('.', ','),
+            type: 'text',
+            size: 'small',
+            style: { width: '80px', textAlign: 'center' },
+            onInput: (val: string) => {
+              if (row) {
+                row._scannedQtyInput = val
+              }
+            },
+            onBlur: () => {
+              if (row._scannedQtyInput != null) {
+                const num = parseFloat(String(row._scannedQtyInput).replace(',', '.'))
+                row.scannedQty = isNaN(num) ? scanned : Math.max(0, Math.min(num, required + 5))
+                delete row._scannedQtyInput
+              }
+            },
+            onKeydown: (e: KeyboardEvent) => {
+              if (e.key === 'Enter') {
+                const target = e.target as HTMLInputElement
+                target?.blur()
+              }
+            }
+          }),
+          h(NButton, {
+            text: true,
+            type: 'primary',
+            size: 'small',
+            onClick: () => {
+              row.scannedQty = scanned + 1
+            }
+          }, { default: () => '+' })
+        ])
+      }
+    })
+  }
+
+  if (isCompletedOrder.value) {
+    cols.push({
+      title: 'Изделие',
+      key: 'selectedProduct',
+      width: 180,
+      render: (row) => row.selectedProduct || '-'
+    })
+  }
+
+  cols.push({
     title: 'Примечание',
     key: 'note',
     width: 200,
     render: (row) => h('div', { style: 'word-break: break-word; white-space: normal' }, row.note || '-')
-  }
-]
+  })
+
+  return cols
+})
 
 const localItemsColumns: DataTableColumns<any> = [
   {
@@ -2360,6 +2398,34 @@ const sendTo1C = async () => {
 const openAddItemsModal = async () => {
   editingOrderRefKey.value = selectedOrder.value?.Ref_Key || null
   showCreateModal.value = true
+
+  // Load warehouse options if not yet loaded
+  if (warehouseOptions.value.length === 0) {
+    const [whRes, allRes] = await Promise.all([
+      fetch('/sklad/api/onec/warehouses'),
+      fetch('/sklad/api/onec/warehouses?all=1')
+    ])
+    const mapItems = (items: any[]) => items.map((w: any) => ({
+      label: w.name || w.description || w.Description || w.id,
+      value: w.id || w.ref_key || w.Ref_Key
+    }))
+    try {
+      warehouseOptions.value = mapItems(((await whRes.json()).value || []))
+    } catch { warehouseOptions.value = [] }
+    try {
+      warehouseOptionsAll.value = mapItems(((await allRes.json()).value || []))
+    } catch { warehouseOptionsAll.value = [] }
+    if (warehouseOptions.value.length === 0) {
+      warehouseOptions.value = [
+        { label: 'Основной склад', value: 'main' },
+        { label: 'Склад готовой продукции', value: 'finished' }
+      ]
+    }
+    if (warehouseOptionsAll.value.length === 0) {
+      warehouseOptionsAll.value = warehouseOptions.value
+    }
+  }
+
   if (selectedOrder.value?.items) {
     createForm.items = selectedOrder.value.items.map((item: any) => ({
       nomenclatureKey: item.Номенклатура_Key || item.nomenclatureKey,
@@ -2614,20 +2680,34 @@ onMounted(async () => {
 
   inventoryStore.loadStocksFromApi().catch(() => {})
 
+  // Auto-search from URL ?search= parameter
+  const searchParam = route.query.search as string
+  if (searchParam) {
+    createBarcodeBuffer.value = searchParam
+    await nextTick()
+    await nextTick()
+    const rows = document.querySelectorAll('.n-data-table tbody tr')
+    for (const row of rows as NodeListOf<HTMLElement>) {
+      const cells = row.querySelectorAll('td')
+      for (const cell of cells) {
+        if (cell.textContent?.includes(searchParam)) {
+          cell.scrollIntoView({ behavior: 'smooth', block: 'center' })
+          row.style.transition = 'background 0.3s'
+          row.style.background = 'rgba(32,128,240,0.15)'
+          setTimeout(() => { row.style.background = '' }, 3000)
+          break
+        }
+      }
+    }
+  }
+
   // Добавляем обработчик клавиатуры для сканера
   window.addEventListener('keydown', handleKeyDown)
 })
 
 onActivated(async () => {
-  loading.value = true
-  try {
-    const data = await fetchTransferOrders()
-    orders.value = data
-  } catch (error) {
-    console.error('Ошибка при загрузке заказов:', error)
-  } finally {
-    loading.value = false
-  }
+  // Don't reload on every navigation — data is cached in SQLite.
+  // Refresh only after sync (handled by handleTransferSyncCompleted).
 })
 
 // Очищаем обработчик при размонтировании компонента

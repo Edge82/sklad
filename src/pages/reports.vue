@@ -128,20 +128,34 @@
         <div v-else-if="activeTab === 'production'">
           <div class="mb-4 flex justify-between items-center">
             <n-h2 class="m-0">Расход материалов по заказам</n-h2>
-            <div class="flex gap-3">
-              <n-input
-                v-model:value="productionSearchQuery"
-                type="text"
-                placeholder="Поиск по заказу или изделию..."
-                clearable
-                style="width: 500px"
-              />
-            </div>
+          </div>
+          <div class="mb-4 flex gap-3 flex-wrap">
+            <n-input
+              v-model:value="productionSearchQuery"
+              type="text"
+              placeholder="Поиск по заказу или изделию..."
+              clearable
+              style="width: 350px"
+            />
+            <n-input
+              v-model:value="productionCustomerQuery"
+              type="text"
+              placeholder="Поиск по клиенту..."
+              clearable
+              style="width: 250px"
+            />
+            <n-date-picker
+              v-model:value="productionDateRange"
+              type="daterange"
+              placeholder="Период"
+              clearable
+              style="width: 280px"
+            />
           </div>
           <n-card border-variant="dark">
     <n-data-table
       :columns="productionColumns"
-      :data="productionReport"
+      :data="filteredProductionReport"
       :row-key="(row: any) => row.orderNumber"
       v-model:expanded-row-keys="productionExpandedKeys"
       max-height="calc(100vh - 320px)"
@@ -169,6 +183,8 @@
 
 <script setup lang="ts">
 import { ref, computed, h, onMounted, onActivated, watch, markRaw } from 'vue'
+import { useRouter } from 'vue-router'
+import * as XLSX from 'xlsx'
 import { storeToRefs } from 'pinia'
 import { useInventoryStore } from '@/stores/inventory'
 import { useToolsStore } from '@/stores/tools'
@@ -184,9 +200,10 @@ import {
   NSelect, NIcon, NH1, NText, NGrid, NGi, NCard, NH3,
   NDatePicker, NDataTable, NList, NListItem,
   NThing, NAvatar, NTag, NH2, NTable, NEmpty,
-  NInput, type DataTableColumns
+  NInput, NButton, type DataTableColumns
 } from 'naive-ui'
 
+const router = useRouter()
 const inventoryStore = useInventoryStore()
 const toolsStore = useToolsStore()
 const reportsStore = useReportsStore()
@@ -196,6 +213,8 @@ const { ordersReport, topEmployees } = storeToRefs(reportsStore)
 const activeTab = ref('main')
 const productionReport = ref<any[]>([])
 const productionSearchQuery = ref('')
+const productionCustomerQuery = ref('')
+const productionDateRange = ref<number | null>(null)
 const productionExpandedKeys = ref<string[]>([])
 const productExpandedKeys = ref<Record<string, string[]>>({})
 const expandedOrderKeys = ref<string[]>([])
@@ -296,6 +315,56 @@ const handleOrderReportRowClick = (row: OrderReportEntry) => {
 
 const allowedStatuses = ['in_progress', 'ready', 'completed']
 
+const fmtCurrency = (value: number | null | undefined) => {
+  if (value == null) return '—'
+  return Math.round(value * 10) / 10
+}
+
+const saveProductionOrderToFile = (row: any) => {
+  const ws: any[][] = []
+  ws.push(['Заказ:', row.orderNumber])
+  ws.push(['Клиент:', row.customer || ''])
+  ws.push([])
+
+  if (row.products?.length) {
+    for (const p of row.products) {
+      ws.push(['Изделие:', p.name])
+      ws.push(['Материал', 'Кол-во', 'Цена, ₽', 'Сумма, ₽', 'Заказ на перемещение'])
+      let total = 0
+      for (const m of p.materials) {
+        const price = fmtCurrency(m.price || 0)
+        const sum = fmtCurrency((m.price || 0) * m.quantity)
+        ws.push([m.name, m.quantity, price, sum, (m.transferOrderNumbers || []).join(', ')])
+        total += (m.price || 0) * m.quantity
+      }
+      ws.push(['', '', 'Итого:', fmtCurrency(total)])
+      ws.push([])
+    }
+  }
+
+  if (row.orderMaterials?.length) {
+    ws.push(['Прочие материалы'])
+    ws.push(['Материал', 'Кол-во', 'Цена, ₽', 'Сумма, ₽', 'Заказ на перемещение'])
+    let total = 0
+    for (const m of row.orderMaterials) {
+      const price = fmtCurrency(m.price || 0)
+      const sum = fmtCurrency((m.price || 0) * m.quantity)
+      ws.push([m.name, m.quantity, price, sum, (m.transferOrderNumbers || []).join(', ')])
+      total += (m.price || 0) * m.quantity
+    }
+    ws.push(['', '', 'Итого:', fmtCurrency(total)])
+    ws.push([])
+  }
+
+  ws.push(['', '', 'Общая сумма:', fmtCurrency(row.orderTotal || 0)])
+
+  const wb = XLSX.utils.book_new()
+  const wsData = XLSX.utils.aoa_to_sheet(ws)
+  wsData['!cols'] = [{ wch: 50 }, { wch: 10 }, { wch: 15 }, { wch: 15 }, { wch: 30 }]
+  XLSX.utils.book_append_sheet(wb, wsData, 'Производство')
+  XLSX.writeFile(wb, `Производство_${row.orderNumber}.xlsx`)
+}
+
 const filteredOrdersReport = computed(() => {
   return ordersReport.value.filter(r => {
     const order = ordersStore.orders.find((o: any) => o.orderNumber === r.orderNumber)
@@ -323,6 +392,14 @@ watch(productionSearchQuery, () => {
   loadProductionReport()
 })
 
+watch(productionCustomerQuery, () => {
+  productionPage.value = 1
+})
+
+watch(productionDateRange, () => {
+  productionPage.value = 1
+})
+
 const loadProductionReport = async () => {
   try {
     const params = new URLSearchParams()
@@ -338,6 +415,25 @@ const loadProductionReport = async () => {
   } catch { /* ignore */ }
 }
 
+const filteredProductionReport = computed(() => {
+  let result = productionReport.value
+  if (productionCustomerQuery.value) {
+    const q = productionCustomerQuery.value.toLowerCase()
+    result = result.filter(r =>
+      (r.customer || '').toLowerCase().includes(q)
+    )
+  }
+  if (productionDateRange.value && Array.isArray(productionDateRange.value)) {
+    const [start, end] = productionDateRange.value
+    result = result.filter(r => {
+      if (!r.date) return false
+      const d = new Date(r.date).getTime()
+      return d >= start && d <= end
+    })
+  }
+  return result
+})
+
 const productionColumns: DataTableColumns<any> = [
   {
     type: 'expand',
@@ -346,17 +442,30 @@ const productionColumns: DataTableColumns<any> = [
       const children: any[] = []
 
       const materialColumns = [
-        h('th', { style: 'width:30%' }, 'Материал'),
-        h('th', { style: 'width:15%' }, 'Кол-во'),
-        h('th', { style: 'width:25%' }, 'Цена, ₽'),
-        h('th', { style: 'width:30%' }, 'Сумма, ₽')
+        h('th', { style: 'width:25%' }, 'Материал'),
+        h('th', { style: 'width:10%' }, 'Кол-во'),
+        h('th', { style: 'width:15%' }, 'Цена, ₽'),
+        h('th', { style: 'width:15%' }, 'Сумма, ₽'),
+        h('th', { style: 'width:20%' }, 'Заказ на перемещение')
       ]
-      const materialRow = (m: any) => [
-        h('td', m.name),
-        h('td', h(NText, { strong: true }, { default: () => m.quantity })),
-        h('td', h(NText, { depth: 3 }, { default: () => m.price ? Number(m.price).toLocaleString('ru-RU') : '—' })),
-        h('td', h(NText, { strong: true }, { default: () => m.sum ? Number(m.sum).toLocaleString('ru-RU') : '—' }))
-      ]
+      const materialRow = (m: any) => {
+        const tonContent = !m.transferOrderNumbers || m.transferOrderNumbers.length === 0
+          ? '—'
+          : m.transferOrderNumbers.map((ton: string, i: number) =>
+              h('span', {
+                key: i,
+                style: 'cursor:pointer; color:#2080f0; text-decoration:underline;',
+                onClick: () => router.push({ path: '/transfer-orders', query: { search: ton } })
+              }, ton)
+            )
+        return [
+          h('td', m.name),
+          h('td', h(NText, { strong: true }, { default: () => m.quantity })),
+          h('td', h(NText, { depth: 3 }, { default: () => m.price ? fmtCurrency(m.price).toLocaleString('ru-RU') : '—' })),
+          h('td', h(NText, { strong: true }, { default: () => m.sum ? fmtCurrency(m.sum).toLocaleString('ru-RU') : '—' })),
+          h('td', tonContent)
+        ]
+      }
 
       // Products section first
       if (row.products?.length) {
@@ -369,15 +478,15 @@ const productionColumns: DataTableColumns<any> = [
               h(NTable, { size: 'small', singleLine: false, striped: true, style: 'background:transparent' }, {
                 default: () => [
                   h('thead', [h('tr', materialColumns)]),
-                  h('tbody', p.materials.map((m: any) => h('tr', materialRow(m))))
+                  h('tbody', p.materials.map((m: any) => h('tr', [...materialRow(m)])))
                 ]
               }),
-              h('div', { style: 'text-align:right; font-size:13px; font-weight:700; margin-top:6px; padding-top:4px; border-top:1px solid rgba(255,255,255,0.08)' }, `Итого: ${total.toLocaleString('ru-RU')} ₽`)
+              h('div', { style: 'text-align:right; font-size:13px; font-weight:700; margin-top:6px; padding-top:4px; border-top:1px solid rgba(255,255,255,0.08)' }, `Итого: ${fmtCurrency(total).toLocaleString('ru-RU')} ₽`)
             ])
           }},
           { title: 'Изделие', key: 'name', ellipsis: true, render: (p: any) => h(NText, { strong: true, style: 'padding-left:4px' }, { default: () => p.name }) },
           { title: 'Материалов', key: 'materialCount', width: 110, render: (p: any) => h(NTag, { type: 'info', quaternary: true, size: 'small' }, { default: () => `${p.materials?.length || 0} наим.` }) },
-          { title: 'Сумма, ₽', key: 'totalSum', width: 110, render: (p: any) => h(NText, { strong: true, type: 'success' }, { default: () => (p.totalSum || 0).toLocaleString('ru-RU') }) }
+          { title: 'Сумма, ₽', key: 'totalSum', width: 110, render: (p: any) => h(NText, { strong: true, type: 'success' }, { default: () => fmtCurrency(p.totalSum || 0).toLocaleString('ru-RU') }) }
         ]
         children.push(h('div', { style: 'margin:0 4px 8px 4px; border:1px solid rgba(255,255,255,0.08); border-radius:8px; background:rgba(255,255,255,0.03)' }, [
           h('div', { style: 'padding:10px 14px 4px; font-size:12px; font-weight:700; color:#aaa; text-transform:uppercase; letter-spacing:0.5px' }, 'Изделия'),
@@ -411,13 +520,13 @@ const productionColumns: DataTableColumns<any> = [
       if (row.orderMaterials?.length) {
         const total = row.orderMaterials.reduce((s: number, m: any) => s + (m.sum || 0), 0)
         children.push(h('div', { style: 'margin:8px 12px; border-left:3px solid #f0a020; background:rgba(240,160,32,0.06); border-radius:0 6px 6px 0; padding:8px 12px' }, [
-          h('div', { style: 'font-size:12px; font-weight:700; color:#f0a020; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:6px' }, `Прочие материалы по заказу — ${total.toLocaleString('ru-RU')} ₽`),
+          h('div', { style: 'font-size:12px; font-weight:700; color:#f0a020; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:6px' }, `Прочие материалы по заказу — ${fmtCurrency(total).toLocaleString('ru-RU')} ₽`),
           h(NTable, { size: 'small', singleLine: false, striped: true, style: 'background:transparent' }, {
-            default: () => [
-              h('thead', [h('tr', materialColumns)]),
-              h('tbody', row.orderMaterials.map((m: any) => h('tr', materialRow(m))))
-            ]
-          })
+             default: () => [
+               h('thead', [h('tr', materialColumns)]),
+               h('tbody', row.orderMaterials.map((m: any) => h('tr', [...materialRow(m)])))
+             ]
+           })
         ]))
       }
       return h('div', { style: 'padding:4px 0; background:rgba(255,255,255,0.02); border-top:1px solid rgba(255,255,255,0.06)' }, children)
@@ -431,6 +540,13 @@ const productionColumns: DataTableColumns<any> = [
       h('div', { style: 'width:3px; height:20px; background:#f0a020; border-radius:2px; flex-shrink:0' }),
       h(NText, { strong: true }, { default: () => row.orderNumber })
     ])
+  },
+  {
+    title: 'Клиент',
+    key: 'customer',
+    width: 200,
+    ellipsis: true,
+    render: (row: any) => h(NText, { depth: 3 }, { default: () => row.customer || '—' })
   },
   {
     title: 'Изделий',
@@ -451,7 +567,18 @@ const productionColumns: DataTableColumns<any> = [
     title: 'Сумма материалов, ₽',
     key: 'orderTotal',
     width: 150,
-    render: (row: any) => h(NText, { strong: true }, { default: () => row.orderTotal ? Number(row.orderTotal).toLocaleString('ru-RU') : '—' })
+    render: (row: any) => h(NText, { strong: true }, { default: () => row.orderTotal ? fmtCurrency(row.orderTotal).toLocaleString('ru-RU') : '—' })
+  },
+  {
+    title: '',
+    key: 'actions',
+    width: 80,
+    render: (row: any) => h(NButton, {
+      size: 'small',
+      quaternary: true,
+      type: 'primary',
+      onClick: () => saveProductionOrderToFile(row)
+    }, { default: () => 'Сохранить' })
   },
 ]
 
@@ -519,11 +646,11 @@ const ordersReportColumns: DataTableColumns<OrderReportEntry> = [
             ]),
             h('tbody', row.items.map(item => h('tr', [
               h('td', item.productName),
-              h('td', `${(item.price || 0).toLocaleString('ru-RU')} ₽`),
+              h('td', `${fmtCurrency(item.price || 0).toLocaleString('ru-RU')} ₽`),
               h('td', h(NText, { strong: true }, { default: () => item.quantity })),
               h('td', item.unit),
               h('td', h(NText, { strong: true }, { default: () => (item as any).reserve ? Number((item as any).reserve).toLocaleString('ru-RU') : '0' })),
-              h('td', h(NText, { strong: true }, { default: () => `${((item.price || 0) * item.quantity).toLocaleString('ru-RU')} ₽` }))
+              h('td', h(NText, { strong: true }, { default: () => `${fmtCurrency((item.price || 0) * item.quantity).toLocaleString('ru-RU')} ₽` }))
             ])))
           ]
         })

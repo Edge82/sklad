@@ -3802,6 +3802,25 @@ const materialReturns = db.prepare(`
         }
       })
 
+      // Enrich prices from onec_stocks (averagePrice first, same as inventory page)
+      const stockPrices = db.prepare('SELECT DISTINCT name, averagePrice, purchasePrice FROM onec_stocks').all()
+      const priceByName = new Map()
+      for (const s of stockPrices) {
+        const price = Number(s.averagePrice || s.purchasePrice || 0)
+        if (price > 0 && s.name) {
+          priceByName.set(s.name.toLowerCase().trim(), price)
+        }
+      }
+      for (const entry of result) {
+        for (const item of entry.items) {
+          const name = (item.productName || '').toLowerCase().trim()
+          if (priceByName.has(name)) {
+            item.price = priceByName.get(name)
+          }
+        }
+        entry.totalAmount = entry.items.reduce((sum, i) => sum + (i.price || 0) * i.quantity, 0)
+      }
+
       sendJSON(res, 200, { success: true, reports: result })
     } catch (err) {
       console.error('Error getting orders report:', err)
@@ -4047,7 +4066,8 @@ const materialReturns = db.prepare(`
           const material = {
             name: item.nomenclatureName || item.productName || item.Номенклатура____Presentation || item.Номенклатура_Presentation || 'Без названия',
             barcode: item.barcode || '',
-            quantity: item.quantity || item.Количество || 1
+            quantity: item.quantity || item.Количество || 1,
+            transferOrderNumbers: [transferOrder.order_number]
           }
 
           // If this item has a product name, group under that product
@@ -4065,11 +4085,11 @@ const materialReturns = db.prepare(`
         }
       }
 
-      // Build material price map from onec_stocks
+      // Build material price map from onec_stocks (same as inventory: averagePrice first)
       const allStocks = db.prepare('SELECT DISTINCT name, purchasePrice, averagePrice FROM onec_stocks').all()
       const priceMap = new Map()
       for (const s of allStocks) {
-        const price = Number(s.purchasePrice || s.averagePrice || 0)
+        const price = Number(s.averagePrice || s.purchasePrice || 0)
         if (price > 0 && s.name) {
           priceMap.set(s.name.toLowerCase(), price)
         }
@@ -4096,6 +4116,22 @@ const materialReturns = db.prepare(`
         for (const product of entry.products) {
           product.totalSum = enrichMaterials(product.materials)
           entry.orderTotal += product.totalSum
+        }
+      }
+
+      // Enrich with customer name from onec_orders
+      const onecOrders = db.prepare('SELECT ref_key, customer FROM onec_orders').all()
+      const customerByRefKey = new Map()
+      for (const o of onecOrders) {
+        if (o.ref_key && o.customer) {
+          customerByRefKey.set(o.ref_key, o.customer)
+        }
+      }
+      for (const entry of orderMap.values()) {
+        if (entry.customerOrderKey && customerByRefKey.has(entry.customerOrderKey)) {
+          entry.customer = customerByRefKey.get(entry.customerOrderKey)
+        } else {
+          entry.customer = ''
         }
       }
 
