@@ -1041,12 +1041,12 @@ const server = http.createServer(async (req, res) => {
 
       let orders
       if (searchParam) {
-        orders = db.prepare('SELECT ref_key, order_number, date, source_warehouse_key, source_warehouse_name, destination_warehouse_key, destination_warehouse_name, customer_order_key, customer_order_number, posted, status_key, status_description, items, created_by, comment FROM transfer_orders WHERE order_number = ? ORDER BY date DESC').all(searchParam)
+        orders = db.prepare('SELECT ref_key, order_number, date, source_warehouse_key, source_warehouse_name, destination_warehouse_key, destination_warehouse_name, customer_order_key, customer_order_number, posted, status_key, status_description, items, created_by, comment, (SELECT customer FROM onec_orders WHERE onec_orders.ref_key = transfer_orders.customer_order_key LIMIT 1) AS customer_name FROM transfer_orders WHERE order_number = ? ORDER BY date DESC').all(searchParam)
         if (orders.length === 0) {
-          orders = db.prepare('SELECT ref_key, order_number, date, source_warehouse_key, source_warehouse_name, destination_warehouse_key, destination_warehouse_name, customer_order_key, customer_order_number, posted, status_key, status_description, items, created_by, comment FROM transfer_orders WHERE order_number LIKE ? ORDER BY date DESC').all(`%${searchParam}%`)
+          orders = db.prepare('SELECT ref_key, order_number, date, source_warehouse_key, source_warehouse_name, destination_warehouse_key, destination_warehouse_name, customer_order_key, customer_order_number, posted, status_key, status_description, items, created_by, comment, (SELECT customer FROM onec_orders WHERE onec_orders.ref_key = transfer_orders.customer_order_key LIMIT 1) AS customer_name FROM transfer_orders WHERE order_number LIKE ? ORDER BY date DESC').all(`%${searchParam}%`)
         }
       } else {
-        orders = db.prepare('SELECT ref_key, order_number, date, source_warehouse_key, source_warehouse_name, destination_warehouse_key, destination_warehouse_name, customer_order_key, customer_order_number, posted, status_key, status_description, items, created_by, comment FROM transfer_orders ORDER BY date DESC').all()
+        orders = db.prepare('SELECT ref_key, order_number, date, source_warehouse_key, source_warehouse_name, destination_warehouse_key, destination_warehouse_name, customer_order_key, customer_order_number, posted, status_key, status_description, items, created_by, comment, (SELECT customer FROM onec_orders WHERE onec_orders.ref_key = transfer_orders.customer_order_key LIMIT 1) AS customer_name FROM transfer_orders ORDER BY date DESC').all()
       }
 
       const result = orders.map(order => {
@@ -1111,6 +1111,7 @@ const server = http.createServer(async (req, res) => {
           destinationWarehouseName: order.destination_warehouse_name,
           customerOrderKey: order.customer_order_key || '',
           customerOrderNumber: displayCustomerOrderNumber,
+          customerName: (displayCustomerOrderNumber !== 'В табличной части' && displayCustomerOrderNumber !== 'Разные заказы') ? (order.customer_name || '') : '',
           perItemCustomerOrders,
           Posted: order.posted === 1,
           statusKey: order.status_key || '',
@@ -4064,16 +4065,16 @@ const materialReturns = db.prepare(`
         for (const item of items) {
           let itemOrderKey, itemOrderNumber, itemProduct
 
-          // Per-item order key takes priority if it's a real GUID
+          // Per-item order key takes priority ONLY if it differs from document-level
           const itemOwnKey = item.customerOrderKey || ''
           const isItemOwnKeyReal = itemOwnKey && itemOwnKey !== '00000000-0000-0000-0000-000000000000'
+          const isItemOwnKeyDifferent = isItemOwnKeyReal && itemOwnKey !== transferOrder.customer_order_key
 
-          if (isItemOwnKeyReal) {
-            // Item has its own order — use it
+          if (isItemOwnKeyDifferent) {
+            // Item has a DIFFERENT order — use per-item data
             itemOrderKey = itemOwnKey
             itemOrderNumber = item.customerOrderNumber || ''
             itemProduct = item.selectedProduct || ''
-            // Validate selectedProduct against this item's order
             if (itemProduct) {
               const validProducts = getOrderProducts(itemOrderKey)
               if (validProducts.size > 0 && !validProducts.has(itemProduct)) {
@@ -4289,8 +4290,9 @@ const materialReturns = db.prepare(`
 
           const itemOwnKey = item.customerOrderKey || ''
           const isItemOwnKeyReal = itemOwnKey && itemOwnKey !== '00000000-0000-0000-0000-000000000000'
+          const isItemOwnKeyDifferent = isItemOwnKeyReal && itemOwnKey !== transferOrder.customer_order_key
 
-          if (isItemOwnKeyReal) {
+          if (isItemOwnKeyDifferent) {
             itemOrderKey = itemOwnKey
             itemOrderNumber = item.customerOrderNumber || ''
             itemProduct = item.selectedProduct || ''

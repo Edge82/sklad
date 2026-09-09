@@ -158,11 +158,14 @@
       </n-grid>
 
       <div style="margin-top: 24px;">
-        <div class="flex justify-between items-center mb-4">
+<div class="flex justify-between items-center mb-6" style="margin-bottom: 16px;">
           <n-text depth="3">Всего: {{ filteredOrders.length }}</n-text>
           <div class="flex items-center gap-2">
-            <n-text>Показывать:</n-text>
+            <n-input v-model:value="searchQuery" placeholder="Поиск по номеру заказа или клиенту..." clearable class="w-80!" />
+            <div style="margin-left: 12px;" class="flex items-center gap-2">
+              <n-text>Показывать:</n-text>
             <n-select v-model:value="itemsPerPage" :options="pageSizeOptions" class="w-24!" />
+            </div>
           </div>
         </div>
         <n-spin :show="loading">
@@ -620,6 +623,7 @@ interface TransferOrder {
   destinationWarehouseName?: string
   customerOrderKey?: string
   customerOrderNumber?: string
+  customerName?: string
   comment?: string
   perItemCustomerOrders?: string[]
   saved?: boolean
@@ -723,6 +727,7 @@ const barcodeBuffer = ref('')
 const lastBarcode = ref('')
 const barcodeInputRef = ref<InputInst | null>(null)
 const filterStatus = ref('')
+const searchQuery = ref('')
 const currentPage = ref(1)
 const itemsPerPage = ref(10)
 
@@ -1764,22 +1769,36 @@ const localsCount = computed(() =>
 
 // Отфильтрованные заказы для таблицы
 const filteredOrders = computed(() => {
-  if (!filterStatus.value) return orders.value
+  let result = orders.value
 
   switch (filterStatus.value) {
     case 'locals':
-      return orders.value.filter(o => o.Ref_Key?.startsWith('LOCAL-'))
+      result = result.filter(o => o.Ref_Key?.startsWith('LOCAL-'))
+      break
     case 'active_cells':
-      return orders.value.filter(o => (o.statusDescription || '') === 'В работе (ячейки)')
+      result = result.filter(o => (o.statusDescription || '') === 'В работе (ячейки)')
+      break
     case 'active_writeoff':
-      return orders.value.filter(o => (o.statusDescription || '') === 'В работе (к списанию)')
+      result = result.filter(o => (o.statusDescription || '') === 'В работе (к списанию)')
+      break
     case 'completed_cells':
-      return orders.value.filter(o => (o.statusDescription || '') === 'Завершен (ячейки)')
+      result = result.filter(o => (o.statusDescription || '') === 'Завершен (ячейки)')
+      break
     case 'completed_writeoff':
-      return orders.value.filter(o => (o.statusDescription || '') === 'Завершен (списание)')
-    default:
-      return orders.value
+      result = result.filter(o => (o.statusDescription || '') === 'Завершен (списание)')
+      break
   }
+
+  if (searchQuery.value) {
+    const q = searchQuery.value.toLowerCase()
+    result = result.filter(o => {
+      const number = (o.Number || '').toLowerCase()
+      const customer = (o.customerName || '').toLowerCase()
+      return number.includes(q) || customer.includes(q)
+    })
+  }
+
+  return result
 })
 
 const columns: DataTableColumns<TransferOrder> = [
@@ -1796,16 +1815,13 @@ const columns: DataTableColumns<TransferOrder> = [
     render: (row) => formatDate(row.Date)
   },
   {
-    title: 'От склада',
-    key: 'sourceWarehouseName',
-    width: 150,
-    render: (row) => row.sourceWarehouseName || '-'
-  },
-  {
-    title: 'На склад',
-    key: 'destinationWarehouseName',
-    width: 150,
-    render: (row) => row.destinationWarehouseName || '-'
+    title: 'Клиент',
+    key: 'customerName',
+    width: 220,
+    render: (row) => {
+      if (row.customerOrderNumber === 'В табличной части') return '-'
+      return row.customerName || '-'
+    }
   },
   {
     title: 'Заказ покупателя',
@@ -1837,7 +1853,7 @@ const columns: DataTableColumns<TransferOrder> = [
         'В работе (ячейки)': 'success',
         'В работе (к списанию)': 'warning',
         'Завершен (ячейки)': 'info',
-        'Завершен (списание)': 'error',
+        'Завершен (списание)': 'default',
       }
       const type = row.Ref_Key?.startsWith('LOCAL-') ? 'info' : (typeMap[status] || 'warning')
       return h(NTag, { type }, {
