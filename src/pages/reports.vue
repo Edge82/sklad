@@ -36,30 +36,14 @@
           </n-grid>
         </div>
 
-        <!-- Контент в зависимости от вкладки -->
+       <!-- Контент в зависимости от вкладки -->
         <div v-if="activeTab === 'main'">
-          <n-grid :cols="2" :x-gap="12" class="mb-6">
-            <n-gi>
-              <n-card title="Топ сотрудников (активность)">
-                <n-list hoverable clickable>
-                  <n-list-item v-for="emp in topEmployees" :key="emp.id">
-                    <template #prefix>
-                      <n-avatar round :size="48" :src="emp.avatar" class="mr-2" />
-                    </template>
-                    <n-thing :title="emp.name" :description="emp.position" />
-                    <template #suffix>
-                      <div class="flex flex-col items-end min-w-25">
-                        <span class="text-2xl font-bold leading-none text-[#2080f0]">{{ emp.operations }}</span>
-                        <span class="text-[10px] text-gray-500 uppercase font-bold mt-1">операций</span>
-                      </div>
-                    </template>
-                  </n-list-item>
-                </n-list>
-              </n-card>
-            </n-gi>
-
-
-          </n-grid>
+          <n-card class="mb-4">
+            <div class="flex flex-col items-center justify-center py-20">
+              <n-h3 class="m-0">Финансовая отчётность</n-h3>
+              <n-text depth="3" class="mt-2">Раздел в разработке</n-text>
+            </div>
+          </n-card>
         </div>
 
         <!-- Детальный отчет по заказам -->
@@ -194,7 +178,7 @@ import {
   type MaterialInvoiceItem
 } from '@/types'
 import {
-  StatsChartOutline, CubeOutline
+  StatsChartOutline, CubeOutline, ChevronForward
 } from '@vicons/ionicons5'
 import {
   NSelect, NIcon, NH1, NText, NGrid, NGi, NCard, NH3,
@@ -212,6 +196,9 @@ const { ordersReport, topEmployees } = storeToRefs(reportsStore)
 
 const activeTab = ref('main')
 const productionReport = ref<any[]>([])
+const profitabilityReport = ref<any[]>([])
+const profitabilityLoading = ref(false)
+const expandedProfitabilityOrders = ref<Set<string>>(new Set())
 const productionSearchQuery = ref('')
 const productionCustomerQuery = ref('')
 const productionDateRange = ref<number | null>(null)
@@ -413,6 +400,128 @@ const loadProductionReport = async () => {
       productionReport.value = data.data || []
     }
   } catch { /* ignore */ }
+}
+
+const loadProfitabilityReport = async () => {
+  profitabilityLoading.value = true
+  try {
+    const res = await fetch('/sklad/api/reports/profitability')
+    if (res.ok) {
+      const data = await res.json()
+      // Pre-compute all values to avoid expensive template expressions
+      profitabilityReport.value = (data.data || []).map((order: any) => {
+        const orderFot = order.products.reduce((s: number, p: any) => s + (p.fot || 0), 0)
+        const orderDelivery = order.products.reduce((s: number, p: any) => s + (p.delivery || 0), 0)
+        const orderExpense = order.totalMaterials + orderFot + orderDelivery
+        const orderGross = order.totalSum - orderExpense
+        const orderOverhead = orderExpense * 0.5
+        const orderNet = orderGross - orderOverhead
+
+        return {
+          ...order,
+          products: order.products.map((p: any) => {
+            const pExpense = (p.materialsCost || 0) + (p.fot || 0) + (p.delivery || 0)
+            const pGross = p.productSum - pExpense
+            const pOverhead = pExpense * 0.5
+            const pNet = pGross - pOverhead
+            return {
+              ...p,
+              _expense: pExpense,
+              _gross: pGross,
+              _overhead: pOverhead,
+              _net: pNet
+            }
+          }),
+          _fot: orderFot,
+          _delivery: orderDelivery,
+          _expense: orderExpense,
+          _gross: orderGross,
+          _overhead: orderOverhead,
+          _net: orderNet
+        }
+      })
+    }
+  } catch { /* ignore */ } finally {
+    profitabilityLoading.value = false
+  }
+}
+
+const fmtNumber = (val: number) => {
+  if (val == null || isNaN(val)) return '0.00'
+  return val.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ' ')
+}
+
+const fmtPct = (part: number, total: number) => {
+  if (!total) return '0.0%'
+  return (part / total * 100).toFixed(1) + '%'
+}
+
+const productTotalExpense = (p: any) => (p.materialsCost || 0) + (p.fot || 0) + (p.delivery || 0)
+const productGrossProfit = (p: any) => p.productSum - productTotalExpense(p)
+const productOverhead = (p: any) => productTotalExpense(p) * 0.5
+const productNetProfit = (p: any) => productGrossProfit(p) - productOverhead(p)
+
+const orderTotalFot = (o: any) => o.products.reduce((s: number, p: any) => s + (p.fot || 0), 0)
+const orderTotalDelivery = (o: any) => o.products.reduce((s: number, p: any) => s + (p.delivery || 0), 0)
+const orderTotalExpense = (o: any) => o.totalMaterials + orderTotalFot(o) + orderTotalDelivery(o)
+const orderGrossProfit = (o: any) => o.totalSum - orderTotalExpense(o)
+const orderOverhead = (o: any) => orderTotalExpense(o) * 0.5
+const orderNetProfit = (o: any) => orderGrossProfit(o) - orderOverhead(o)
+
+const toggleProfitabilityOrder = (orderKey: string) => {
+  if (expandedProfitabilityOrders.value.has(orderKey)) {
+    expandedProfitabilityOrders.value.delete(orderKey)
+  } else {
+    expandedProfitabilityOrders.value.add(orderKey)
+  }
+}
+
+const orderOtherMaterialsSum = (order: any) => {
+  return (order.orderMaterials || []).reduce((s: number, m: any) => s + (m.sum || 0), 0)
+}
+
+let saveTimeout: ReturnType<typeof setTimeout> | null = null
+const recalcProfitability = (order: any) => {
+  // Re-compute pre-calculated values
+  const orderFot = order.products.reduce((s: number, p: any) => s + (p.fot || 0), 0)
+  const orderDelivery = order.products.reduce((s: number, p: any) => s + (p.delivery || 0), 0)
+  const orderExpense = order.totalMaterials + orderFot + orderDelivery
+  const orderGross = order.totalSum - orderExpense
+  const orderOverhead = orderExpense * 0.5
+  const orderNet = orderGross - orderOverhead
+  order._fot = orderFot
+  order._delivery = orderDelivery
+  order._expense = orderExpense
+  order._gross = orderGross
+  order._overhead = orderOverhead
+  order._net = orderNet
+
+  order.products.forEach((p: any) => {
+    const pExpense = (p.materialsCost || 0) + (p.fot || 0) + (p.delivery || 0)
+    p._expense = pExpense
+    p._gross = p.productSum - pExpense
+    p._overhead = pExpense * 0.5
+    p._net = p._gross - p._overhead
+  })
+
+  if (saveTimeout) clearTimeout(saveTimeout)
+  saveTimeout = setTimeout(async () => {
+    try {
+      await fetch('/sklad/api/reports/profitability', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          orderKey: order.orderKey,
+          products: order.products.map((p: any) => ({
+            productName: p.productName,
+            materialsCost: p.materialsCost,
+            fot: p.fot || 0,
+            delivery: p.delivery || 0
+          }))
+        })
+      })
+    } catch { /* ignore */ }
+  }, 500)
 }
 
 const filteredProductionReport = computed(() => {
@@ -722,5 +831,45 @@ const toolsDetailedColumns = [
   .reports-page {
     padding: 0 12px;
   }
+}
+
+.profitability-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.profitability-table thead th {
+  font-weight: 700;
+  text-align: center;
+  padding: 8px 4px;
+  border: 1px solid #333;
+  background: #1a1a1a;
+  white-space: nowrap;
+}
+.profitability-table tbody td {
+  text-align: center;
+  padding: 6px 4px;
+  border: 1px solid #333;
+}
+.profitability-total td {
+  font-weight: 700;
+  background: #1a1a1a;
+}
+.profitability-table .n-input-number {
+  width: 96px !important;
+}
+.profitability-order-header {
+  padding: 10px 12px;
+  background: #1a1a1a;
+  border-radius: 6px;
+  margin-bottom: 2px;
+  transition: background 0.15s;
+}
+.profitability-order-header:hover {
+  background: #252525;
+}
+.profitability-other td {
+  color: #f0a020;
+  font-style: italic;
 }
 </style>

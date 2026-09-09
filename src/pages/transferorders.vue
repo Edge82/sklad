@@ -792,10 +792,12 @@ const hasPerItemCustomerOrder = computed(() =>
 )
 
 const customerOrderOptions = computed(() =>
-  ordersStore.orders.map(o => ({
-    label: `${o.orderNumber} — ${o.customerName}`,
-    value: o.id
-  }))
+  ordersStore.orders
+    .filter(o => o.status === 'in_progress' || o.status === 'ready' || o.status === 'completed')
+    .map(o => ({
+      label: `${o.orderNumber} — ${o.customerName}`,
+      value: o.id
+    }))
 )
 
 const selectedOrderProducts = computed(() => {
@@ -2670,6 +2672,23 @@ watch(
 onMounted(async () => {
   loading.value = true
   try {
+    // Auto-search from URL ?search= parameter — load only the needed order first
+    const searchParam = route.query.search as string
+    if (searchParam) {
+      const foundOrders = await fetchTransferOrders(searchParam)
+      if (foundOrders.length > 0) {
+        // Open the order immediately, load full list in background
+        orders.value = [foundOrders[0]]
+        openOrder(foundOrders[0].Ref_Key)
+        loading.value = false
+        inventoryStore.loadStocksFromApi().catch(() => {})
+        window.addEventListener('keydown', handleKeyDown)
+        // Load full list in background to replace the single-item array
+        fetchTransferOrders().then(data => { orders.value = data }).catch(() => {})
+        return
+      }
+    }
+
     const data = await fetchTransferOrders()
     orders.value = data
   } catch (error) {
@@ -2680,27 +2699,6 @@ onMounted(async () => {
 
   inventoryStore.loadStocksFromApi().catch(() => {})
 
-  // Auto-search from URL ?search= parameter
-  const searchParam = route.query.search as string
-  if (searchParam) {
-    createBarcodeBuffer.value = searchParam
-    await nextTick()
-    await nextTick()
-    const rows = document.querySelectorAll('.n-data-table tbody tr')
-    for (const row of rows as NodeListOf<HTMLElement>) {
-      const cells = row.querySelectorAll('td')
-      for (const cell of cells) {
-        if (cell.textContent?.includes(searchParam)) {
-          cell.scrollIntoView({ behavior: 'smooth', block: 'center' })
-          row.style.transition = 'background 0.3s'
-          row.style.background = 'rgba(32,128,240,0.15)'
-          setTimeout(() => { row.style.background = '' }, 3000)
-          break
-        }
-      }
-    }
-  }
-
   // Добавляем обработчик клавиатуры для сканера
   window.addEventListener('keydown', handleKeyDown)
 })
@@ -2708,6 +2706,34 @@ onMounted(async () => {
 onActivated(async () => {
   // Don't reload on every navigation — data is cached in SQLite.
   // Refresh only after sync (handled by handleTransferSyncCompleted).
+
+  // Handle ?search= on re-activation (KeepAlive)
+  const searchParam = route.query.search as string
+  if (searchParam) {
+    const found = orders.value.find(o => o.Number === searchParam || o.Number?.toString().includes(searchParam))
+    if (found) {
+      openOrder(found.Ref_Key)
+      return
+    }
+    // Not in local list yet, fetch from server
+    const foundOrders = await fetchTransferOrders(searchParam)
+    if (foundOrders.length > 0) {
+      openOrder(foundOrders[0].Ref_Key)
+    }
+  }
+})
+
+watch(() => route.query.search, async (newSearch) => {
+  if (!newSearch) return
+  const found = orders.value.find(o => o.Number === newSearch || o.Number?.toString().includes(newSearch))
+  if (found) {
+    openOrder(found.Ref_Key)
+    return
+  }
+  const foundOrders = await fetchTransferOrders(newSearch)
+  if (foundOrders.length > 0) {
+    openOrder(foundOrders[0].Ref_Key)
+  }
 })
 
 // Очищаем обработчик при размонтировании компонента

@@ -1054,9 +1054,12 @@ export function useStockBalances() {
     }
   }
 
-  async function fetchTransferOrders() {
+  async function fetchTransferOrders(search?: string) {
     try {
-      const response = await fetch(`${API_BASE_URL}/onec/transfer-orders`, {
+      const url = search
+        ? `${API_BASE_URL}/onec/transfer-orders?search=${encodeURIComponent(search)}`
+        : `${API_BASE_URL}/onec/transfer-orders`
+      const response = await fetch(url, {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('auth_token') || ''}`
         }

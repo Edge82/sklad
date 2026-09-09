@@ -1036,10 +1036,18 @@ const server = http.createServer(async (req, res) => {
   // Transfer Orders list (from local DB)
   if (pathname === '/sklad/api/onec/transfer-orders' && req.method === 'GET') {
     try {
-      // Подтягиваем per-item заказы покупателя для заказов, где их нет
-      try { await syncTransferOrderItems() } catch (e) { /* ignore */ }
+      const url = new URL(req.url, `http://${req.headers.host}`)
+      const searchParam = url.searchParams.get('search') || ''
 
-      const orders = db.prepare('SELECT ref_key, order_number, date, source_warehouse_key, source_warehouse_name, destination_warehouse_key, destination_warehouse_name, customer_order_key, customer_order_number, posted, status_key, status_description, items, created_by, comment FROM transfer_orders ORDER BY date DESC').all()
+      let orders
+      if (searchParam) {
+        orders = db.prepare('SELECT ref_key, order_number, date, source_warehouse_key, source_warehouse_name, destination_warehouse_key, destination_warehouse_name, customer_order_key, customer_order_number, posted, status_key, status_description, items, created_by, comment FROM transfer_orders WHERE order_number = ? ORDER BY date DESC').all(searchParam)
+        if (orders.length === 0) {
+          orders = db.prepare('SELECT ref_key, order_number, date, source_warehouse_key, source_warehouse_name, destination_warehouse_key, destination_warehouse_name, customer_order_key, customer_order_number, posted, status_key, status_description, items, created_by, comment FROM transfer_orders WHERE order_number LIKE ? ORDER BY date DESC').all(`%${searchParam}%`)
+        }
+      } else {
+        orders = db.prepare('SELECT ref_key, order_number, date, source_warehouse_key, source_warehouse_name, destination_warehouse_key, destination_warehouse_name, customer_order_key, customer_order_number, posted, status_key, status_description, items, created_by, comment FROM transfer_orders ORDER BY date DESC').all()
+      }
 
       const result = orders.map(order => {
          // Resolve created_by name
@@ -1220,7 +1228,7 @@ const server = http.createServer(async (req, res) => {
           price: itemPrice || stockPrice,
           customerOrderKey: custOrderKey,
           customerOrderNumber: custOrderNumber,
-          selectedProduct: item.selectedProduct || order.selected_product || '',
+          selectedProduct: item.selectedProduct || '',
           note: item.note || ''
         }
       })
@@ -1434,9 +1442,6 @@ const server = http.createServer(async (req, res) => {
   // Get all transfer orders
   if (pathname === '/sklad/api/transfer-orders' && req.method === 'GET') {
     try {
-      // Пробуем подтянуть состав из 1С для заказов с пустыми items
-      try { await syncTransferOrderItems() } catch (e) { /* ignore */ }
-
       const orders = db.prepare(`
         SELECT to2.ref_key, to2.order_number, to2.date, to2.source_warehouse_key, to2.source_warehouse_name, to2.destination_warehouse_key, to2.destination_warehouse_name, to2.customer_order_key, to2.customer_order_number, to2.posted, to2.items, to2.selected_product, to2.created_by, to2.status_description, to2.comment,
                 COALESCE(e.name, to2.created_by) as created_by_name
@@ -4029,16 +4034,68 @@ const materialReturns = db.prepare(`
 
       const orderMap = new Map()
 
+      // Build product name set per customer order for validation
+      const orderProductsCache = new Map()
+      const getOrderProducts = (orderKey) => {
+        if (orderProductsCache.has(orderKey)) return orderProductsCache.get(orderKey)
+        const orderRow = db.prepare('SELECT items FROM onec_orders WHERE ref_key = ?').get(orderKey)
+        const productNames = new Set()
+        if (orderRow && orderRow.items) {
+          try {
+            const oi = JSON.parse(orderRow.items)
+            for (const it of oi) {
+              if (it.productName) productNames.add(it.productName)
+              if (it.itemName) productNames.add(it.itemName)
+            }
+          } catch { /* ignore */ }
+        }
+        orderProductsCache.set(orderKey, productNames)
+        return productNames
+      }
+
       for (const transferOrder of allOrders) {
         let items = []
         try { items = JSON.parse(transferOrder.items || '[]') } catch { /* ignore */ }
 
-        // Process each item individually - it may have its own customerOrderKey + selectedProduct
+        const hasDocLevelOrder = !!(transferOrder.customer_order_key &&
+          transferOrder.customer_order_key !== '' &&
+          transferOrder.customer_order_key !== '00000000-0000-0000-0000-000000000000')
+
         for (const item of items) {
-          // Use per-row order key/product if available, fallback to document-level
-          const itemOrderKey = item.customerOrderKey || transferOrder.customer_order_key || ''
-          const itemOrderNumber = item.customerOrderNumber || transferOrder.customer_order_number || ''
-          const itemProduct = item.selectedProduct || transferOrder.selected_product || ''
+          let itemOrderKey, itemOrderNumber, itemProduct
+
+          // Per-item order key takes priority if it's a real GUID
+          const itemOwnKey = item.customerOrderKey || ''
+          const isItemOwnKeyReal = itemOwnKey && itemOwnKey !== '00000000-0000-0000-0000-000000000000'
+
+          if (isItemOwnKeyReal) {
+            // Item has its own order — use it
+            itemOrderKey = itemOwnKey
+            itemOrderNumber = item.customerOrderNumber || ''
+            itemProduct = item.selectedProduct || ''
+            // Validate selectedProduct against this item's order
+            if (itemProduct) {
+              const validProducts = getOrderProducts(itemOrderKey)
+              if (validProducts.size > 0 && !validProducts.has(itemProduct)) {
+                itemProduct = ''
+              }
+            }
+          } else if (hasDocLevelOrder) {
+            // No per-item order — use document-level
+            itemOrderKey = transferOrder.customer_order_key
+            itemOrderNumber = transferOrder.customer_order_number || ''
+            itemProduct = item.selectedProduct || transferOrder.selected_product || ''
+            // Validate selectedProduct against document-level order
+            if (itemProduct) {
+              const validProducts = getOrderProducts(itemOrderKey)
+              if (validProducts.size > 0 && !validProducts.has(itemProduct)) {
+                itemProduct = ''
+              }
+            }
+          } else {
+            // No order anywhere — skip
+            continue
+          }
 
           const isRealGuid = itemOrderKey && itemOrderKey !== '00000000-0000-0000-0000-000000000000'
           const groupKey = isRealGuid ? itemOrderKey : (itemOrderNumber || transferOrder.order_number)
@@ -4169,6 +4226,288 @@ const materialReturns = db.prepare(`
       console.error('Error fetching production materials report:', err)
       sendJSON(res, 500, { error: err.message })
     }
+    return
+  }
+
+  // Profitability report — uses same data as production-materials + order pricing
+  if (pathname === '/sklad/api/reports/profitability' && req.method === 'GET') {
+    try {
+      // 1) Build transfer orders data (same logic as production-materials)
+      let allTransferOrders = db.prepare(`SELECT * FROM transfer_orders
+        WHERE customer_order_key IS NOT NULL AND customer_order_key != '' AND customer_order_key != '00000000-0000-0000-0000-000000000000'
+        ORDER BY date DESC`).all()
+
+      // Fallback: fetch from 1C if local DB is empty
+      if (allTransferOrders.length === 0) {
+        const totalCount = db.prepare('SELECT COUNT(*) as cnt FROM transfer_orders').get()
+        if (totalCount.cnt === 0) {
+          try {
+            const transferOrders1C = await fetch1CTransferOrders()
+            if (transferOrders1C && transferOrders1C.length > 0) {
+              syncTransferOrdersIncremental(transferOrders1C)
+              await syncTransferOrderItems()
+              allTransferOrders = db.prepare(`SELECT * FROM transfer_orders
+                WHERE customer_order_key IS NOT NULL AND customer_order_key != '' AND customer_order_key != '00000000-0000-0000-0000-000000000000'
+                ORDER BY date DESC`).all()
+            }
+          } catch (e) { /* ignore */ }
+        }
+      }
+
+      // 2) Build orderMap from transfer orders (same as production-materials)
+      const orderMap = new Map()
+
+      // Build product name set per customer order for validation
+      const orderProductsCache2 = new Map()
+      const getOrderProducts2 = (orderKey) => {
+        if (orderProductsCache2.has(orderKey)) return orderProductsCache2.get(orderKey)
+        const orderRow = db.prepare('SELECT items FROM onec_orders WHERE ref_key = ?').get(orderKey)
+        const productNames = new Set()
+        if (orderRow && orderRow.items) {
+          try {
+            const oi = JSON.parse(orderRow.items)
+            for (const it of oi) {
+              if (it.productName) productNames.add(it.productName)
+              if (it.itemName) productNames.add(it.itemName)
+            }
+          } catch { /* ignore */ }
+        }
+        orderProductsCache2.set(orderKey, productNames)
+        return productNames
+      }
+
+      for (const transferOrder of allTransferOrders) {
+        let items = []
+        try { items = JSON.parse(transferOrder.items || '[]') } catch { /* ignore */ }
+
+        const hasDocLevelOrder = !!(transferOrder.customer_order_key &&
+          transferOrder.customer_order_key !== '' &&
+          transferOrder.customer_order_key !== '00000000-0000-0000-0000-000000000000')
+
+        for (const item of items) {
+          let itemOrderKey, itemOrderNumber, itemProduct
+
+          const itemOwnKey = item.customerOrderKey || ''
+          const isItemOwnKeyReal = itemOwnKey && itemOwnKey !== '00000000-0000-0000-0000-000000000000'
+
+          if (isItemOwnKeyReal) {
+            itemOrderKey = itemOwnKey
+            itemOrderNumber = item.customerOrderNumber || ''
+            itemProduct = item.selectedProduct || ''
+            if (itemProduct) {
+              const validProducts = getOrderProducts2(itemOrderKey)
+              if (validProducts.size > 0 && !validProducts.has(itemProduct)) {
+                itemProduct = ''
+              }
+            }
+          } else if (hasDocLevelOrder) {
+            itemOrderKey = transferOrder.customer_order_key
+            itemOrderNumber = transferOrder.customer_order_number || ''
+            itemProduct = item.selectedProduct || transferOrder.selected_product || ''
+            if (itemProduct) {
+              const validProducts = getOrderProducts2(itemOrderKey)
+              if (validProducts.size > 0 && !validProducts.has(itemProduct)) {
+                itemProduct = ''
+              }
+            }
+          } else {
+            continue
+          }
+
+          const isRealGuid = itemOrderKey && itemOrderKey !== '00000000-0000-0000-0000-000000000000'
+          const groupKey = isRealGuid ? itemOrderKey : (itemOrderNumber || transferOrder.order_number)
+          if (!groupKey) continue
+
+          if (!orderMap.has(groupKey)) {
+            orderMap.set(groupKey, {
+              orderNumber: itemOrderNumber || transferOrder.order_number,
+              date: transferOrder.date,
+              customerOrderKey: isRealGuid ? itemOrderKey : null,
+              orderMaterials: [],
+              products: []
+            })
+          }
+          const entry = orderMap.get(groupKey)
+          if (!entry.customerOrderKey && isRealGuid) entry.customerOrderKey = itemOrderKey
+          const displayNum = (itemOrderNumber || transferOrder.order_number || '').trim()
+          if (displayNum && displayNum.length > (entry.orderNumber || '').trim().length) {
+            entry.orderNumber = displayNum
+          }
+
+          const material = {
+            name: item.nomenclatureName || item.productName || item.Номенклатура____Presentation || item.Номенклатура_Presentation || 'Без названия',
+            barcode: item.barcode || '',
+            quantity: item.quantity || item.Количество || 1,
+            transferOrderNumbers: [transferOrder.order_number]
+          }
+
+          if (itemProduct && itemProduct !== '') {
+            let productEntry = entry.products.find(p => p.name === itemProduct)
+            if (!productEntry) {
+              productEntry = { name: itemProduct, materials: [], totalSum: 0 }
+              entry.products.push(productEntry)
+            }
+            productEntry.materials.push(material)
+          } else {
+            entry.orderMaterials.push(material)
+          }
+        }
+      }
+
+      // 3) Material price map
+      const allStocks = db.prepare('SELECT DISTINCT name, purchasePrice, averagePrice FROM onec_stocks').all()
+      const priceMap = new Map()
+      for (const s of allStocks) {
+        const price = Number(s.averagePrice || s.purchasePrice || 0)
+        if (price > 0 && s.name) priceMap.set(s.name.toLowerCase(), price)
+      }
+
+      const enrichMaterials = (materials) => {
+        let total = 0
+        for (const m of materials) {
+          m.price = priceMap.get(m.name.toLowerCase()) || 0
+          m.sum = m.price * m.quantity
+          total += m.sum
+        }
+        return total
+      }
+
+      for (const entry of orderMap.values()) {
+        entry.orderTotal = enrichMaterials(entry.orderMaterials)
+        for (const product of entry.products) {
+          product.totalSum = enrichMaterials(product.materials)
+          entry.orderTotal += product.totalSum
+        }
+      }
+
+      // 4) Enrich with customer data from onec_orders
+      const onecOrders = db.prepare('SELECT ref_key, customer, items FROM onec_orders').all()
+      const customerByRefKey = new Map()
+      const orderItemsByRefKey = new Map()
+      for (const o of onecOrders) {
+        if (o.ref_key && o.customer) customerByRefKey.set(o.ref_key, o.customer)
+        if (o.ref_key && o.items) {
+          try { orderItemsByRefKey.set(o.ref_key, JSON.parse(o.items)) } catch { /* ignore */ }
+        }
+      }
+
+      // 5) Build result — merge transfer order materials with order pricing
+      const result = Array.from(orderMap.values()).map(entry => {
+        const customer = entry.customerOrderKey ? (customerByRefKey.get(entry.customerOrderKey) || '') : ''
+        const orderItems = entry.customerOrderKey ? (orderItemsByRefKey.get(entry.customerOrderKey) || []) : []
+
+        // Build product rows with pricing from onec_orders
+        const productRows = entry.products.map(p => {
+          const orderItem = orderItems.find(i => {
+            const itemName = i.productName || i.itemName || ''
+            return p.name && itemName && (itemName.includes(p.name) || p.name.includes(itemName))
+          })
+          const productSum = orderItem ? Number(orderItem.totalPrice || 0) : p.totalSum
+          return {
+            productName: p.name,
+            quantity: orderItem ? Number(orderItem.quantity || 0) : 0,
+            unit: orderItem ? (orderItem.unit || 'шт') : 'шт',
+            productSum,
+            materialsCost: Math.round(p.totalSum * 100) / 100,
+            fot: 0,
+            delivery: 0
+          }
+        })
+
+        // If no per-product materials, create rows from orderItems
+        if (productRows.length === 0 && orderItems.length > 0) {
+          for (const oi of orderItems) {
+            const pname = oi.productName || oi.itemName || ''
+            if (!pname) continue
+            productRows.push({
+              productName: pname,
+              quantity: Number(oi.quantity || oi.plannedQuantity || 0),
+              unit: oi.unit || 'шт',
+              productSum: Number(oi.totalPrice || 0),
+              materialsCost: 0,
+              fot: 0,
+              delivery: 0
+            })
+          }
+        }
+
+        // Distribute orderMaterials proportionally if no per-product breakdown
+        if (entry.products.length === 0 && entry.orderMaterials.length > 0 && productRows.length > 0) {
+          const totalProductsSum = productRows.reduce((s, r) => s + r.productSum, 0)
+          if (totalProductsSum > 0) {
+            productRows.forEach(pr => {
+              pr.materialsCost = Math.round(entry.orderTotal * (pr.productSum / totalProductsSum) * 100) / 100
+            })
+          }
+        }
+
+        const totalSum = productRows.reduce((s, r) => s + r.productSum, 0)
+        const totalMaterials = Math.round(productRows.reduce((s, r) => s + r.materialsCost, 0) * 100) / 100
+
+        return {
+          orderKey: entry.customerOrderKey || entry.orderNumber,
+          orderNumber: entry.orderNumber || '',
+          date: entry.date,
+          customer,
+          totalSum,
+          totalMaterials,
+          products: productRows,
+          orderMaterials: entry.orderMaterials,
+          orderTotal: entry.orderTotal
+        }
+      })
+
+      sendJSON(res, 200, { success: true, data: result })
+    } catch (err) {
+      console.error('Error fetching profitability report:', err)
+      sendJSON(res, 500, { error: err.message })
+    }
+    return
+  }
+
+  // Save profitability data (FOT + delivery) for an order
+  if (pathname === '/sklad/api/reports/profitability' && req.method === 'POST') {
+    let body = ''
+    req.on('data', chunk => { body += chunk })
+    req.on('end', async () => {
+      try {
+        const data = JSON.parse(body)
+        const { orderKey, products } = data
+
+        if (!orderKey || !products) {
+          sendJSON(res, 400, { error: 'orderKey and products are required' })
+          return
+        }
+
+        // Store FOT and delivery per product in onec_orders.items (materialUsed/paintUsed fields)
+        // We'll use a JSON field to store financial data
+        const order = db.prepare('SELECT items FROM onec_orders WHERE ref_key = ?').get(orderKey)
+        let existingItems = []
+        if (order?.items) {
+          try { existingItems = JSON.parse(order.items) } catch { /* ignore */ }
+        }
+
+        // Merge financial data into existing items
+        const itemMap = new Map(existingItems.map(i => [i.productName || i.itemName || '', i]))
+        for (const p of products) {
+          const existing = itemMap.get(p.productName)
+          if (existing) {
+            existing.materialUsed = String(p.materialsCost || 0)
+            existing.paintUsed = JSON.stringify({ fot: p.fot || 0, delivery: p.delivery || 0 })
+          }
+        }
+
+        db.prepare('UPDATE onec_orders SET items = ? WHERE ref_key = ?').run(
+          JSON.stringify(Array.from(itemMap.values())),
+          orderKey
+        )
+
+        sendJSON(res, 200, { success: true })
+      } catch (err) {
+        console.error('Error saving profitability data:', err)
+        sendJSON(res, 500, { error: err.message })
+      }
+    })
     return
   }
 
