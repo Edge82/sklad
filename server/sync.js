@@ -316,6 +316,9 @@ function syncOrdersIncremental(orders) {
     const transformedStatus = transformOrderStatus(order.status)
 
     if (existingMap.has(ref_key)) {
+      // Financial fields (fot, delivery, overheadPct, _fotMonths) are stored in order_financials, not items
+      const mergedItemsJson = itemsJson
+
       db.prepare(`UPDATE onec_orders SET
         order_number = ?, date = ?, customer = ?, status = ?, amount = ?, items_count = ?, items = ?, comment = ?
         WHERE ref_key = ?`)
@@ -326,7 +329,7 @@ function syncOrdersIncremental(orders) {
           transformedStatus,
           order.amount || 0,
           order.items_count || 0,
-          itemsJson,
+          mergedItemsJson,
           order.comment || '',
           ref_key
         )

@@ -10,6 +10,55 @@ import { compareSync, hashSync } from 'bcrypt'
 
 import { PORT, JWT_SECRET, getBasicAuthHeader, ONEC_CONFIG } from './config.js'
 
+// Global cache for material prices and order products (shared across report requests)
+let priceMapCache = null
+let priceMapCacheTime = 0
+const CACHE_TTL = 5 * 60 * 1000 // 5 minutes
+
+let orderProductsCache = null
+let orderProductsCacheTime = 0
+
+function getPriceMap() {
+  const now = Date.now()
+  if (priceMapCache && (now - priceMapCacheTime) < CACHE_TTL) {
+    return priceMapCache
+  }
+  const allStocks = db.prepare('SELECT DISTINCT name, purchasePrice, averagePrice FROM onec_stocks').all()
+  priceMapCache = new Map()
+  for (const s of allStocks) {
+    const price = Number(s.averagePrice || s.purchasePrice || 0)
+    if (price > 0 && s.name) {
+      priceMapCache.set(s.name.toLowerCase(), price)
+    }
+  }
+  priceMapCacheTime = now
+  return priceMapCache
+}
+
+function getOrderProductsMap() {
+  const now = Date.now()
+  if (orderProductsCache && (now - orderProductsCacheTime) < CACHE_TTL) {
+    return orderProductsCache
+  }
+  const allOneCOrders = db.prepare('SELECT ref_key, items FROM onec_orders').all()
+  orderProductsCache = new Map()
+  for (const oo of allOneCOrders) {
+    const productNames = new Set()
+    if (oo.items) {
+      try {
+        const oi = JSON.parse(oo.items)
+        for (const it of oi) {
+          if (it.productName) productNames.add(it.productName)
+          if (it.itemName) productNames.add(it.itemName)
+        }
+      } catch { /* ignore */ }
+    }
+    orderProductsCache.set(oo.ref_key, productNames)
+  }
+  orderProductsCacheTime = now
+  return orderProductsCache
+}
+
 // Inline getUserRoleFromRequest to avoid ESM cache issues
 function getUserRoleFromRequest(req) {
   try {
@@ -4034,25 +4083,7 @@ const materialReturns = db.prepare(`
       }
 
       const orderMap = new Map()
-
-      // Build product name set per customer order for validation
-      const orderProductsCache = new Map()
-      const getOrderProducts = (orderKey) => {
-        if (orderProductsCache.has(orderKey)) return orderProductsCache.get(orderKey)
-        const orderRow = db.prepare('SELECT items FROM onec_orders WHERE ref_key = ?').get(orderKey)
-        const productNames = new Set()
-        if (orderRow && orderRow.items) {
-          try {
-            const oi = JSON.parse(orderRow.items)
-            for (const it of oi) {
-              if (it.productName) productNames.add(it.productName)
-              if (it.itemName) productNames.add(it.itemName)
-            }
-          } catch { /* ignore */ }
-        }
-        orderProductsCache.set(orderKey, productNames)
-        return productNames
-      }
+      const orderProductsMap = getOrderProductsMap()
 
       for (const transferOrder of allOrders) {
         let items = []
@@ -4076,8 +4107,8 @@ const materialReturns = db.prepare(`
             itemOrderNumber = item.customerOrderNumber || ''
             itemProduct = item.selectedProduct || ''
             if (itemProduct) {
-              const validProducts = getOrderProducts(itemOrderKey)
-              if (validProducts.size > 0 && !validProducts.has(itemProduct)) {
+              const validProducts = orderProductsMap.get(itemOrderKey)
+              if (validProducts && validProducts.size > 0 && !validProducts.has(itemProduct)) {
                 itemProduct = ''
               }
             }
@@ -4088,8 +4119,8 @@ const materialReturns = db.prepare(`
             itemProduct = item.selectedProduct || transferOrder.selected_product || ''
             // Validate selectedProduct against document-level order
             if (itemProduct) {
-              const validProducts = getOrderProducts(itemOrderKey)
-              if (validProducts.size > 0 && !validProducts.has(itemProduct)) {
+              const validProducts = orderProductsMap.get(itemOrderKey)
+              if (validProducts && validProducts.size > 0 && !validProducts.has(itemProduct)) {
                 itemProduct = ''
               }
             }
@@ -4143,15 +4174,8 @@ const materialReturns = db.prepare(`
         }
       }
 
-      // Build material price map from onec_stocks (same as inventory: averagePrice first)
-      const allStocks = db.prepare('SELECT DISTINCT name, purchasePrice, averagePrice FROM onec_stocks').all()
-      const priceMap = new Map()
-      for (const s of allStocks) {
-        const price = Number(s.averagePrice || s.purchasePrice || 0)
-        if (price > 0 && s.name) {
-          priceMap.set(s.name.toLowerCase(), price)
-        }
-      }
+      // Use cached price map
+      const priceMap = getPriceMap()
 
       for (const entry of orderMap.values()) {
         const pad = (n) => String(n).padStart(2, '0')
@@ -4233,10 +4257,18 @@ const materialReturns = db.prepare(`
   // Profitability report — uses same data as production-materials + order pricing
   if (pathname === '/sklad/api/reports/profitability' && req.method === 'GET') {
     try {
+      const dateFrom = url.searchParams.get('dateFrom')
+      const dateTo = url.searchParams.get('dateTo')
+
       // 1) Build transfer orders data (same logic as production-materials)
-      let allTransferOrders = db.prepare(`SELECT * FROM transfer_orders
-        WHERE customer_order_key IS NOT NULL AND customer_order_key != '' AND customer_order_key != '00000000-0000-0000-0000-000000000000'
-        ORDER BY date DESC`).all()
+      let profitSql = `SELECT * FROM transfer_orders
+        WHERE customer_order_key IS NOT NULL AND customer_order_key != '' AND customer_order_key != '00000000-0000-0000-0000-000000000000'`
+      const profitParams = []
+      if (dateFrom) { profitSql += ` AND date >= ?`; profitParams.push(dateFrom) }
+      if (dateTo) { profitSql += ` AND date <= ?`; profitParams.push(dateTo + 'T23:59:59.999Z') }
+      profitSql += ` ORDER BY date DESC`
+
+      let allTransferOrders = db.prepare(profitSql).all(...profitParams)
 
       // Fallback: fetch from 1C if local DB is empty
       if (allTransferOrders.length === 0) {
@@ -4247,9 +4279,7 @@ const materialReturns = db.prepare(`
             if (transferOrders1C && transferOrders1C.length > 0) {
               syncTransferOrdersIncremental(transferOrders1C)
               await syncTransferOrderItems()
-              allTransferOrders = db.prepare(`SELECT * FROM transfer_orders
-                WHERE customer_order_key IS NOT NULL AND customer_order_key != '' AND customer_order_key != '00000000-0000-0000-0000-000000000000'
-                ORDER BY date DESC`).all()
+              allTransferOrders = db.prepare(profitSql).all(...profitParams)
             }
           } catch (e) { /* ignore */ }
         }
@@ -4257,25 +4287,7 @@ const materialReturns = db.prepare(`
 
       // 2) Build orderMap from transfer orders (same as production-materials)
       const orderMap = new Map()
-
-      // Build product name set per customer order for validation
-      const orderProductsCache2 = new Map()
-      const getOrderProducts2 = (orderKey) => {
-        if (orderProductsCache2.has(orderKey)) return orderProductsCache2.get(orderKey)
-        const orderRow = db.prepare('SELECT items FROM onec_orders WHERE ref_key = ?').get(orderKey)
-        const productNames = new Set()
-        if (orderRow && orderRow.items) {
-          try {
-            const oi = JSON.parse(orderRow.items)
-            for (const it of oi) {
-              if (it.productName) productNames.add(it.productName)
-              if (it.itemName) productNames.add(it.itemName)
-            }
-          } catch { /* ignore */ }
-        }
-        orderProductsCache2.set(orderKey, productNames)
-        return productNames
-      }
+      const orderProductsMap2 = getOrderProductsMap()
 
       for (const transferOrder of allTransferOrders) {
         let items = []
@@ -4297,8 +4309,8 @@ const materialReturns = db.prepare(`
             itemOrderNumber = item.customerOrderNumber || ''
             itemProduct = item.selectedProduct || ''
             if (itemProduct) {
-              const validProducts = getOrderProducts2(itemOrderKey)
-              if (validProducts.size > 0 && !validProducts.has(itemProduct)) {
+              const validProducts = orderProductsMap2.get(itemOrderKey)
+              if (validProducts && validProducts.size > 0 && !validProducts.has(itemProduct)) {
                 itemProduct = ''
               }
             }
@@ -4307,8 +4319,8 @@ const materialReturns = db.prepare(`
             itemOrderNumber = transferOrder.customer_order_number || ''
             itemProduct = item.selectedProduct || transferOrder.selected_product || ''
             if (itemProduct) {
-              const validProducts = getOrderProducts2(itemOrderKey)
-              if (validProducts.size > 0 && !validProducts.has(itemProduct)) {
+              const validProducts = orderProductsMap2.get(itemOrderKey)
+              if (validProducts && validProducts.size > 0 && !validProducts.has(itemProduct)) {
                 itemProduct = ''
               }
             }
@@ -4356,13 +4368,8 @@ const materialReturns = db.prepare(`
         }
       }
 
-      // 3) Material price map
-      const allStocks = db.prepare('SELECT DISTINCT name, purchasePrice, averagePrice FROM onec_stocks').all()
-      const priceMap = new Map()
-      for (const s of allStocks) {
-        const price = Number(s.averagePrice || s.purchasePrice || 0)
-        if (price > 0 && s.name) priceMap.set(s.name.toLowerCase(), price)
-      }
+      // 3) Use cached price map
+      const priceMap = getPriceMap()
 
       const enrichMaterials = (materials) => {
         let total = 0
@@ -4375,7 +4382,8 @@ const materialReturns = db.prepare(`
       }
 
       for (const entry of orderMap.values()) {
-        entry.orderTotal = enrichMaterials(entry.orderMaterials)
+        entry.orderMaterialsTotal = enrichMaterials(entry.orderMaterials)
+        entry.orderTotal = entry.orderMaterialsTotal
         for (const product of entry.products) {
           product.totalSum = enrichMaterials(product.materials)
           entry.orderTotal += product.totalSum
@@ -4393,10 +4401,19 @@ const materialReturns = db.prepare(`
         }
       }
 
+      // Load financial data from order_financials (independent from 1C sync)
+      const financialRows = db.prepare('SELECT order_ref_key, product_name, fot, fot_months, delivery, overhead_pct FROM order_financials').all()
+      const financialByOrder = new Map()
+      for (const f of financialRows) {
+        if (!financialByOrder.has(f.order_ref_key)) financialByOrder.set(f.order_ref_key, new Map())
+        financialByOrder.get(f.order_ref_key).set(f.product_name, f)
+      }
+
       // 5) Build result — merge transfer order materials with order pricing
       const result = Array.from(orderMap.values()).map(entry => {
         const customer = entry.customerOrderKey ? (customerByRefKey.get(entry.customerOrderKey) || '') : ''
         const orderItems = entry.customerOrderKey ? (orderItemsByRefKey.get(entry.customerOrderKey) || []) : []
+        const finMap = financialByOrder.get(entry.customerOrderKey || entry.orderNumber) || new Map()
 
         // Build product rows with pricing from onec_orders
         const productRows = entry.products.map(p => {
@@ -4404,15 +4421,18 @@ const materialReturns = db.prepare(`
             const itemName = i.productName || i.itemName || ''
             return p.name && itemName && (itemName.includes(p.name) || p.name.includes(itemName))
           })
-          const productSum = orderItem ? Number(orderItem.totalPrice || 0) : p.totalSum
+          const fin = finMap.get(p.name)
+          const productSum = orderItem ? Number(orderItem.totalPrice || 0) : 0
           return {
             productName: p.name,
             quantity: orderItem ? Number(orderItem.quantity || 0) : 0,
             unit: orderItem ? (orderItem.unit || 'шт') : 'шт',
             productSum,
             materialsCost: Math.round(p.totalSum * 100) / 100,
-            fot: 0,
-            delivery: 0
+            fot: fin ? (fin.fot || 0) : 0,
+            _fotMonths: fin ? (JSON.parse(fin.fot_months || '[]')) : null,
+            delivery: fin ? (fin.delivery || 0) : 0,
+            _overheadPct: fin ? (fin.overhead_pct ?? 50) : 50
           }
         })
 
@@ -4421,26 +4441,29 @@ const materialReturns = db.prepare(`
           for (const oi of orderItems) {
             const pname = oi.productName || oi.itemName || ''
             if (!pname) continue
+            const fin = finMap.get(pname)
             productRows.push({
               productName: pname,
               quantity: Number(oi.quantity || oi.plannedQuantity || 0),
               unit: oi.unit || 'шт',
               productSum: Number(oi.totalPrice || 0),
               materialsCost: 0,
-              fot: 0,
-              delivery: 0
+              fot: fin ? (fin.fot || 0) : 0,
+              _fotMonths: fin ? (JSON.parse(fin.fot_months || '[]')) : null,
+              delivery: fin ? (fin.delivery || 0) : 0,
+              _overheadPct: fin ? (fin.overhead_pct ?? 50) : 50
             })
           }
         }
 
-        // Distribute orderMaterials proportionally if no per-product breakdown
-        if (entry.products.length === 0 && entry.orderMaterials.length > 0 && productRows.length > 0) {
-          const totalProductsSum = productRows.reduce((s, r) => s + r.productSum, 0)
-          if (totalProductsSum > 0) {
-            productRows.forEach(pr => {
-              pr.materialsCost = Math.round(entry.orderTotal * (pr.productSum / totalProductsSum) * 100) / 100
-            })
-          }
+        // Recalculate materialsCost: direct materials + proportional share of orderMaterials
+        const orderMaterialsTotal = entry.orderMaterialsTotal
+        const totalProductsSum = productRows.reduce((s, r) => s + r.productSum, 0)
+        if (totalProductsSum > 0 && orderMaterialsTotal > 0) {
+          productRows.forEach(pr => {
+            const share = pr.productSum / totalProductsSum
+            pr.materialsCost = Math.round((pr.materialsCost + orderMaterialsTotal * share) * 100) / 100
+          })
         }
 
         const totalSum = productRows.reduce((s, r) => s + r.productSum, 0)
@@ -4459,7 +4482,8 @@ const materialReturns = db.prepare(`
         }
       })
 
-      sendJSON(res, 200, { success: true, data: result })
+      const filtered = result.filter(r => r.totalSum > 0)
+      sendJSON(res, 200, { success: true, data: filtered })
     } catch (err) {
       console.error('Error fetching profitability report:', err)
       sendJSON(res, 500, { error: err.message })
@@ -4474,35 +4498,41 @@ const materialReturns = db.prepare(`
     req.on('end', async () => {
       try {
         const data = JSON.parse(body)
-        const { orderKey, products } = data
+        const { orderKey, products, overheadPct } = data
 
         if (!orderKey || !products) {
           sendJSON(res, 400, { error: 'orderKey and products are required' })
           return
         }
 
-        // Store FOT and delivery per product in onec_orders.items (materialUsed/paintUsed fields)
-        // We'll use a JSON field to store financial data
-        const order = db.prepare('SELECT items FROM onec_orders WHERE ref_key = ?').get(orderKey)
-        let existingItems = []
-        if (order?.items) {
-          try { existingItems = JSON.parse(order.items) } catch { /* ignore */ }
+        // Store financial data in order_financials (independent from 1C sync)
+        const insertFinancial = db.prepare(`
+          INSERT INTO order_financials (order_ref_key, product_name, fot, fot_months, delivery, overhead_pct)
+          VALUES (?, ?, ?, ?, ?, ?)
+          ON CONFLICT(order_ref_key, product_name)
+          DO UPDATE SET fot = excluded.fot, fot_months = excluded.fot_months,
+                        delivery = excluded.delivery, overhead_pct = excluded.overhead_pct
+        `)
+
+        for (const p of products) {
+          insertFinancial.run(
+            orderKey,
+            p.productName,
+            p.fot || 0,
+            JSON.stringify(p._fotMonths || []),
+            p.delivery || 0,
+            p.overheadPct ?? 50
+          )
         }
 
-        // Merge financial data into existing items
-        const itemMap = new Map(existingItems.map(i => [i.productName || i.itemName || '', i]))
-        for (const p of products) {
-          const existing = itemMap.get(p.productName)
-          if (existing) {
-            existing.materialUsed = String(p.materialsCost || 0)
-            existing.paintUsed = JSON.stringify({ fot: p.fot || 0, delivery: p.delivery || 0 })
+        if (overheadPct !== undefined) {
+          // Also save order-level overheadPct
+          const orderFin = db.prepare('SELECT id FROM order_financials WHERE order_ref_key = ?').get(orderKey)
+          if (orderFin) {
+            // Store order-level overhead in a special row
+            insertFinancial.run(orderKey, '__ORDER__', 0, '[]', 0, overheadPct)
           }
         }
-
-        db.prepare('UPDATE onec_orders SET items = ? WHERE ref_key = ?').run(
-          JSON.stringify(Array.from(itemMap.values())),
-          orderKey
-        )
 
         sendJSON(res, 200, { success: true })
       } catch (err) {

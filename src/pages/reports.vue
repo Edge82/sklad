@@ -38,12 +38,123 @@
 
        <!-- Контент в зависимости от вкладки -->
         <div v-if="activeTab === 'main'">
-          <n-card class="mb-4">
-            <div class="flex flex-col items-center justify-center py-20">
-              <n-h3 class="m-0">Финансовая отчётность</n-h3>
-              <n-text depth="3" class="mt-2">Раздел в разработке</n-text>
-            </div>
-          </n-card>
+          <div class="mb-4 flex justify-between items-center">
+            <n-h2 class="m-0">Финансовая отчётность</n-h2>
+          </div>
+          <div class="mb-4 flex gap-3 flex-wrap">
+            <n-input
+              v-model:value="profitabilitySearchQuery"
+              type="text"
+              placeholder="Поиск по заказу или клиенту..."
+              clearable
+              style="width: 350px"
+            />
+            <n-date-picker
+              v-model:value="profitabilityDateRange"
+              type="daterange"
+              placeholder="Период"
+              clearable
+              style="width: 280px"
+            />
+          </div>
+          <div v-if="profitabilityLoading" class="flex items-center justify-center" style="min-height: 100px">
+          <n-spin size="large" />
+        </div>
+        <div v-else>
+            <n-card border-variant="dark" v-if="profitabilityLoaded">
+              <div v-if="profitabilityReport.length === 0">
+                <n-empty description="Нет данных по заказам" />
+              </div>
+              <div v-else>
+                <div v-for="order in profitabilityReport" :key="order.orderKey" class="mb-4">
+                  <div class="profitability-order-header flex justify-between items-center py-2 px-3 rounded" @click="toggleProfitabilityOrder(order.orderKey)">
+                    <div class="flex items-center gap-3">
+                      <n-icon :component="expandedProfitabilityOrders.has(order.orderKey) ? ChevronForward : ChevronForward" :style="{ transform: expandedProfitabilityOrders.has(order.orderKey) ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }" />
+                      <n-text strong>{{ order.orderNumber }}</n-text>
+                      <n-tag size="small" type="info">{{ order.customer || '-' }}</n-tag>
+                    </div>
+                    <div class="flex items-center gap-4 text-sm">
+                      <span>Сумма: <b>{{ fmtNumber(order.totalSum) }}</b></span>
+                      <span>Материалы: <b>{{ fmtNumber(order.totalMaterials) }}</b></span>
+                      <span :style="{ color: orderNetProfit(order) >= 0 ? '#18a058' : '#f0a020' }">Прибыль: <b>{{ fmtNumber(orderNetProfit(order)) }}</b></span>
+                    </div>
+                  </div>
+                  <div v-if="expandedProfitabilityOrders.has(order.orderKey)" class="ml-6 mt-2 overflow-x-auto">
+                    <table class="profitability-table text-sm" v-if="order.products.length > 0">
+                      <thead>
+                        <tr>
+                          <th style="white-space: normal">Изделие</th>
+                          <th class="text-right">Кол-во</th>
+                          <th class="text-right">Сумма</th>
+                          <th class="text-right">Материалы</th>
+                          <th class="text-right">%</th>
+                          <th class="text-right">ФОТ</th>
+                          <th class="text-right">%</th>
+                          <th class="text-right">Доставка</th>
+                          <th class="text-right">%</th>
+                          <th class="text-right">Расходы</th>
+                          <th class="text-right" style="white-space: normal">Валовая<br>прибыль</th>
+                          <th class="text-right">Накладные<br>расходы</th>
+                          <th class="text-right">%</th>
+                          <th class="text-right">Прибыль</th>
+                          <th class="text-right">%</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr v-for="p in order.products" :key="p.productName">
+                          <td style="white-space: normal; word-break: break-word; text-align: left; min-width: 120px; max-width: 200px">{{ p.productName }}</td>
+                          <td class="text-right">{{ p.quantity }} {{ p.unit }}</td>
+                          <td class="text-right">{{ fmtNumber(p.productSum) }}</td>
+                          <td class="text-right">{{ fmtNumber(p.materialsCost) }}</td>
+                          <td class="text-right">{{ p.productSum ? (p.materialsCost / p.productSum * 100).toFixed(1) + '%' : '0%' }}</td>
+                          <td class="text-right">
+                            <span class="cursor-pointer text-[#2080f0] hover:underline" @click="openFotModal(order, p)">{{ fmtNumber(p.fot || 0) }}</span>
+                          </td>
+                          <td class="text-right">{{ p.productSum ? ((p.fot || 0) / p.productSum * 100).toFixed(1) + '%' : '0%' }}</td>
+<td style="padding: 2px 4px; width: 70px">
+                              <input type="number" :value="p.delivery || ''" placeholder="Ввести" @input="(e) => { p.delivery = parseFloat((e.target as HTMLInputElement).value) || 0; recalcProfitability(order) }" step="0.01" style="width: 100%; box-sizing: border-box; background: transparent; border: none; color: inherit; text-align: center; font-size: 12px; padding: 0; outline: none;" />
+                            </td>
+                          <td class="text-right">{{ p.productSum ? ((p.delivery || 0) / p.productSum * 100).toFixed(1) + '%' : '0%' }}</td>
+                          <td class="text-right">{{ fmtNumber(productTotalExpense(p)) }}</td>
+                          <td class="text-right" :style="{ color: productGrossProfit(p) >= 0 ? '#18a058' : '#f0a020' }">{{ fmtNumber(productGrossProfit(p)) }}</td>
+                          <td class="text-right">{{ fmtNumber(productOverhead(p)) }}</td>
+                          <td style="padding: 2px 4px">
+                            <input type="number" :value="p._overheadPct ?? ''" placeholder="50" @input="(e) => { p._overheadPct = parseFloat((e.target as HTMLInputElement).value) ?? 50; p._overhead = productTotalExpense(p) * p._overheadPct / 100; p._net = productGrossProfit(p) - p._overhead; recalcProfitability(order) }" step="1" style="width: 50px; box-sizing: border-box; background: transparent; border: none; color: inherit; text-align: center; font-size: 12px; padding: 0; outline: none;" />
+                          </td>
+                          <td class="text-right" :style="{ color: (productGrossProfit(p) - productOverhead(p)) >= 0 ? '#18a058' : '#f0a020' }">{{ fmtNumber(productGrossProfit(p) - productOverhead(p)) }}</td>
+                          <td class="text-right">{{ p.productSum ? ((productGrossProfit(p) - productOverhead(p)) / p.productSum * 100).toFixed(1) + '%' : '0%' }}</td>
+                        </tr>
+                      </tbody>
+                      <tfoot>
+                        <tr class="profitability-total">
+                          <td>Итого</td>
+                          <td class="text-right">{{ order.products.reduce((s, p: any) => s + p.quantity, 0) }}</td>
+                          <td class="text-right">{{ fmtNumber(order.totalSum) }}</td>
+                          <td class="text-right">{{ fmtNumber(order.totalMaterials) }}</td>
+                          <td class="text-right">{{ order.totalSum ? (order.totalMaterials / order.totalSum * 100).toFixed(1) + '%' : '0%' }}</td>
+                          <td class="text-right">{{ fmtNumber(order.products.reduce((s, p: any) => s + (p.fot || 0), 0)) }}</td>
+                          <td class="text-right">{{ order.totalSum ? (order.products.reduce((s, p: any) => s + (p.fot || 0), 0) / order.totalSum * 100).toFixed(1) + '%' : '0%' }}</td>
+                          <td class="text-right">{{ fmtNumber(order.products.reduce((s, p: any) => s + (p.delivery || 0), 0)) }}</td>
+                          <td class="text-right">{{ order.totalSum ? (order.products.reduce((s, p: any) => s + (p.delivery || 0), 0) / order.totalSum * 100).toFixed(1) + '%' : '0%' }}</td>
+                          <td class="text-right">{{ fmtNumber(order.totalMaterials + order.products.reduce((s, p: any) => s + (p.fot || 0) + (p.delivery || 0), 0)) }}</td>
+                          <td class="text-right" :style="{ color: orderGrossProfit(order) >= 0 ? '#18a058' : '#f0a020' }">{{ fmtNumber(orderGrossProfit(order)) }}</td>
+                          <td class="text-right">{{ fmtNumber(orderOverhead(order)) }}</td>
+                          <td style="padding: 2px 4px">
+                            <input type="number" :value="order._overheadPct ?? ''" placeholder="50" @input="(e) => { order._overheadPct = parseFloat((e.target as HTMLInputElement).value) ?? 50; recalcProfitability(order) }" step="1" style="width: 50px; box-sizing: border-box; background: transparent; border: none; color: inherit; text-align: center; font-size: 12px; padding: 0; outline: none;" />
+                          </td>
+                          <td class="text-right" :style="{ color: (orderGrossProfit(order) - orderOverhead(order)) >= 0 ? '#18a058' : '#f0a020' }">{{ fmtNumber(orderGrossProfit(order) - orderOverhead(order)) }}</td>
+                          <td class="text-right">{{ order.totalSum ? ((orderGrossProfit(order) - orderOverhead(order)) / order.totalSum * 100).toFixed(1) + '%' : '0%' }}</td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                    <div v-if="order.orderMaterials && order.orderMaterials.length > 0" class="mt-2">
+                      <n-tag size="small" type="warning">Прочие материалы: {{ fmtNumber(orderOtherMaterialsSum(order)) }}</n-tag>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </n-card>
+          </div>
         </div>
 
         <!-- Детальный отчет по заказам -->
@@ -163,6 +274,28 @@
 
     </div>
   </div>
+
+  <n-modal v-model:show="showFotModal" preset="card" title="Зарплата по месяцам (ФОТ)" style="width: 520px">
+    <div v-if="fotModalProduct">
+      <n-text strong class="block mb-4">{{ fotModalProduct.productName }}</n-text>
+      <div class="flex flex-col gap-3">
+        <div v-for="(m, idx) in fotMonths" :key="idx" class="flex items-center gap-3">
+          <span class="w-16 text-sm">{{ m.month }}</span>
+          <input type="number" :value="m.value ?? ''" @input="(e) => { m.value = (e.target as HTMLInputElement).value === '' ? null : parseFloat((e.target as HTMLInputElement).value) }" step="0.01" style="width: 140px; box-sizing: border-box; padding: 4px 8px; border: 1px solid #d0d0d0; border-radius: 4px; font-size: 14px; outline: none;" />
+        </div>
+      </div>
+      <div class="mt-4 pt-3 border-t flex justify-between items-center">
+        <n-text strong>Итого ФОТ:</n-text>
+        <n-text strong class="text-lg">{{ fmtNumber(fotMonths.reduce((s, m) => s + (m.value ?? 0), 0)) }}</n-text>
+      </div>
+    </div>
+    <template #action>
+      <n-space justify="end">
+        <n-button @click="showFotModal = false">Отмена</n-button>
+        <n-button type="primary" @click="saveFotModal">Сохранить</n-button>
+      </n-space>
+    </template>
+  </n-modal>
 </template>
 
 <script setup lang="ts">
@@ -184,7 +317,7 @@ import {
   NSelect, NIcon, NH1, NText, NGrid, NGi, NCard, NH3,
   NDatePicker, NDataTable, NList, NListItem,
   NThing, NAvatar, NTag, NH2, NTable, NEmpty,
-  NInput, NButton, type DataTableColumns
+  NInput, NButton, NModal, NForm, NFormItem, type DataTableColumns
 } from 'naive-ui'
 
 const router = useRouter()
@@ -199,6 +332,18 @@ const productionReport = ref<any[]>([])
 const profitabilityReport = ref<any[]>([])
 const profitabilityLoading = ref(false)
 const expandedProfitabilityOrders = ref<Set<string>>(new Set())
+const profitabilitySearchQuery = ref('')
+const profitabilityDateRange = ref<number | null>(null)
+const profitabilityLoaded = ref(false)
+const showFotModal = ref(false)
+const fotModalProduct = ref(null)
+const fotModalOrder = ref(null)
+const fotMonths = ref(
+  Array.from({ length: 12 }, (_, i) => ({
+    month: new Date(2026, i).toLocaleString('ru-RU', { month: 'short' }),
+    value: null as number | null
+  }))
+)
 const productionSearchQuery = ref('')
 const productionCustomerQuery = ref('')
 const productionDateRange = ref<number | null>(null)
@@ -393,6 +538,11 @@ const loadProductionReport = async () => {
     if (productionSearchQuery.value) {
       params.set('search', productionSearchQuery.value)
     }
+    if (productionDateRange.value && Array.isArray(productionDateRange.value)) {
+      const [start, end] = productionDateRange.value
+      params.set('dateFrom', new Date(start).toISOString().slice(0, 10))
+      params.set('dateTo', new Date(end).toISOString().slice(0, 10))
+    }
     const qs = params.toString()
     const res = await fetch(`/sklad/api/reports/production-materials${qs ? '?' + qs : ''}`)
     if (res.ok) {
@@ -405,7 +555,17 @@ const loadProductionReport = async () => {
 const loadProfitabilityReport = async () => {
   profitabilityLoading.value = true
   try {
-    const res = await fetch('/sklad/api/reports/profitability')
+    const params = new URLSearchParams()
+    if (profitabilitySearchQuery.value) {
+      params.set('search', profitabilitySearchQuery.value)
+    }
+    if (profitabilityDateRange.value && Array.isArray(profitabilityDateRange.value)) {
+      const [start, end] = profitabilityDateRange.value
+      params.set('dateFrom', new Date(start).toISOString().slice(0, 10))
+      params.set('dateTo', new Date(end).toISOString().slice(0, 10))
+    }
+    const qs = params.toString()
+    const res = await fetch(`/sklad/api/reports/profitability${qs ? '?' + qs : ''}`)
     if (res.ok) {
       const data = await res.json()
       // Pre-compute all values to avoid expensive template expressions
@@ -419,17 +579,20 @@ const loadProfitabilityReport = async () => {
 
         return {
           ...order,
+          _overheadPct: 50,
           products: order.products.map((p: any) => {
             const pExpense = (p.materialsCost || 0) + (p.fot || 0) + (p.delivery || 0)
+            const pOverheadPct = p._overheadPct ?? 50
+            const pOverhead = pExpense * pOverheadPct / 100
             const pGross = p.productSum - pExpense
-            const pOverhead = pExpense * 0.5
             const pNet = pGross - pOverhead
             return {
               ...p,
               _expense: pExpense,
               _gross: pGross,
               _overhead: pOverhead,
-              _net: pNet
+              _net: pNet,
+              _overheadPct: pOverheadPct
             }
           }),
           _fot: orderFot,
@@ -441,6 +604,7 @@ const loadProfitabilityReport = async () => {
         }
       })
     }
+    profitabilityLoaded.value = true
   } catch { /* ignore */ } finally {
     profitabilityLoading.value = false
   }
@@ -458,14 +622,14 @@ const fmtPct = (part: number, total: number) => {
 
 const productTotalExpense = (p: any) => (p.materialsCost || 0) + (p.fot || 0) + (p.delivery || 0)
 const productGrossProfit = (p: any) => p.productSum - productTotalExpense(p)
-const productOverhead = (p: any) => productTotalExpense(p) * 0.5
+const productOverhead = (p: any) => p._expense * (p._overheadPct ?? 50) / 100
 const productNetProfit = (p: any) => productGrossProfit(p) - productOverhead(p)
 
 const orderTotalFot = (o: any) => o.products.reduce((s: number, p: any) => s + (p.fot || 0), 0)
 const orderTotalDelivery = (o: any) => o.products.reduce((s: number, p: any) => s + (p.delivery || 0), 0)
 const orderTotalExpense = (o: any) => o.totalMaterials + orderTotalFot(o) + orderTotalDelivery(o)
 const orderGrossProfit = (o: any) => o.totalSum - orderTotalExpense(o)
-const orderOverhead = (o: any) => orderTotalExpense(o) * 0.5
+const orderOverhead = (o: any) => orderTotalExpense(o) * (o._overheadPct ?? 50) / 100
 const orderNetProfit = (o: any) => orderGrossProfit(o) - orderOverhead(o)
 
 const toggleProfitabilityOrder = (orderKey: string) => {
@@ -480,14 +644,32 @@ const orderOtherMaterialsSum = (order: any) => {
   return (order.orderMaterials || []).reduce((s: number, m: any) => s + (m.sum || 0), 0)
 }
 
+const openFotModal = (order: any, product: any) => {
+  fotModalOrder.value = order
+  fotModalProduct.value = product
+  fotMonths.value = Array.from({ length: 12 }, (_, i) => ({
+    month: new Date(2026, i).toLocaleString('ru-RU', { month: 'short' }),
+    value: (product._fotMonths?.[i] ?? null) as number | null
+  }))
+  showFotModal.value = true
+}
+
+const saveFotModal = () => {
+  if (!fotModalProduct.value || !fotModalOrder.value) return
+  const total = fotMonths.value.reduce((s, m) => s + (m.value ?? 0), 0)
+  fotModalProduct.value._fotMonths = fotMonths.value.map(m => m.value ?? 0)
+  fotModalProduct.value.fot = total
+  recalcProfitability(fotModalOrder.value)
+  showFotModal.value = false
+}
+
 let saveTimeout: ReturnType<typeof setTimeout> | null = null
 const recalcProfitability = (order: any) => {
-  // Re-compute pre-calculated values
   const orderFot = order.products.reduce((s: number, p: any) => s + (p.fot || 0), 0)
   const orderDelivery = order.products.reduce((s: number, p: any) => s + (p.delivery || 0), 0)
   const orderExpense = order.totalMaterials + orderFot + orderDelivery
   const orderGross = order.totalSum - orderExpense
-  const orderOverhead = orderExpense * 0.5
+  const orderOverhead = orderExpense * (order._overheadPct ?? 50) / 100
   const orderNet = orderGross - orderOverhead
   order._fot = orderFot
   order._delivery = orderDelivery
@@ -500,7 +682,7 @@ const recalcProfitability = (order: any) => {
     const pExpense = (p.materialsCost || 0) + (p.fot || 0) + (p.delivery || 0)
     p._expense = pExpense
     p._gross = p.productSum - pExpense
-    p._overhead = pExpense * 0.5
+    p._overhead = pExpense * (p._overheadPct ?? 50) / 100
     p._net = p._gross - p._overhead
   })
 
@@ -512,11 +694,13 @@ const recalcProfitability = (order: any) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           orderKey: order.orderKey,
+          overheadPct: order._overheadPct ?? 50,
           products: order.products.map((p: any) => ({
             productName: p.productName,
-            materialsCost: p.materialsCost,
             fot: p.fot || 0,
-            delivery: p.delivery || 0
+            _fotMonths: p._fotMonths || [],
+            delivery: p.delivery || 0,
+            overheadPct: p._overheadPct ?? 50
           }))
         })
       })
@@ -532,14 +716,7 @@ const filteredProductionReport = computed(() => {
       (r.customer || '').toLowerCase().includes(q)
     )
   }
-  if (productionDateRange.value && Array.isArray(productionDateRange.value)) {
-    const [start, end] = productionDateRange.value
-    result = result.filter(r => {
-      if (!r.date) return false
-      const d = new Date(r.date).getTime()
-      return d >= start && d <= end
-    })
-  }
+  // Date filtering is done on backend now
   return result
 })
 
@@ -696,6 +873,7 @@ onMounted(async () => {
   await Promise.all([
     reportsStore.loadAllReports(),
     loadProductionReport(),
+    loadProfitabilityReport(),
     ordersStore.loadOrdersFromApi(),
     toolsStore.loadToolsFromApi()
   ])
@@ -713,6 +891,7 @@ onActivated(async () => {
   await Promise.all([
     reportsStore.loadAllReports(),
     loadProductionReport(),
+    loadProfitabilityReport(),
     ordersStore.loadOrdersFromApi(),
     toolsStore.loadToolsFromApi()
   ])
@@ -726,6 +905,24 @@ onActivated(async () => {
 
 watch(productionSearchQuery, () => {
   loadProductionReport()
+})
+
+// Lazy-load profitability only when "main" tab is active
+watch(activeTab, (tab) => {
+  if (tab === 'main' && !profitabilityLoaded.value) {
+    loadProfitabilityReport()
+  }
+})
+
+// Debounced search and date filters for profitability
+let profitabilityDebounce: ReturnType<typeof setTimeout> | null = null
+watch([profitabilitySearchQuery, profitabilityDateRange], () => {
+  if (profitabilityDebounce) clearTimeout(profitabilityDebounce)
+  profitabilityDebounce = setTimeout(() => {
+    if (profitabilityLoaded.value) {
+      loadProfitabilityReport()
+    }
+  }, 400)
 })
 
 interface OrderReportEntry {
@@ -837,6 +1034,7 @@ const toolsDetailedColumns = [
   width: 100%;
   border-collapse: collapse;
   font-size: 13px;
+  table-layout: auto;
 }
 .profitability-table thead th {
   font-weight: 700;
@@ -851,9 +1049,20 @@ const toolsDetailedColumns = [
   padding: 6px 4px;
   border: 1px solid #333;
 }
+.profitability-table input[type="number"]::-webkit-inner-spin-button,
+.profitability-table input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.profitability-table input[type="number"] {
+  -moz-appearance: textfield;
+}
 .profitability-total td {
   font-weight: 700;
   background: #1a1a1a;
+  border: 1px solid #333;
+  padding: 6px 4px;
+  text-align: center;
 }
 .profitability-table .n-input-number {
   width: 96px !important;
@@ -871,5 +1080,17 @@ const toolsDetailedColumns = [
 .profitability-other td {
   color: #f0a020;
   font-style: italic;
+}
+.n-modal-body input[type="number"]:focus {
+  border-color: #2080f0;
+  box-shadow: 0 0 0 2px rgba(32, 128, 240, 0.2);
+}
+.n-modal-body input[type="number"]::-webkit-inner-spin-button,
+.n-modal-body input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.n-modal-body input[type="number"] {
+  -moz-appearance: textfield;
 }
 </style>

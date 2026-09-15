@@ -293,6 +293,12 @@ try {
   db.exec(`CREATE INDEX IF NOT EXISTS idx_log_order ON operation_logs(order_id)`)
   db.exec(`CREATE INDEX IF NOT EXISTS idx_log_operation ON operation_logs(operation_type)`)
   db.exec(`CREATE INDEX IF NOT EXISTS idx_log_created ON operation_logs(created_at DESC)`)
+
+  // Indexes for reports performance
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_transfer_customer_order_key ON transfer_orders(customer_order_key)`)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_transfer_date ON transfer_orders(date DESC)`)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_onec_orders_ref_key ON onec_orders(ref_key)`)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_onec_stocks_name ON onec_stocks(name)`)
 } catch (e) { /* indexes might already exist */ }
 
 // Добавляем новые колонки если их нет (миграция)
@@ -659,6 +665,25 @@ try {
   }
 } catch (err) {
   console.error('Error initializing storage_bins table:', err.message)
+}
+
+// Financial data (FOT, delivery, overhead) — independent from 1C sync
+try {
+  db.prepare(`
+    CREATE TABLE IF NOT EXISTS order_financials (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      order_ref_key TEXT NOT NULL,
+      product_name TEXT NOT NULL,
+      fot REAL DEFAULT 0,
+      fot_months TEXT DEFAULT '[]',
+      delivery REAL DEFAULT 0,
+      overhead_pct REAL DEFAULT 50,
+      UNIQUE(order_ref_key, product_name)
+    )
+  `)
+  console.log('✓ Created order_financials table')
+} catch (err) {
+  console.error('Error initializing order_financials table:', err.message)
 }
 
 console.log('✅ Database initialized')
