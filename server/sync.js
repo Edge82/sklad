@@ -8,7 +8,7 @@ import { writeSyncLog } from './helpers.js'
 import {
   fetch1CUnits, fetch1CCategories, fetch1CWarehouses,
   fetch1CStocks, fetch1COrders, fetch1CTransferOrders,
-  calculateReserves, loadCacheFromDB
+  fetch1CReceiptServices, calculateReserves, loadCacheFromDB
 } from './onec-client.js'
 import { transformOrderStatus } from './helpers.js'
 import { ONEC_CONFIG, getBasicAuthHeader } from './config.js'
@@ -300,6 +300,46 @@ function syncTransferOrdersIncremental(orders) {
 }
 
 /**
+ * Синхронизация услуг из приходных накладных (для отчёта по рентабельности).
+ * result — { lines, scanned } из fetch1CReceiptServices() или null (недоступно).
+ * Для всех просмотренных накладных полностью заменяем их строки услуг.
+ */
+function syncReceiptServices(result) {
+  const stats = { upserted: 0, cleared: 0 }
+  if (!result) return stats
+  const { lines = [], scanned = [] } = result
+
+  const delStmt = db.prepare('DELETE FROM receipt_services WHERE receipt_ref_key = ?')
+  const insStmt = db.prepare(`
+    INSERT INTO receipt_services (receipt_ref_key, line_ref_key, order_ref_key, doc_date, amount, nomenclature)
+    VALUES (?, ?, ?, ?, ?, ?)
+    ON CONFLICT(receipt_ref_key, line_ref_key) DO UPDATE SET
+      order_ref_key = excluded.order_ref_key, doc_date = excluded.doc_date,
+      amount = excluded.amount, nomenclature = excluded.nomenclature
+  `)
+
+  const byReceipt = new Map()
+  for (const r of lines) {
+    if (!byReceipt.has(r.receiptRefKey)) byReceipt.set(r.receiptRefKey, [])
+    byReceipt.get(r.receiptRefKey).push(r)
+  }
+
+  for (const receiptRef of scanned) {
+    delStmt.run(receiptRef)
+    stats.cleared++
+    const recLines = byReceipt.get(receiptRef)
+    if (recLines) {
+      for (const r of recLines) {
+        insStmt.run(r.receiptRefKey, r.lineRefKey, r.orderRefKey, r.docDate, r.amount, r.nomenclature)
+        stats.upserted++
+      }
+    }
+  }
+
+  return stats
+}
+
+/**
  * Инкрементальная синхронизация заказов
  */
 function syncOrdersIncremental(orders) {
@@ -319,21 +359,29 @@ function syncOrdersIncremental(orders) {
       // Financial fields (fot, delivery, overheadPct, _fotMonths) are stored in order_financials, not items
       const mergedItemsJson = itemsJson
 
-      db.prepare(`UPDATE onec_orders SET
-        order_number = ?, date = ?, customer = ?, status = ?, amount = ?, items_count = ?, items = ?, comment = ?
-        WHERE ref_key = ?`)
-        .run(
-          order.order_number || order.id,
-          order.date,
-          order.customer,
-          transformedStatus,
-          order.amount || 0,
-          order.items_count || 0,
-          mergedItemsJson,
-          order.comment || '',
-          ref_key
-        )
-      stats.updated++
+      try {
+        db.prepare(`UPDATE onec_orders SET
+          order_number = ?, date = ?, customer = ?, status = ?, amount = ?, items_count = ?, items = ?, comment = ?
+          WHERE ref_key = ?`)
+          .run(
+            order.order_number || order.id,
+            order.date,
+            order.customer,
+            transformedStatus,
+            order.amount || 0,
+            order.items_count || 0,
+            mergedItemsJson,
+            order.comment || '',
+            ref_key
+          )
+        stats.updated++
+      } catch (e) {
+        if (e.message && e.message.includes('UNIQUE constraint')) {
+          console.warn(`  ⚠️ Skipping order update (duplicate order_number): ${order.order_number}`)
+        } else {
+          throw e
+        }
+      }
     } else {
       try {
         db.prepare(`INSERT INTO onec_orders (ref_key, order_number, date, customer, status, amount, items_count, items, comment)
@@ -492,6 +540,21 @@ export async function syncWith1C() {
       }
     }
 
+    // Услуги из приходных накладных (для отчёта по рентабельности — колонка «Услуги»)
+    try {
+      const svcResult = await fetch1CReceiptServices()
+      const svcStats = syncReceiptServices(svcResult)
+      if (svcResult) {
+        syncLog.results.receipt_services = { status: 'success', count: svcStats.upserted, ...svcStats }
+        console.log(`✓ Receipt services: ${svcStats.upserted} lines upserted, ${svcStats.cleared} receipts refreshed`)
+        writeSyncLog(`Receipt services synced: ${svcStats.upserted} lines`)
+      } else {
+        console.log('⚠️ Receipt services: 1C недоступна — сохраняем прежние данные')
+      }
+    } catch (e) {
+      console.warn('⚠️ Error syncing receipt services:', e.message)
+    }
+
     loadCacheFromDB()
 
     updateLastSyncTime({ value: new Date().toISOString(), status: syncLog.usedFallback ? 'fallback' : 'success' })
@@ -556,7 +619,6 @@ async function syncTransferOrderItems() {
 
       // Получаем все поля (без $select — 1C может не поддерживать его для нав. свойств)
       const url = `${baseUrl}/Document_ЗаказНаПеремещение(guid'${order.ref_key}')/Запасы?$format=json`
-      console.log(`  Fetching items for ${order.ref_key}...`)
       const response = await fetch(url, {
         headers: { 'Authorization': authHeader, 'Content-Type': 'application/json', 'Accept': 'application/json' },
         signal: AbortSignal.timeout(ONEC_CONFIG.timeout)
@@ -566,12 +628,6 @@ async function syncTransferOrderItems() {
         const data = await response.json()
         const rawItems = data.value || []
 
-        // Логируем первые поля из первого товара для отладки
-        if (rawItems.length > 0) {
-          const firstKeys = Object.keys(rawItems[0])
-          console.log(`  Запасы fields for ${order.ref_key}: ${firstKeys.join(', ')}`)
-        }
-
         const items = await Promise.all(rawItems.map(async (item, idx) => {
           let productName = item.Номенклатура____Presentation || ''
           if (!productName && item.Номенклатура_Key) {
@@ -580,9 +636,11 @@ async function syncTransferOrderItems() {
           }
 
           let actualBarcode = ''
+          let currentPrice = 0
           if (item.Номенклатура_Key) {
-            const stockRec = db.prepare('SELECT barcode FROM onec_stocks WHERE ref_key = ?').get(item.Номенклатура_Key)
+            const stockRec = db.prepare('SELECT barcode, purchasePrice, averagePrice FROM onec_stocks WHERE ref_key = ?').get(item.Номенклатура_Key)
             actualBarcode = stockRec?.barcode || ''
+            currentPrice = Number(stockRec?.purchasePrice || stockRec?.averagePrice || 0)
           }
 
           // Preserve existing data: scannedQty, storageBin, selectedProduct, price
@@ -632,7 +690,7 @@ async function syncTransferOrderItems() {
             scannedQty: existing?.scannedQty || 0,
             barcode: actualBarcode,
             storageBin: existing?.storageBin || '',
-            price: existing?.price || 0,
+            price: existing?.price || currentPrice,
             customerOrderKey: custKey || existing?.customerOrderKey || '',
             customerOrderNumber: custPres || existing?.customerOrderNumber || '',
             selectedProduct: existing?.selectedProduct || '',
@@ -709,5 +767,5 @@ async function syncTransferOrderStatuses() {
 export {
   syncUnitsIncremental, syncCategoriesIncremental, syncWarehousesIncremental,
   syncStocksIncremental, syncOrdersIncremental, syncTransferOrdersIncremental,
-  syncTransferOrderItems, syncTransferOrderStatuses
+  syncTransferOrderItems, syncTransferOrderStatuses, syncReceiptServices
 }

@@ -720,6 +720,104 @@ export async function fetch1CTransferOrders() {
 }
 
 /**
+ * Загружает услуги из приходных накладных, привязанные к заказам покупателя.
+ * Возвращает { lines, scanned } где lines — массив строк
+ *   { receiptRefKey, lineRefKey, orderRefKey, docDate, amount, nomenclature },
+ * а scanned — все просмотренные ref_key накладных (для корректной очистки).
+ * При ошибке/недоступности 1C возвращает null.
+ * Услуга = строка подтаблицы Расходов накладной, у которой:
+ *   - заполнен Заказ_Key (строка закреплена за конкретным заказом покупателя),
+ *   - номенклатура — услуга (ТипНоменклатуры = «Услуга» или сервисная категория
+ *     «Услуга (для произв., торг.)»). Сумма берётся из поля Сумма.
+ * (Товары лежат в подтаблице Запасы — их мы не считаем услугами.)
+ */
+export async function fetch1CReceiptServices() {
+  console.log('📦 Загружаем услуги из приходных накладных из 1C...')
+  try {
+    const ZERO = '00000000-0000-0000-0000-000000000000'
+
+    // 1) Ищем ключ сервисной категории «Услуга (для произв., торг.)»
+    const categories = await fetch1COData('Catalog_КатегорииНоменклатуры', { '$select': 'Ref_Key,Description' })
+    let serviceCatKey = ''
+    if (categories) {
+      for (const c of categories) {
+        const desc = (c.Description || '').trim()
+        if (desc === 'Услуга (для произв., торг.)' || desc.includes('для произв')) {
+          serviceCatKey = c.Ref_Key
+          break
+        }
+      }
+    }
+    if (serviceCatKey) {
+      console.log(`  ✓ Сервисная категория: ${serviceCatKey}`)
+    } else {
+      console.warn('⚠️  Категория «Услуга (для произв., торг.)» не найдена — определяем услуги по ТипНоменклатуры')
+    }
+
+    // 2) Собираем номенклатуры-услуги: ТипНоменклатуры = «Услуга» ИЛИ сервисная категория
+    const serviceNoms = new Map()
+    const nomSel = 'Ref_Key,Description,КатегорияНоменклатуры_Key,ТипНоменклатуры'
+    const nomTop = 1000
+    let nomSkip = 0
+    for (let page = 0; page < 40; page++) {
+      const batch = await fetch1COData('Catalog_Номенклатура', {
+        '$select': nomSel,
+        '$top': String(nomTop),
+        '$skip': String(nomSkip)
+      })
+      if (!batch || batch.length === 0) break
+      for (const n of batch) {
+        const isService = n.ТипНоменклатуры === 'Услуга' || (serviceCatKey && n.КатегорияНоменклатуры_Key === serviceCatKey)
+        if (isService) serviceNoms.set(n.Ref_Key, n.Description || '')
+      }
+      if (batch.length < nomTop) break
+      nomSkip += nomTop
+    }
+    console.log(`  ✓ Номенклатур услуг: ${serviceNoms.size}`)
+    if (serviceNoms.size === 0) return null
+
+    // 3) Загружаем проведённые приходные накладные: услуги лежат в подтаблице Расходы
+    const results = []
+    const scanned = new Set()
+    const recTop = 500
+    let recSkip = 0
+    for (let page = 0; page < 6; page++) {
+      const receipts = await fetch1COData('Document_ПриходнаяНакладная', {
+        '$top': String(recTop),
+        '$skip': String(recSkip)
+      })
+      if (!receipts || receipts.length === 0) break
+      for (const doc of receipts) {
+        if (doc.Ref_Key) scanned.add(doc.Ref_Key)
+        if (doc.DeletionMark || !doc.Posted) continue
+        const items = doc.Расходы || []
+        for (const it of items) {
+          const orderKey = it.Заказ_Key
+          const nomKey = it.Номенклатура_Key
+          if (!orderKey || orderKey === ZERO) continue
+          if (!nomKey || !serviceNoms.has(nomKey)) continue
+          results.push({
+            receiptRefKey: doc.Ref_Key,
+            lineRefKey: String(it.LineNumber || 0),
+            orderRefKey: orderKey,
+            docDate: (doc.Date || '').slice(0, 10),
+            amount: Number(it.Сумма) || 0,
+            nomenclature: serviceNoms.get(nomKey) || it.Номенклатура____Presentation || ''
+          })
+        }
+      }
+      if (receipts.length < recTop) break
+      recSkip += recTop
+    }
+    console.log(`  ✓ Строк услуг из накладных: ${results.length}`)
+    return { lines: results, scanned: Array.from(scanned) }
+  } catch (err) {
+    console.warn('⚠️  Error fetching receipt services:', err.message)
+    return null
+  }
+}
+
+/**
  * Загружает заказы на производство из 1C
  */
 export async function fetchProductionOrders() {

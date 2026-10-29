@@ -223,7 +223,7 @@ import { fontBase64 } from '@/assets/font-base64'
 import { useInventoryStore } from '@/stores/inventory'
 import { useOrdersStore } from '@/stores/orders'
 import { useQRCodesStore } from '@/stores/qrCodes'
-import type { InventoryItem, InventoryTransaction, MaterialInvoice } from '@/types'
+import type { InventoryItem, InventoryTransaction, MaterialInvoice, QRCode } from '@/types'
 import type { DataTableColumns } from 'naive-ui'
 import {
   NH1,
@@ -375,7 +375,7 @@ const pageSizeOptions = [
 const pagination = computed(() => ({
   pageSize: itemsPerPage.value,
   page: currentPage.value,
-  pageCount: Math.ceil(filteredItems.value.length / itemsPerPage.value),
+  pageCount: Math.ceil(totalTableRows.value / itemsPerPage.value),
   showSizePicker: true,
   pageSizes: [10, 25, 50, 100],
   onChange: (page: number) => {
@@ -396,27 +396,55 @@ const baseItemsForStats = computed(() => {
   return inventoryStore.items.filter(item => item.type === 'product' || item.categoryId === '99')
 })
 
-const getProductShipmentMeta = (item: InventoryItem) => {
-  const itemQrs = qrCodesStore.qrCodes.filter(q =>
+const getItemQrs = (item: InventoryItem) => {
+  return qrCodesStore.qrCodes.filter(q =>
     q.productId === item.id ||
     q.productId === item.sku ||
     q.productName === item.name
   )
+}
 
+// Метрики по набору QR-кодов (одного заказа или всех сразу)
+const computeCodesMeta = (codes: QRCode[]) => {
   // Если есть хотя бы один отсканированный упаковочный код — считаем только упаковки
-  const packageCodes = itemQrs.filter(q => q.isPackage)
+  const packageCodes = codes.filter(q => q.isPackage)
   const scannedPackageCodes = packageCodes.filter(q => q.status === 'scanned' || q.status === 'shipped')
 
-  const effectiveCodes = scannedPackageCodes.length > 0 ? packageCodes : itemQrs
+  const effectiveCodes = scannedPackageCodes.length > 0 ? packageCodes : codes
 
-  const orderNumbers = Array.from(new Set([
-    ...effectiveCodes.map(q => q.orderNumber).filter(Boolean),
-    item.orderNumber
-  ].filter(Boolean)))
   const totalCount = effectiveCodes.length
   const scannedCount = effectiveCodes.filter(q => q.status === 'scanned' || q.status === 'shipped').length
   const shippedCount = effectiveCodes.filter(q => q.status === 'shipped').length
   const progress = totalCount > 0 ? Math.min(Math.round((shippedCount / totalCount) * 100), 100) : 0
+
+  return {
+    effectiveCodes,
+    totalCount,
+    scannedCount,
+    shippedCount,
+    progress,
+    packageCount: packageCodes.length,
+    shipmentStatusLabel: totalCount > 0 && shippedCount >= totalCount
+      ? 'Отгружен'
+      : (shippedCount > 0 ? 'Отгружен частично' : 'На складе'),
+    shipmentStatusType: totalCount > 0 && shippedCount >= totalCount
+      ? 'success'
+      : (shippedCount > 0 ? 'warning' : 'info') as 'success' | 'warning' | 'info'
+  }
+}
+
+const getProductShipmentMeta = (item: InventoryItem) => {
+  const itemQrs = getItemQrs(item)
+  const base = computeCodesMeta(itemQrs)
+
+  const orderNumbers = Array.from(new Set([
+    ...base.effectiveCodes.map(q => q.orderNumber).filter(Boolean),
+    item.orderNumber
+  ].filter(Boolean)))
+  const totalCount = base.totalCount
+  const scannedCount = base.scannedCount
+  const shippedCount = base.shippedCount
+  const progress = base.progress
 
   // Получаем цену и сумму из позиции заказа
   let unitPrice = 0
@@ -443,7 +471,7 @@ const getProductShipmentMeta = (item: InventoryItem) => {
   }
 
   return {
-    itemQrs: effectiveCodes,
+    itemQrs: base.effectiveCodes,
     orderNumbers,
     totalCount,
     scannedCount,
@@ -451,14 +479,61 @@ const getProductShipmentMeta = (item: InventoryItem) => {
     progress,
     unitPrice,  // цена за 1 шт из заказа
     totalValue, // сумма позиции из заказа (из 1С)
-    packageCount: packageCodes.length,
-    shipmentStatusLabel: totalCount > 0 && shippedCount >= totalCount
-      ? 'Отгружен'
-      : (shippedCount > 0 ? 'Отгружен частично' : 'На складе'),
-    shipmentStatusType: totalCount > 0 && shippedCount >= totalCount
-      ? 'success'
-      : (shippedCount > 0 ? 'warning' : 'info') as 'success' | 'warning' | 'info'
+    packageCount: base.packageCount,
+    shipmentStatusLabel: base.shipmentStatusLabel,
+    shipmentStatusType: base.shipmentStatusType
   }
+}
+
+// Строки таблицы: изделие с QR из нескольких заказов показывается в каждом из них отдельно
+const buildTableRowsForItem = (item: InventoryItem): FpItemRow[] => {
+  const meta = getProductShipmentMeta(item)
+  const base = {
+    ...item,
+    unitPrice: meta.unitPrice,
+    averagePrice: meta.unitPrice,
+    purchasePrice: meta.unitPrice,
+    lastPurchasePrice: meta.unitPrice,
+    totalValue: meta.totalValue
+  }
+
+  if (meta.orderNumbers.length === 0) {
+    return [{
+      ...base,
+      currentStock: meta.totalCount,
+      reserved: meta.shippedCount,
+      available: meta.totalCount - meta.shippedCount,
+      orderNumber: item.orderNumber || '',
+      shipmentProgress: meta.progress,
+      shippedCount: meta.shippedCount,
+      scannedCount: meta.scannedCount,
+      barcodeCount: meta.totalCount,
+      packageCount: meta.packageCount,
+      shipmentStatusLabel: meta.shipmentStatusLabel,
+      shipmentStatusType: meta.shipmentStatusType,
+      status: (meta.shippedCount >= meta.totalCount && meta.totalCount > 0 ? 'in_stock' : 'reserved') as InventoryItem['status']
+    }]
+  }
+
+  const itemQrs = getItemQrs(item)
+  return meta.orderNumbers.map(orderNumber => {
+    const om = computeCodesMeta(itemQrs.filter(q => q.orderNumber === orderNumber))
+    return {
+      ...base,
+      currentStock: om.totalCount,
+      reserved: om.shippedCount,
+      available: om.totalCount - om.shippedCount,
+      orderNumber,
+      shipmentProgress: om.progress,
+      shippedCount: om.shippedCount,
+      scannedCount: om.scannedCount,
+      barcodeCount: om.totalCount,
+      packageCount: om.packageCount,
+      shipmentStatusLabel: om.shipmentStatusLabel,
+      shipmentStatusType: om.shipmentStatusType,
+      status: (om.shippedCount >= om.totalCount && om.totalCount > 0 ? 'in_stock' : 'reserved') as InventoryItem['status']
+    }
+  })
 }
 
 // Фильтрованные элементы
@@ -557,31 +632,7 @@ const filteredItems = computed(() => {
     result = result.filter(item => item.averagePrice <= advancedFilters.maxPrice!)
   }
 
-  return result.map(item => {
-    const meta = getProductShipmentMeta(item)
-    const available = meta.totalCount - meta.shippedCount
-
-    return {
-      ...item,
-      currentStock: meta.totalCount,
-      reserved: meta.shippedCount,
-      available: available,
-      unitPrice: meta.unitPrice,
-      averagePrice: meta.unitPrice,
-      purchasePrice: meta.unitPrice,
-      lastPurchasePrice: meta.unitPrice,
-      totalValue: meta.totalValue,
-      orderNumber: meta.orderNumbers.join(', ') || item.orderNumber,
-      shipmentProgress: meta.progress,
-      shippedCount: meta.shippedCount,
-      scannedCount: meta.scannedCount,
-      barcodeCount: meta.totalCount,
-      packageCount: meta.packageCount,
-      shipmentStatusLabel: meta.shipmentStatusLabel,
-      shipmentStatusType: meta.shipmentStatusType,
-      status: (meta.shippedCount >= meta.totalCount && meta.totalCount > 0 ? 'in_stock' : 'reserved') as InventoryItem['status']
-    }
-  })
+  return result
 })
 
 const filteredTotalValue = computed(() => {
@@ -626,6 +677,16 @@ const shippedCount = computed(() => {
   }).length
 })
 
+type FpItemRow = InventoryItem & {
+  shipmentProgress?: number
+  shippedCount?: number
+  scannedCount?: number
+  barcodeCount?: number
+  packageCount?: number
+  shipmentStatusLabel?: string
+  shipmentStatusType?: 'success' | 'warning' | 'info'
+}
+
 type InventoryTableRow = (InventoryItem & { isGroup?: boolean; available?: number; isLowStock?: boolean }) | {
   id: string
   name: string
@@ -638,18 +699,20 @@ type InventoryTableRow = (InventoryItem & { isGroup?: boolean; available?: numbe
 }
 
 const tableData = computed<InventoryTableRow[]>(() => {
-  const groups: Record<string, InventoryItem[]> = {}
-  const itemsWithoutOrder: InventoryItem[] = []
+  const groups: Record<string, FpItemRow[]> = {}
+  const itemsWithoutOrder: FpItemRow[] = []
 
   filteredItems.value.forEach(item => {
-    if (item.orderNumber) {
-      if (!groups[item.orderNumber]) {
-        groups[item.orderNumber] = []
+    buildTableRowsForItem(item).forEach(row => {
+      if (row.orderNumber) {
+        if (!groups[row.orderNumber]) {
+          groups[row.orderNumber] = []
+        }
+        groups[row.orderNumber]!.push(row)
+      } else {
+        itemsWithoutOrder.push(row)
       }
-      groups[item.orderNumber]!.push(item)
-    } else {
-      itemsWithoutOrder.push(item)
-    }
+    })
   })
 
   const result: InventoryTableRow[] = []
@@ -693,6 +756,11 @@ const tableData = computed<InventoryTableRow[]>(() => {
   return result
 })
 
+// Всего строк в таблице (изделие в двух заказах = две строки)
+const totalTableRows = computed(() =>
+  tableData.value.reduce((s, g) => s + (('children' in g && g.children) ? g.children.length : 0), 0)
+)
+
 watch(tableData, (val) => {
   // Сохраняем уже раскрытые ключи, а не сбрасываем всё
   const currentKeys = new Set(expandedRowKeys.value)
@@ -710,16 +778,20 @@ watch(tableData, (val) => {
 }, { immediate: true })
 
 const exportToExcel = () => {
-  const dataToExport = filteredItems.value.map(item => ({
-    'Название': item.name,
-    'Артикул': item.sku,
-    'Категория': item.category,
-    'Детали': item.currentStock,
-    'Ед. изм.': item.unit,
-    'Статус': inventoryStore.getStatusLabel(item.status),
-    'Цена (за ед.)': item.averagePrice || 0,
-    'Общая стоимость': (item.currentStock * (item.averagePrice || 0))
-  }))
+  const dataToExport = filteredItems.value.map(item => {
+    const meta = getProductShipmentMeta(item)
+    return {
+      'Название': item.name,
+      'Артикул': item.sku,
+      'Категория': item.category,
+      'Заказ': meta.orderNumbers.join(', ') || item.orderNumber || '',
+      'Детали': meta.totalCount,
+      'Ед. изм.': item.unit,
+      'Статус': meta.shipmentStatusLabel,
+      'Цена (за ед.)': meta.unitPrice || 0,
+      'Общая стоимость': meta.totalValue
+    }
+  })
 
   const ws = XLSX.utils.json_to_sheet(dataToExport)
   const wb = XLSX.utils.book_new()
@@ -739,13 +811,16 @@ const exportToPDF = () => {
 
   doc.text('Отчет по готовой продукции', 14, 15)
 
-  const tableRows = filteredItems.value.map(item => [
-    item.name,
-    item.sku,
-    item.currentStock,
-    item.unit,
-    inventoryStore.getStatusLabel(item.status),
-  ])
+  const tableRows = filteredItems.value.map(item => {
+    const meta = getProductShipmentMeta(item)
+    return [
+      item.name,
+      item.sku,
+      meta.totalCount,
+      item.unit,
+      meta.shipmentStatusLabel,
+    ]
+  })
 
   autoTable(doc, {
     head: [['Наименование', 'Артикул', 'Детали', 'Ед.', 'Статус']],

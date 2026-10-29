@@ -44,7 +44,7 @@ if not exist ".env" (
     )
 )
 
-REM Install dependencies
+REM Install dependencies (also repairs partial/corrupt node_modules)
 if not exist "node_modules" (
     echo [*] Installing dependencies...
     call npm install
@@ -54,6 +54,16 @@ if not exist "node_modules" (
         exit /b 1
     )
     echo OK: Dependencies installed
+)
+if not exist "node_modules\.bin\vite.cmd" (
+    echo [*] vite not found, re-installing dependencies...
+    call npm install
+    if errorlevel 1 (
+        echo ERROR: Failed to install dependencies
+        pause
+        exit /b 1
+    )
+    echo OK: Dependencies repaired
 )
 
 echo.
@@ -132,8 +142,8 @@ if not exist "%NGINX_HOME%\temp" md "%NGINX_HOME%\temp" >nul 2>&1
     echo         root   "%DIST_DIR%";
     echo         index  index.html;
     echo.
-    echo         location /sklad/api/ {
-    echo             proxy_pass %BACKEND_BASE%;
+    echo         location /sklad/api {
+    echo             proxy_pass %BACKEND_BASE%/sklad/api;
     echo             proxy_http_version 1.1;
     echo             proxy_set_header Host $host;
     echo             proxy_set_header X-Real-IP $remote_addr;

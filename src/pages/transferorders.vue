@@ -250,6 +250,14 @@
                   <n-text strong>{{ selectedOrder.customerOrderNumber }}</n-text>
                 </div>
               </n-gi>
+              <n-gi>
+                <div class="flex justify-between">
+                  <n-text depth="3">Автосохранение (каждые 2 мин):</n-text>
+                  <n-text :type="autoSaving ? 'info' : (lastAutoSaveAt ? 'success' : 'default')">
+                    {{ autoSaving ? 'Сохранение…' : lastAutoSaveAt ? `✓ Сохранено в ${lastAutoSaveAt}` : '—' }}
+                  </n-text>
+                </div>
+              </n-gi>
             </n-grid>
           </n-card>
 
@@ -550,6 +558,13 @@
         {{ createResult.message }}
       </n-alert>
 
+      <div class="flex items-center justify-between text-xs" style="color: var(--n-text-color-3)">
+        <span>Автосохранение (каждые 2 мин, только локально):</span>
+        <span :style="{ color: autoSaving ? '#2080f0' : lastAutoSaveAt ? '#18a058' : undefined }">
+          {{ autoSaving ? 'Сохранение…' : lastAutoSaveAt ? `✓ Сохранено в ${lastAutoSaveAt}` : '—' }}
+        </span>
+      </div>
+
       <div class="flex justify-end gap-2 pt-2">
         <n-button @click="closeCreateModal" :disabled="createSaving">Отмена</n-button>
         <n-button type="primary" @click="saveCreateOrder" :loading="createSaving" :disabled="!canSaveCreate">
@@ -573,7 +588,7 @@
  </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, onActivated, h, onBeforeUnmount, watch, nextTick, onUnmounted } from 'vue'
+import { ref, reactive, computed, onMounted, onActivated, onDeactivated, h, onBeforeUnmount, watch, nextTick, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useStockBalances } from '@/composables/useStockBalances'
 import { syncEvents } from '@/utils/syncEvents'
@@ -1186,6 +1201,8 @@ const getOrderProducts = (orderKey: string) => {
 
 const openCreateModal = async () => {
   editingOrderRefKey.value = null
+  autoSavedOrderRefKey.value = null
+  lastAutoSaveAt.value = null
   createForm.items = []
   createForm.customerOrderKey = ''
   createForm.selectedProduct = ''
@@ -1241,6 +1258,7 @@ const closeCreateModal = () => {
   showCreateModal.value = false
   createResult.value = null
   editingOrderRefKey.value = null
+  autoSavedOrderRefKey.value = null
 }
 
 const handleCreateScan = async () => {
@@ -1295,29 +1313,34 @@ const handleCreateScan = async () => {
   nextTick(() => createBarcodeInputRef.value?.focus())
 }
 
+// Общий payload товаров формы создания (ручное сохранение и автосохранение)
+const buildCreateItemsPayload = () => createForm.items.map((item: CreateItem) => ({
+  nomenclatureKey: item.nomenclatureKey,
+  productName: item.productName,
+  barcode: item.barcode,
+  quantity: item.quantity,
+  unitKey: item.unitKey,
+  storageBin: item.storageBin,
+  price: item.price || 0,
+  customerOrderKey: item.customerOrderKey ?? '',
+  customerOrderNumber: item.customerOrderNumber ?? '',
+  selectedProduct: item.selectedProduct ?? '',
+  note: item.note || ''
+}))
+
 const saveCreateOrder = async () => {
   if (!canSaveCreate.value) return
   createSaving.value = true
   createResult.value = null
 
    try {
-       const itemsPayload = createForm.items.map((item: CreateItem) => ({
-        nomenclatureKey: item.nomenclatureKey,
-        productName: item.productName,
-        barcode: item.barcode,
-        quantity: item.quantity,
-        unitKey: item.unitKey,
-        storageBin: item.storageBin,
-        price: item.price || 0,
-        customerOrderKey: item.customerOrderKey ?? '',
-        customerOrderNumber: item.customerOrderNumber ?? '',
-        selectedProduct: item.selectedProduct ?? '',
-        note: item.note || ''
-      }))
+        const itemsPayload = buildCreateItemsPayload()
 
        // If editing existing local order, use PUT
-    if (editingOrderRefKey.value) {
-      const res = await fetch(`/sklad/api/transfer-orders/${editingOrderRefKey.value}/items`, {
+       // (также PUT, если черновик уже создан автосохранением — не дублируем заказ)
+    if (editingOrderRefKey.value || autoSavedOrderRefKey.value) {
+      const targetRefKey = editingOrderRefKey.value || autoSavedOrderRefKey.value!
+      const res = await fetch(`/sklad/api/transfer-orders/${targetRefKey}/items`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -1327,7 +1350,7 @@ const saveCreateOrder = async () => {
       })
       const result = await res.json()
       if (result.success) {
-        message.success('✓ Товары обновлены')
+        message.success(editingOrderRefKey.value ? '✓ Товары обновлены' : '✓ Заказ сохранён локально')
         closeCreateModal()
         const data = await fetchTransferOrders()
         orders.value = data
@@ -1415,59 +1438,59 @@ const normalizeBarcode = (code: string): string => {
 const saveCreateAndSendTo1C = async () => {
   if (!canSaveCreate.value) return
   createSaving.value = true
-try {
-       const itemsPayload = createForm.items.map((item: CreateItem) => ({
-        nomenclatureKey: item.nomenclatureKey,
-        productName: item.productName,
-        barcode: item.barcode,
-        quantity: item.quantity,
-        unitKey: item.unitKey,
-        storageBin: item.storageBin,
-        price: item.price || 0,
-        customerOrderKey: item.customerOrderKey ?? '',
-        customerOrderNumber: item.customerOrderNumber ?? '',
-        selectedProduct: item.selectedProduct ?? '',
-        note: item.note || ''
-      }))
+ try {
+        const itemsPayload = buildCreateItemsPayload()
+        const authHeaders = {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('auth_token') || ''}`
+        }
 
-       const res = await fetch('/sklad/api/transfer-orders/create', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('auth_token') || ''}`
-      },
-body: JSON.stringify({
-        sourceWarehouseKey: createForm.sourceWarehouseKey,
-        sourceWarehouseName: warehouseOptions.value.find(o => o.value === createForm.sourceWarehouseKey)?.label || '',
-        destinationWarehouseKey: createForm.destinationWarehouseKey,
-        destinationWarehouseName: warehouseOptions.value.find(o => o.value === createForm.destinationWarehouseKey)?.label || '',
-        items: itemsPayload,
-        customerOrderKey: createForm.customerOrderKey || '',
-         customerOrderNumber: createForm.customerOrderKey
-          ? (ordersStore.orders.find(o => o.id === createForm.customerOrderKey)?.orderNumber || '')
-          : '',
-         selectedProduct: createForm.selectedProduct || '',
-         date: createForm.dateValue ? formatDateTimeFor1C(createForm.dateValue) : undefined
+        // Если автосохранением уже создан черновик — обновляем его, а не дублируем
+        let refKey = autoSavedOrderRefKey.value
+        if (refKey) {
+          const putRes = await fetch(`/sklad/api/transfer-orders/${refKey}/items`, {
+            method: 'PUT',
+            headers: authHeaders,
+            body: JSON.stringify({ items: itemsPayload })
+          })
+          if (!putRes.ok) {
+            message.error('Ошибка обновления заказа')
+            return
+          }
+        } else {
+          const res = await fetch('/sklad/api/transfer-orders/create', {
+          method: 'POST',
+          headers: authHeaders,
+    body: JSON.stringify({
+          sourceWarehouseKey: createForm.sourceWarehouseKey,
+          sourceWarehouseName: warehouseOptions.value.find(o => o.value === createForm.sourceWarehouseKey)?.label || '',
+          destinationWarehouseKey: createForm.destinationWarehouseKey,
+          destinationWarehouseName: warehouseOptions.value.find(o => o.value === createForm.destinationWarehouseKey)?.label || '',
+          items: itemsPayload,
+          customerOrderKey: createForm.customerOrderKey || '',
+           customerOrderNumber: createForm.customerOrderKey
+            ? (ordersStore.orders.find(o => o.id === createForm.customerOrderKey)?.orderNumber || '')
+            : '',
+           selectedProduct: createForm.selectedProduct || '',
+           date: createForm.dateValue ? formatDateTimeFor1C(createForm.dateValue) : undefined
+        })
       })
-    })
 
-    const result = await res.json()
-    if (!result.success) {
-      message.error(result.error || 'Ошибка создания заказа')
-      return
-    }
+      const result = await res.json()
+      if (!result.success) {
+        message.error(result.error || 'Ошибка создания заказа')
+        return
+      }
+      refKey = result.order.ref_key
+        }
 
-    const refKey = result.order.ref_key
     const sendRes = await fetch(`/sklad/api/transfer-orders/${refKey}/send-to-1c`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('auth_token') || ''}`
-      }
+      headers: authHeaders
     })
     const sendResult = await sendRes.json()
     if (sendResult.success) {
-      message.success(`✓ Заказ №${result.order.order_number} создан и отправлен в 1С (статус: ${sendResult.status})`)
+      message.success(`✓ Заказ создан и отправлен в 1С (статус: ${sendResult.status})`)
     } else {
       message.warning(`Заказ сохранён локально, но ошибка отправки в 1С: ${sendResult.error}`)
     }
@@ -2415,6 +2438,7 @@ const sendTo1C = async () => {
 
 const openAddItemsModal = async () => {
   editingOrderRefKey.value = selectedOrder.value?.Ref_Key || null
+  autoSavedOrderRefKey.value = null
   showCreateModal.value = true
 
   // Load warehouse options if not yet loaded
@@ -2685,6 +2709,120 @@ watch(
   { deep: true }
 )
 
+// Автосохранение заказа на перемещение каждые 2 минуты. ТОЛЬКО локальное
+// сохранение — в 1С заказ с автосохранения не отправляется:
+//  1) при создании нового заказа (модал открыт) — черновик создаётся/обновляется
+//     локально в БД, чтобы при потере страницы работа не пропала;
+//  2) для открытого заказа — локальные: PUT items, 1С: результат сканирования.
+const AUTOSAVE_INTERVAL_MS = 2 * 60 * 1000
+let autoSaveInterval: ReturnType<typeof setInterval> | null = null
+const autoSaving = ref(false)
+const lastAutoSaveAt = ref<string | null>(null)
+// Ref_Key заказа, созданного автосохранением при создании нового заказа
+// (повторные тики обновляют его, а не создают второй)
+const autoSavedOrderRefKey = ref<string | null>(null)
+
+const performAutoSave = async () => {
+  if (autoSaving.value) return
+  autoSaving.value = true
+  try {
+    // 1) Создание нового заказа: модал открыт и форма валидна
+    if (showCreateModal.value) {
+      if (!canSaveCreate.value) return
+      const itemsPayload = buildCreateItemsPayload()
+      const authHeaders = {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('auth_token') || ''}`
+      }
+      const existingKey = editingOrderRefKey.value || autoSavedOrderRefKey.value
+      if (existingKey) {
+        // Черновик уже есть — только обновляем товары
+        const res = await fetch(`/sklad/api/transfer-orders/${existingKey}/items`, {
+          method: 'PUT',
+          headers: authHeaders,
+          body: JSON.stringify({ items: itemsPayload })
+        })
+        if (!res.ok) return
+      } else {
+        // Первый тик — создаём локальный черновик (без отправки в 1С)
+        const res = await fetch('/sklad/api/transfer-orders/create', {
+          method: 'POST',
+          headers: authHeaders,
+          body: JSON.stringify({
+            sourceWarehouseKey: createForm.sourceWarehouseKey,
+            sourceWarehouseName: warehouseOptions.value.find(o => o.value === createForm.sourceWarehouseKey)?.label || '',
+            destinationWarehouseKey: createForm.destinationWarehouseKey,
+            destinationWarehouseName: warehouseOptions.value.find(o => o.value === createForm.destinationWarehouseKey)?.label || '',
+            items: itemsPayload,
+            customerOrderKey: createForm.customerOrderKey || '',
+            customerOrderNumber: createForm.customerOrderKey
+              ? (ordersStore.orders.find(o => o.id === createForm.customerOrderKey)?.orderNumber || '')
+              : '',
+            selectedProduct: createForm.selectedProduct || '',
+            date: formatDateTimeFor1C(createForm.dateValue)
+          })
+        })
+        const result = await res.json()
+        if (!result.success) return
+        autoSavedOrderRefKey.value = result.order.ref_key
+      }
+      lastAutoSaveAt.value = new Date().toLocaleTimeString('ru-RU')
+      return
+    }
+
+    // 2) Открытый заказ
+    const order = selectedOrder.value
+    if (!order || !order.items) return
+    if (isLocalOrder.value) {
+      const itemsPayload = order.items.map((item: any) => ({
+        nomenclatureKey: item.Номенклатура_Key || item.nomenclatureKey || '',
+        productName: item.nomenclatureName || item.productName || '',
+        barcode: item.barcode || '',
+        quantity: item.Количество || item.quantity || 0,
+        unitKey: item.unitKey || '',
+        storageBin: item.storageBin || '',
+        price: Number(item.price || item.Цена || 0),
+        customerOrderKey: item.customerOrderKey ?? '',
+        customerOrderNumber: item.customerOrderNumber ?? '',
+        selectedProduct: item.selectedProduct ?? '',
+        note: item.note ?? ''
+      }))
+      const res = await fetch(`/sklad/api/transfer-orders/${order.Ref_Key}/items`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('auth_token') || ''}`
+        },
+        body: JSON.stringify({ items: itemsPayload })
+      })
+      if (!res.ok) return
+    } else {
+      await saveTransferOrderScans(order.Ref_Key, order.items.map(item => ({
+        barcode: item.barcode || '',
+        scannedQty: item.scannedQty || 0
+      })))
+    }
+    order.saved = true
+    lastAutoSaveAt.value = new Date().toLocaleTimeString('ru-RU')
+  } catch {
+    // Тихо игнорируем ошибки — повторимся на следующем тике
+  } finally {
+    autoSaving.value = false
+  }
+}
+
+const startAutoSave = () => {
+  stopAutoSave()
+  autoSaveInterval = setInterval(performAutoSave, AUTOSAVE_INTERVAL_MS)
+}
+
+const stopAutoSave = () => {
+  if (autoSaveInterval) {
+    clearInterval(autoSaveInterval)
+    autoSaveInterval = null
+  }
+}
+
 onMounted(async () => {
   loading.value = true
   try {
@@ -2723,6 +2861,9 @@ onActivated(async () => {
   // Don't reload on every navigation — data is cached in SQLite.
   // Refresh only after sync (handled by handleTransferSyncCompleted).
 
+  // Тикаем автосохранением, пока страница активна (KeepAlive)
+  startAutoSave()
+
   // Handle ?search= on re-activation (KeepAlive)
   const searchParam = route.query.search as string
   if (searchParam) {
@@ -2752,11 +2893,17 @@ watch(() => route.query.search, async (newSearch) => {
   }
 })
 
+// Останавливаем автосохранение, когда страница уходит в кэш (KeepAlive)
+onDeactivated(() => {
+  stopAutoSave()
+})
+
 // Очищаем обработчик при размонтировании компонента
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleKeyDown)
   if (saveTimeout) clearTimeout(saveTimeout)
   if (scanTimeout) clearTimeout(scanTimeout)
+  stopAutoSave()
 })
 
 const transferTableKey = ref(0)

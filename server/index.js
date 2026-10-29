@@ -35,6 +35,10 @@ function getPriceMap() {
   return priceMapCache
 }
 
+function safeJSONParse(str, fallback) {
+  try { return JSON.parse(str) } catch { return fallback }
+}
+
 function getOrderProductsMap() {
   const now = Date.now()
   if (orderProductsCache && (now - orderProductsCacheTime) < CACHE_TTL) {
@@ -3775,7 +3779,10 @@ const materialReturns = db.prepare(`
         }
 
         items.forEach(item => {
-          const existing = reportMap[inv.order_number].items.find(i => i.article === item.article)
+          // Группируем по наименованию: у ГП в article уникальный QR-код каждой единицы,
+          // а резервы и так сопоставляются по имени
+          const name = (item.productName || '').toLowerCase().trim()
+          const existing = reportMap[inv.order_number].items.find(i => (i.productName || '').toLowerCase().trim() === name)
           if (existing) { existing.quantity += item.quantity } else { reportMap[inv.order_number].items.push(item) }
         })
       })
@@ -3817,20 +3824,22 @@ const materialReturns = db.prepare(`
         const name = (s.name || '').toLowerCase().trim()
         if (name) {
           const total = Number(s.reserved || 0)
-          if (!reserveByName.has(name) || total > reserveByName.get(name)) {
+          if (total > 0 && (!reserveByName.has(name) || total > reserveByName.get(name))) {
             reserveByName.set(name, total)
           }
         }
-        // Per-order reserves
+        // Per-order reserves (only positive quantities)
         let byOrder = {}
         try { byOrder = JSON.parse(s.reservesByOrder || '{}') } catch {}
         for (const [orderGuid, qty] of Object.entries(byOrder)) {
+          const numQty = Number(qty || 0)
+          if (numQty <= 0) continue
           if (!orderReserveByName.has(orderGuid)) {
             orderReserveByName.set(orderGuid, new Map())
           }
           const orderMap = orderReserveByName.get(orderGuid)
           const existing = orderMap.get(name) || 0
-          orderMap.set(name, existing + Number(qty || 0))
+          orderMap.set(name, existing + numQty)
         }
       }
 
@@ -3857,7 +3866,8 @@ const materialReturns = db.prepare(`
         }
       })
 
-      // Enrich prices from onec_stocks (averagePrice first, same as inventory page)
+      // Цена берётся из самого документа (material_invoice_items.price / onec_orders.unitPrice) и
+      // фиксируется на момент создания. По текущему справочнику заполняется ТОЛЬКО отсутствующая (0) цена.
       const stockPrices = db.prepare('SELECT DISTINCT name, averagePrice, purchasePrice FROM onec_stocks').all()
       const priceByName = new Map()
       for (const s of stockPrices) {
@@ -3868,17 +3878,43 @@ const materialReturns = db.prepare(`
       }
       for (const entry of result) {
         for (const item of entry.items) {
-          const name = (item.productName || '').toLowerCase().trim()
-          if (priceByName.has(name)) {
-            item.price = priceByName.get(name)
+          if (!item.price) {
+            const name = (item.productName || '').toLowerCase().trim()
+            if (priceByName.has(name)) {
+              item.price = priceByName.get(name)
+            }
           }
         }
         entry.totalAmount = entry.items.reduce((sum, i) => sum + (i.price || 0) * i.quantity, 0)
       }
 
-      sendJSON(res, 200, { success: true, reports: result })
+      // Показываем только заказы, по которым есть резерв
+      const reportsWithReserve = result.filter(r => r.items.some(i => (i.reserve || 0) > 0))
+
+      sendJSON(res, 200, { success: true, reports: reportsWithReserve })
     } catch (err) {
       console.error('Error getting orders report:', err)
+      sendJSON(res, 500, { error: err.message })
+    }
+    return
+  }
+
+  // Refresh reserves from 1C
+  if (pathname === '/sklad/api/reports/refresh-reserves' && req.method === 'POST') {
+    try {
+      const reserveMap = await calculateReserves()
+      let updated = 0
+      for (const [refKey, data] of reserveMap) {
+        db.prepare('UPDATE onec_stocks SET reserved = ?, reservesByOrder = ? WHERE ref_key = ?').run(
+          data.total,
+          JSON.stringify(data.byOrder),
+          refKey
+        )
+        updated++
+      }
+      sendJSON(res, 200, { success: true, updated })
+    } catch (err) {
+      console.error('Error refreshing reserves:', err)
       sendJSON(res, 500, { error: err.message })
     }
     return
@@ -4156,6 +4192,7 @@ const materialReturns = db.prepare(`
             name: item.nomenclatureName || item.productName || item.Номенклатура____Presentation || item.Номенклатура_Presentation || 'Без названия',
             barcode: item.barcode || '',
             quantity: item.quantity || item.Количество || 1,
+            price: Number(item.price || item.Цена || 0),
             transferOrderNumbers: [transferOrder.order_number]
           }
 
@@ -4187,7 +4224,7 @@ const materialReturns = db.prepare(`
         const enrichMaterials = (materials) => {
           let total = 0
           for (const m of materials) {
-            m.price = priceMap.get(m.name.toLowerCase()) || 0
+            m.price = m.price || priceMap.get(m.name.toLowerCase()) || 0
             m.sum = m.price * m.quantity
             total += m.sum
           }
@@ -4259,6 +4296,7 @@ const materialReturns = db.prepare(`
     try {
       const dateFrom = url.searchParams.get('dateFrom')
       const dateTo = url.searchParams.get('dateTo')
+      const search = (url.searchParams.get('search') || '').toLowerCase()
 
       // 1) Build transfer orders data (same logic as production-materials)
       let profitSql = `SELECT * FROM transfer_orders
@@ -4352,6 +4390,7 @@ const materialReturns = db.prepare(`
             name: item.nomenclatureName || item.productName || item.Номенклатура____Presentation || item.Номенклатура_Presentation || 'Без названия',
             barcode: item.barcode || '',
             quantity: item.quantity || item.Количество || 1,
+            price: Number(item.price || item.Цена || 0),
             transferOrderNumbers: [transferOrder.order_number]
           }
 
@@ -4374,7 +4413,7 @@ const materialReturns = db.prepare(`
       const enrichMaterials = (materials) => {
         let total = 0
         for (const m of materials) {
-          m.price = priceMap.get(m.name.toLowerCase()) || 0
+          m.price = m.price || priceMap.get(m.name.toLowerCase()) || 0
           m.sum = m.price * m.quantity
           total += m.sum
         }
@@ -4390,19 +4429,29 @@ const materialReturns = db.prepare(`
         }
       }
 
-      // 4) Enrich with customer data from onec_orders
-      const onecOrders = db.prepare('SELECT ref_key, customer, items FROM onec_orders').all()
+      // 4) Enrich with customer data from onec_orders (only needed ref_keys)
+      const neededRefKeys = new Set()
+      for (const entry of orderMap.values()) {
+        if (entry.customerOrderKey) neededRefKeys.add(entry.customerOrderKey)
+      }
+      const onecOrders = neededRefKeys.size > 0
+        ? db.prepare('SELECT ref_key, order_number, customer, items FROM onec_orders WHERE ref_key IN (' + Array.from(neededRefKeys).map(() => '?').join(',') + ')').all(...Array.from(neededRefKeys))
+        : []
       const customerByRefKey = new Map()
+      const orderNumberByRefKey = new Map()
       const orderItemsByRefKey = new Map()
       for (const o of onecOrders) {
         if (o.ref_key && o.customer) customerByRefKey.set(o.ref_key, o.customer)
+        if (o.ref_key && (o.order_number || '').trim()) orderNumberByRefKey.set(o.ref_key, (o.order_number || '').trim())
         if (o.ref_key && o.items) {
           try { orderItemsByRefKey.set(o.ref_key, JSON.parse(o.items)) } catch { /* ignore */ }
         }
       }
 
-      // Load financial data from order_financials (independent from 1C sync)
-      const financialRows = db.prepare('SELECT order_ref_key, product_name, fot, fot_months, delivery, overhead_pct FROM order_financials').all()
+      // Load financial data from order_financials (independent from 1C sync, only needed orders)
+      const financialRows = neededRefKeys.size > 0
+        ? db.prepare('SELECT order_ref_key, product_name, fot, fot_months, delivery, overhead FROM order_financials WHERE order_ref_key IN (' + Array.from(neededRefKeys).map(() => '?').join(',') + ')').all(...Array.from(neededRefKeys))
+        : []
       const financialByOrder = new Map()
       for (const f of financialRows) {
         if (!financialByOrder.has(f.order_ref_key)) financialByOrder.set(f.order_ref_key, new Map())
@@ -4430,30 +4479,32 @@ const materialReturns = db.prepare(`
             productSum,
             materialsCost: Math.round(p.totalSum * 100) / 100,
             fot: fin ? (fin.fot || 0) : 0,
-            _fotMonths: fin ? (JSON.parse(fin.fot_months || '[]')) : null,
+            _fotMonths: fin ? safeJSONParse(fin.fot_months || '[]') : null,
             delivery: fin ? (fin.delivery || 0) : 0,
-            _overheadPct: fin ? (fin.overhead_pct ?? 50) : 50
+            _overhead: fin ? (fin.overhead || 0) : 0
           }
         })
 
-        // If no per-product materials, create rows from orderItems
-        if (productRows.length === 0 && orderItems.length > 0) {
-          for (const oi of orderItems) {
-            const pname = oi.productName || oi.itemName || ''
-            if (!pname) continue
-            const fin = finMap.get(pname)
-            productRows.push({
-              productName: pname,
-              quantity: Number(oi.quantity || oi.plannedQuantity || 0),
-              unit: oi.unit || 'шт',
-              productSum: Number(oi.totalPrice || 0),
-              materialsCost: 0,
-              fot: fin ? (fin.fot || 0) : 0,
-              _fotMonths: fin ? (JSON.parse(fin.fot_months || '[]')) : null,
-              delivery: fin ? (fin.delivery || 0) : 0,
-              _overheadPct: fin ? (fin.overhead_pct ?? 50) : 50
-            })
-          }
+        // Добавляем все позиции заказа, которых ещё нет (даже без материалов):
+        // сначала показываются изделия со сканами, затем остальные позиции заказа
+        for (const oi of orderItems) {
+          const pname = oi.productName || oi.itemName || ''
+          if (!pname) continue
+          const already = productRows.find(pr => pr.productName === pname) ||
+            productRows.find(pr => pr.productName && (pname.includes(pr.productName) || pr.productName.includes(pname)))
+          if (already) continue
+          const fin = finMap.get(pname)
+          productRows.push({
+            productName: pname,
+            quantity: Number(oi.quantity || oi.plannedQuantity || 0),
+            unit: oi.unit || 'шт',
+            productSum: Number(oi.totalPrice || 0),
+            materialsCost: 0,
+            fot: fin ? (fin.fot || 0) : 0,
+            _fotMonths: fin ? safeJSONParse(fin.fot_months || '[]') : null,
+            delivery: fin ? (fin.delivery || 0) : 0,
+            _overhead: fin ? (fin.overhead || 0) : 0
+          })
         }
 
         // Recalculate materialsCost: direct materials + proportional share of orderMaterials
@@ -4469,9 +4520,14 @@ const materialReturns = db.prepare(`
         const totalSum = productRows.reduce((s, r) => s + r.productSum, 0)
         const totalMaterials = Math.round(productRows.reduce((s, r) => s + r.materialsCost, 0) * 100) / 100
 
+        // Номер берём из самого заказа 1С: у накладных customer_order_number
+        // может быть пустым («Заказ покупателя  от 01.02.2026»), и тогда запись
+        // было невозможно найти поиском по названию заказа
+        const onecOrderNumber = entry.customerOrderKey ? (orderNumberByRefKey.get(entry.customerOrderKey) || '') : ''
+
         return {
           orderKey: entry.customerOrderKey || entry.orderNumber,
-          orderNumber: entry.orderNumber || '',
+          orderNumber: onecOrderNumber || entry.orderNumber || '',
           date: entry.date,
           customer,
           totalSum,
@@ -4482,7 +4538,233 @@ const materialReturns = db.prepare(`
         }
       })
 
-      const filtered = result.filter(r => r.totalSum > 0)
+      // 6) Добавляем заказы из 1С, у которых пока нет ни одного скана (материалы = 0)
+      // Показываем те же заказы, что и страница «Заказы»: только в работе, на складе, завершён
+      const ALLOWED_ORDER_STATUSES = ['in_progress', 'ready', 'completed']
+      const allOnecOrders = db.prepare(`
+        SELECT ref_key, order_number, date, customer, status, items
+        FROM onec_orders
+        WHERE order_number IS NOT NULL AND TRIM(order_number) != ''
+      `).all()
+      const knownKeys = new Set(result.map(r => r.orderKey))
+      const knownNumbers = new Set(result.map(r => (r.orderNumber || '').toLowerCase().trim()).filter(Boolean))
+      for (const o of allOnecOrders) {
+        const num = (o.order_number || '').toLowerCase().trim()
+        if (knownKeys.has(o.ref_key) || (num && knownNumbers.has(num))) continue
+        if (!ALLOWED_ORDER_STATUSES.includes(o.status)) continue
+        if (dateFrom && (o.date || '') < dateFrom) continue
+        if (dateTo && (o.date || '') > dateTo + 'T23:59:59.999Z') continue
+        let orderItems = []
+        try { const parsed = JSON.parse(o.items || '[]'); if (Array.isArray(parsed)) orderItems = parsed } catch { /* ignore */ }
+        const productRows = []
+        for (const oi of orderItems) {
+          const pname = oi.productName || oi.itemName || ''
+          if (!pname) continue
+          productRows.push({
+            productName: pname,
+            quantity: Number(oi.quantity || oi.plannedQuantity || 0),
+            unit: oi.unit || 'шт',
+            productSum: Number(oi.totalPrice || 0),
+            materialsCost: 0,
+            fot: 0,
+            _fotMonths: null,
+            delivery: 0,
+            _overhead: 0
+          })
+        }
+        result.push({
+          orderKey: o.ref_key || o.order_number,
+          orderNumber: o.order_number || '',
+          date: o.date,
+          customer: o.customer || '',
+          totalSum: productRows.reduce((s, r) => s + r.productSum, 0),
+          totalMaterials: 0,
+          products: productRows,
+          orderMaterials: [],
+          orderTotal: 0
+        })
+      }
+
+      // 6.5) Добавляем в отчёт заказы, которых пока нет, но:
+      //   - у них есть услуги (всегда),
+      //   - у них есть документы зарплаты / накладных расходов в периоде (если задан период).
+      const addMissingOrder = (rk) => {
+        if (!rk) return
+        const exists = result.some(r => r.orderKey === rk || (r.orderNumber || '').toLowerCase().trim() === rk.toLowerCase().trim())
+        if (exists) return
+        const o = allOnecOrders.find(x => x.ref_key === rk)
+        if (o) {
+          let orderItems = []
+          try { const parsed = JSON.parse(o.items || '[]'); if (Array.isArray(parsed)) orderItems = parsed } catch { /* ignore */ }
+          const productRows = []
+          for (const oi of orderItems) {
+            const pname = oi.productName || oi.itemName || ''
+            if (!pname) continue
+            productRows.push({
+              productName: pname,
+              quantity: Number(oi.quantity || oi.plannedQuantity || 0),
+              unit: oi.unit || 'шт',
+              productSum: Number(oi.totalPrice || 0),
+              materialsCost: 0,
+              fot: 0,
+              _fotMonths: null,
+              delivery: 0,
+              _overhead: 0
+            })
+          }
+          result.push({
+            orderKey: o.ref_key || o.order_number,
+            orderNumber: o.order_number || '',
+            date: o.date,
+            customer: o.customer || '',
+            totalSum: productRows.reduce((s, r) => s + r.productSum, 0),
+            totalMaterials: 0,
+            products: productRows,
+            orderMaterials: [],
+            orderTotal: 0
+          })
+        } else if (!/^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(rk)) {
+          // Привязка к номеру заказа, а не к ref_key
+          result.push({
+            orderKey: rk,
+            orderNumber: rk,
+            date: '',
+            customer: '',
+            totalSum: 0,
+            totalMaterials: 0,
+            products: [],
+            orderMaterials: [],
+            orderTotal: 0
+          })
+        }
+      }
+      const refKeysToAdd = new Set()
+      // Услуги — без периода добавляем все заказы с услугами;
+      // с периодом — только заказы, у которых приход по услуге датирован внутри периода
+      let svcSql = 'SELECT order_ref_key FROM receipt_services WHERE order_ref_key IS NOT NULL AND order_ref_key != ?'
+      const svcParams = ['']
+      if (dateFrom) { svcSql += ` AND doc_date >= ?`; svcParams.push(dateFrom) }
+      if (dateTo) { svcSql += ` AND doc_date <= ?`; svcParams.push(dateTo) }
+      for (const r of db.prepare(svcSql).all(...svcParams)) {
+        refKeysToAdd.add(r.order_ref_key)
+      }
+      // Зарплата / накладные расходы — только в заданном периоде
+      if (dateFrom || dateTo) {
+        let salSql = `SELECT i.order_ref_key FROM salary_document_items i
+          JOIN salary_documents d ON d.id = i.document_id`
+        const salParams = []
+        if (dateFrom) { salSql += ` WHERE d.doc_date >= ?`; salParams.push(dateFrom) }
+        if (dateTo) { salSql += (dateFrom ? ` AND` : ` WHERE`) + ` d.doc_date <= ?`; salParams.push(dateTo) }
+        let ohSql = `SELECT i.order_ref_key FROM overhead_document_items i
+          JOIN overhead_documents d ON d.id = i.document_id`
+        const ohParams = []
+        if (dateFrom) { ohSql += ` WHERE d.doc_date >= ?`; ohParams.push(dateFrom) }
+        if (dateTo) { ohSql += (dateFrom ? ` AND` : ` WHERE`) + ` d.doc_date <= ?`; ohParams.push(dateTo) }
+        for (const r of db.prepare(salSql).all(...salParams)) refKeysToAdd.add(r.order_ref_key)
+        for (const r of db.prepare(ohSql).all(...ohParams)) refKeysToAdd.add(r.order_ref_key)
+      }
+      for (const rk of refKeysToAdd) addMissingOrder(rk)
+
+      // Attach salary (ФОТ) — сумма по документам зарплаты;
+      // если задан период — только из документов, дата которых в периоде.
+      // order-level (product_name NULL) → r.salary (итого заказа);
+      // product-level (product_name заполнен) → p._fotDoc (по изделию).
+      const salaryKeys = Array.from(new Set(result.map(r => r.orderKey).filter(Boolean)))
+      const salaryOrderMap = new Map()
+      const salaryProductMap = new Map() // key: orderKey \u0001 productName
+      if (salaryKeys.length > 0) {
+        let salarySql = `SELECT i.order_ref_key, i.product_name, SUM(i.amount) AS total
+          FROM salary_document_items i
+          JOIN salary_documents d ON d.id = i.document_id
+          WHERE i.order_ref_key IN (` + salaryKeys.map(() => '?').join(',') + `)`
+        const salaryParams = [...salaryKeys]
+        if (dateFrom) { salarySql += ` AND d.doc_date >= ?`; salaryParams.push(dateFrom) }
+        if (dateTo) { salarySql += ` AND d.doc_date <= ?`; salaryParams.push(dateTo) }
+        salarySql += ` GROUP BY i.order_ref_key, i.product_name`
+        const salaryRows = db.prepare(salarySql).all(...salaryParams)
+        for (const sr of salaryRows) {
+          if (sr.product_name) salaryProductMap.set(sr.order_ref_key + '\u0001' + sr.product_name, sr.total || 0)
+          else salaryOrderMap.set(sr.order_ref_key, sr.total || 0)
+        }
+      }
+      for (const r of result) {
+        r.salary = salaryOrderMap.get(r.orderKey) ?? salaryOrderMap.get(r.orderNumber) ?? 0
+        for (const p of r.products) {
+          p._fotDoc = salaryProductMap.get(r.orderKey + '\u0001' + p.productName) ?? salaryProductMap.get(r.orderNumber + '\u0001' + p.productName) ?? 0
+        }
+      }
+
+      // Attach overhead (Накладные расходы) — из документов накладных расходов;
+      // если задан период — только из документов, дата которых в периоде.
+      // order-level (product_name NULL) → r.overheadOrder (итого заказа);
+      // product-level (product_name заполнен) → p._overheadDoc (по изделию).
+      const overheadOrderMap = new Map()
+      const overheadProductMap = new Map() // key: orderKey \u0001 productName
+      if (salaryKeys.length > 0) {
+        const ph = salaryKeys.map(() => '?').join(',')
+        const dateClause = []
+        const dateParams = []
+        if (dateFrom) { dateClause.push('d.doc_date >= ?'); dateParams.push(dateFrom) }
+        if (dateTo) { dateClause.push('d.doc_date <= ?'); dateParams.push(dateTo) }
+        const extra = dateClause.length > 0 ? ` AND ${dateClause.join(' AND ')}` : ''
+
+        const ohOrderSql = `SELECT i.order_ref_key, SUM(i.amount) AS total
+          FROM overhead_document_items i
+          JOIN overhead_documents d ON d.id = i.document_id
+          WHERE i.product_name IS NULL AND i.order_ref_key IN (${ph})${extra}
+          GROUP BY i.order_ref_key`
+        for (const row of db.prepare(ohOrderSql).all(...salaryKeys, ...dateParams)) {
+          overheadOrderMap.set(row.order_ref_key, row.total || 0)
+        }
+
+        const ohProdSql = `SELECT i.order_ref_key, i.product_name, SUM(i.amount) AS total
+          FROM overhead_document_items i
+          JOIN overhead_documents d ON d.id = i.document_id
+          WHERE i.product_name IS NOT NULL AND i.order_ref_key IN (${ph})${extra}
+          GROUP BY i.order_ref_key, i.product_name`
+        for (const row of db.prepare(ohProdSql).all(...salaryKeys, ...dateParams)) {
+          overheadProductMap.set(row.order_ref_key + '\u0001' + row.product_name, row.total || 0)
+        }
+      }
+      for (const r of result) {
+        r.overheadOrder = overheadOrderMap.get(r.orderKey) ?? overheadOrderMap.get(r.orderNumber) ?? 0
+        for (const p of r.products) {
+          p._overheadDoc = overheadProductMap.get(r.orderKey + '\u0001' + p.productName) ?? overheadProductMap.get(r.orderNumber + '\u0001' + p.productName) ?? 0
+        }
+      }
+
+      // Services (услуги) из приходных накладных — полная сумма по заказу
+      // для колонки «Услуги». Периодом не ограничиваем: показываем всю сумму услуг заказа.
+      const servicesMap = new Map()
+      if (salaryKeys.length > 0) {
+        const svcSql = `SELECT order_ref_key, SUM(amount) AS total FROM receipt_services
+          WHERE order_ref_key IN (${salaryKeys.map(() => '?').join(',')}) GROUP BY order_ref_key`
+        for (const row of db.prepare(svcSql).all(...salaryKeys)) {
+          servicesMap.set(row.order_ref_key, row.total || 0)
+        }
+      }
+      for (const r of result) {
+        r.services = servicesMap.get(r.orderKey) ?? servicesMap.get(r.orderNumber) ?? 0
+      }
+
+      // В отчёте тот же набор заказов, что на странице «Заказы»:
+      // скрываем розничные накладные (НФ00-*) и заказы со статусами,
+      // которые не показывает страница «Заказы»
+      // (поиск — только по номеру заказа и клиенту, не по названиям позиций:
+      // в них встречаются номера договоров типа «№22/2025», дающие ложные совпадения)
+      const statusByRefKey = new Map(allOnecOrders.map(o => [o.ref_key, o.status]))
+      const filtered = result.filter(r => {
+          const num = (r.orderNumber || '').trim()
+          if (/^НФ00-/i.test(num)) return false
+          if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-/i.test(r.orderKey || '')) {
+            const st = statusByRefKey.get(r.orderKey)
+            // Заказ с услугами показываем независимо от статуса
+            if (st && !ALLOWED_ORDER_STATUSES.includes(st) && (r.services || 0) <= 0) return false
+          }
+          if (!search) return true
+          return num.toLowerCase().includes(search) ||
+            (r.customer || '').toLowerCase().includes(search)
+        })
       sendJSON(res, 200, { success: true, data: filtered })
     } catch (err) {
       console.error('Error fetching profitability report:', err)
@@ -4498,7 +4780,7 @@ const materialReturns = db.prepare(`
     req.on('end', async () => {
       try {
         const data = JSON.parse(body)
-        const { orderKey, products, overheadPct } = data
+        const { orderKey, products } = data
 
         if (!orderKey || !products) {
           sendJSON(res, 400, { error: 'orderKey and products are required' })
@@ -4507,11 +4789,11 @@ const materialReturns = db.prepare(`
 
         // Store financial data in order_financials (independent from 1C sync)
         const insertFinancial = db.prepare(`
-          INSERT INTO order_financials (order_ref_key, product_name, fot, fot_months, delivery, overhead_pct)
+          INSERT INTO order_financials (order_ref_key, product_name, fot, fot_months, delivery, overhead)
           VALUES (?, ?, ?, ?, ?, ?)
           ON CONFLICT(order_ref_key, product_name)
           DO UPDATE SET fot = excluded.fot, fot_months = excluded.fot_months,
-                        delivery = excluded.delivery, overhead_pct = excluded.overhead_pct
+                        delivery = excluded.delivery, overhead = excluded.overhead
         `)
 
         for (const p of products) {
@@ -4521,17 +4803,8 @@ const materialReturns = db.prepare(`
             p.fot || 0,
             JSON.stringify(p._fotMonths || []),
             p.delivery || 0,
-            p.overheadPct ?? 50
+            p.overhead || 0
           )
-        }
-
-        if (overheadPct !== undefined) {
-          // Also save order-level overheadPct
-          const orderFin = db.prepare('SELECT id FROM order_financials WHERE order_ref_key = ?').get(orderKey)
-          if (orderFin) {
-            // Store order-level overhead in a special row
-            insertFinancial.run(orderKey, '__ORDER__', 0, '[]', 0, overheadPct)
-          }
         }
 
         sendJSON(res, 200, { success: true })
@@ -4540,6 +4813,232 @@ const materialReturns = db.prepare(`
         sendJSON(res, 500, { error: err.message })
       }
     })
+    return
+  }
+
+  // List salary (ФОТ) documents, each with its order/amount items
+  if (pathname === '/sklad/api/reports/salaries' && req.method === 'GET') {
+    try {
+      const docs = db.prepare('SELECT id, doc_date, created_at FROM salary_documents ORDER BY doc_date DESC, id DESC').all()
+      const itemsByDoc = new Map()
+      if (docs.length > 0) {
+        const docIds = docs.map(d => d.id)
+        const items = db.prepare('SELECT id, document_id, order_ref_key, product_name, amount FROM salary_document_items WHERE document_id IN (' + docIds.map(() => '?').join(',') + ') ORDER BY id ASC').all(...docIds)
+        const refKeys = items.map(i => i.order_ref_key).filter(Boolean)
+        const orders = refKeys.length > 0
+          ? db.prepare('SELECT ref_key, order_number, customer FROM onec_orders WHERE ref_key IN (' + refKeys.map(() => '?').join(',') + ')').all(...refKeys)
+          : []
+        const byKey = new Map(orders.map(o => [o.ref_key, o]))
+        for (const it of items) {
+          if (!itemsByDoc.has(it.document_id)) itemsByDoc.set(it.document_id, [])
+          const o = byKey.get(it.order_ref_key) || {}
+          itemsByDoc.get(it.document_id).push({ id: it.id, orderRefKey: it.order_ref_key, productName: it.product_name || null, orderNumber: o.order_number || '', customer: o.customer || '', amount: it.amount || 0 })
+        }
+      }
+      const data = docs.map(d => {
+        const items = itemsByDoc.get(d.id) || []
+        const total = items.reduce((s, i) => s + (i.amount || 0), 0)
+        return { id: d.id, docDate: d.doc_date, createdAt: d.created_at, count: items.length, total, items }
+      })
+      sendJSON(res, 200, { success: true, data })
+    } catch (err) {
+      console.error('Error listing salaries:', err)
+      sendJSON(res, 500, { error: err.message })
+    }
+    return
+  }
+
+  // Create a salary document with one or more order/amount items
+  if (pathname === '/sklad/api/reports/salaries' && req.method === 'POST') {
+    try {
+      const data = await _readBody(req)
+      const items = Array.isArray(data.items) ? data.items : []
+      const valid = items
+        .map(it => ({ orderRefKey: it.orderRefKey, productName: it.productName || null, amount: Number(it.amount) || 0 }))
+        .filter(it => it.orderRefKey)
+      if (valid.length === 0) {
+        sendJSON(res, 400, { error: 'at least one order is required' })
+        return
+      }
+      const docDate = (data.docDate || moscowNow().slice(0, 10))
+      const doc = db.prepare("INSERT INTO salary_documents (doc_date, created_at) VALUES (?, datetime('now'))").run(docDate)
+      const docId = Number(doc.lastInsertRowid)
+      const ins = db.prepare('INSERT INTO salary_document_items (document_id, order_ref_key, product_name, amount) VALUES (?, ?, ?, ?)')
+      const seen = new Set()
+      for (const it of valid) {
+        const key = it.orderRefKey + '\u0001' + (it.productName || '')
+        if (seen.has(key)) continue
+        seen.add(key)
+        ins.run(docId, it.orderRefKey, it.productName, it.amount)
+      }
+      sendJSON(res, 200, { success: true, documentId: docId, docDate })
+    } catch (err) {
+      console.error('Error creating salary document:', err)
+      sendJSON(res, 500, { error: err.message })
+    }
+    return
+  }
+
+  // Replace a salary document's items
+  if (pathname.match(/^\/sklad\/api\/reports\/salaries\/[^\/]+$/) && req.method === 'PUT') {
+    try {
+      const docId = Number(decodeURIComponent(pathname.split('/').pop()))
+      const data = await _readBody(req)
+      const items = Array.isArray(data.items) ? data.items : []
+      const valid = items
+        .map(it => ({ orderRefKey: it.orderRefKey, productName: it.productName || null, amount: Number(it.amount) || 0 }))
+        .filter(it => it.orderRefKey)
+      const seen = new Set()
+      const finalItems = []
+      for (const it of valid) {
+        const key = it.orderRefKey + '\u0001' + (it.productName || '')
+        if (seen.has(key)) continue
+        seen.add(key)
+        finalItems.push(it)
+      }
+      const existing = db.prepare('SELECT id FROM salary_documents WHERE id = ?').get(docId)
+      if (!existing) {
+        sendJSON(res, 404, { error: 'document not found' })
+        return
+      }
+      if (data.docDate) {
+        db.prepare('UPDATE salary_documents SET doc_date = ? WHERE id = ?').run(data.docDate, docId)
+      }
+      db.prepare('DELETE FROM salary_document_items WHERE document_id = ?').run(docId)
+      const ins = db.prepare('INSERT INTO salary_document_items (document_id, order_ref_key, product_name, amount) VALUES (?, ?, ?, ?)')
+      for (const it of finalItems) ins.run(docId, it.orderRefKey, it.productName, it.amount)
+      sendJSON(res, 200, { success: true, documentId: docId, docDate: data.docDate || null })
+    } catch (err) {
+      console.error('Error updating salary document:', err)
+      sendJSON(res, 500, { error: err.message })
+    }
+    return
+  }
+
+  // Delete a salary document and all its items
+  if (pathname.match(/^\/sklad\/api\/reports\/salaries\/[^\/]+$/) && req.method === 'DELETE') {
+    try {
+      const docId = Number(decodeURIComponent(pathname.split('/').pop()))
+      db.prepare('DELETE FROM salary_document_items WHERE document_id = ?').run(docId)
+      db.prepare('DELETE FROM salary_documents WHERE id = ?').run(docId)
+      sendJSON(res, 200, { success: true })
+    } catch (err) {
+      console.error('Error deleting salary document:', err)
+      sendJSON(res, 500, { error: err.message })
+    }
+    return
+  }
+
+  // List overhead (Накладные расходы) documents, each with its order/product/amount items
+  if (pathname === '/sklad/api/reports/overheads' && req.method === 'GET') {
+    try {
+      const docs = db.prepare('SELECT id, doc_date, created_at FROM overhead_documents ORDER BY doc_date DESC, id DESC').all()
+      const itemsByDoc = new Map()
+      if (docs.length > 0) {
+        const docIds = docs.map(d => d.id)
+        const items = db.prepare('SELECT id, document_id, order_ref_key, product_name, amount FROM overhead_document_items WHERE document_id IN (' + docIds.map(() => '?').join(',') + ') ORDER BY id ASC').all(...docIds)
+        const refKeys = items.map(i => i.order_ref_key).filter(Boolean)
+        const orders = refKeys.length > 0
+          ? db.prepare('SELECT ref_key, order_number, customer FROM onec_orders WHERE ref_key IN (' + refKeys.map(() => '?').join(',') + ')').all(...refKeys)
+          : []
+        const byKey = new Map(orders.map(o => [o.ref_key, o]))
+        for (const it of items) {
+          if (!itemsByDoc.has(it.document_id)) itemsByDoc.set(it.document_id, [])
+          const o = byKey.get(it.order_ref_key) || {}
+          itemsByDoc.get(it.document_id).push({ id: it.id, orderRefKey: it.order_ref_key, productName: it.product_name || null, orderNumber: o.order_number || '', customer: o.customer || '', amount: it.amount || 0 })
+        }
+      }
+      const data = docs.map(d => {
+        const items = itemsByDoc.get(d.id) || []
+        const total = items.reduce((s, i) => s + (i.amount || 0), 0)
+        return { id: d.id, docDate: d.doc_date, createdAt: d.created_at, count: items.length, total, items }
+      })
+      sendJSON(res, 200, { success: true, data })
+    } catch (err) {
+      console.error('Error listing overhead documents:', err)
+      sendJSON(res, 500, { error: err.message })
+    }
+    return
+  }
+
+  // Create an overhead document with one or more order/product/amount items
+  if (pathname === '/sklad/api/reports/overheads' && req.method === 'POST') {
+    try {
+      const data = await _readBody(req)
+      const items = Array.isArray(data.items) ? data.items : []
+      const valid = items
+        .map(it => ({ orderRefKey: it.orderRefKey, productName: it.productName || null, amount: Number(it.amount) || 0 }))
+        .filter(it => it.orderRefKey)
+      if (valid.length === 0) {
+        sendJSON(res, 400, { error: 'at least one order is required' })
+        return
+      }
+      const docDate = (data.docDate || moscowNow().slice(0, 10))
+      const doc = db.prepare("INSERT INTO overhead_documents (doc_date, created_at) VALUES (?, datetime('now'))").run(docDate)
+      const docId = Number(doc.lastInsertRowid)
+      const ins = db.prepare('INSERT INTO overhead_document_items (document_id, order_ref_key, product_name, amount) VALUES (?, ?, ?, ?)')
+      const seen = new Set()
+      for (const it of valid) {
+        const key = it.orderRefKey + '\u0001' + (it.productName || '')
+        if (seen.has(key)) continue
+        seen.add(key)
+        ins.run(docId, it.orderRefKey, it.productName, it.amount)
+      }
+      sendJSON(res, 200, { success: true, documentId: docId, docDate })
+    } catch (err) {
+      console.error('Error creating overhead document:', err)
+      sendJSON(res, 500, { error: err.message })
+    }
+    return
+  }
+
+  // Replace an overhead document's items
+  if (pathname.match(/^\/sklad\/api\/reports\/overheads\/[^\/]+$/) && req.method === 'PUT') {
+    try {
+      const docId = Number(decodeURIComponent(pathname.split('/').pop()))
+      const data = await _readBody(req)
+      const items = Array.isArray(data.items) ? data.items : []
+      const valid = items
+        .map(it => ({ orderRefKey: it.orderRefKey, productName: it.productName || null, amount: Number(it.amount) || 0 }))
+        .filter(it => it.orderRefKey)
+      const seen = new Set()
+      const finalItems = []
+      for (const it of valid) {
+        const key = it.orderRefKey + '\u0001' + (it.productName || '')
+        if (seen.has(key)) continue
+        seen.add(key)
+        finalItems.push(it)
+      }
+      const existing = db.prepare('SELECT id FROM overhead_documents WHERE id = ?').get(docId)
+      if (!existing) {
+        sendJSON(res, 404, { error: 'document not found' })
+        return
+      }
+      if (data.docDate) {
+        db.prepare('UPDATE overhead_documents SET doc_date = ? WHERE id = ?').run(data.docDate, docId)
+      }
+      db.prepare('DELETE FROM overhead_document_items WHERE document_id = ?').run(docId)
+      const ins = db.prepare('INSERT INTO overhead_document_items (document_id, order_ref_key, product_name, amount) VALUES (?, ?, ?, ?)')
+      for (const it of finalItems) ins.run(docId, it.orderRefKey, it.productName, it.amount)
+      sendJSON(res, 200, { success: true, documentId: docId, docDate: data.docDate || null })
+    } catch (err) {
+      console.error('Error updating overhead document:', err)
+      sendJSON(res, 500, { error: err.message })
+    }
+    return
+  }
+
+  // Delete an overhead document and all its items
+  if (pathname.match(/^\/sklad\/api\/reports\/overheads\/[^\/]+$/) && req.method === 'DELETE') {
+    try {
+      const docId = Number(decodeURIComponent(pathname.split('/').pop()))
+      db.prepare('DELETE FROM overhead_document_items WHERE document_id = ?').run(docId)
+      db.prepare('DELETE FROM overhead_documents WHERE id = ?').run(docId)
+      sendJSON(res, 200, { success: true })
+    } catch (err) {
+      console.error('Error deleting overhead document:', err)
+      sendJSON(res, 500, { error: err.message })
+    }
     return
   }
 

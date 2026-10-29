@@ -86,3 +86,293 @@ a,
     padding: 0;
   }
 }
+
+/* Печать отчёта по рентабельности (reports.vue): печатается только .profit-print */
+.profit-print {
+  display: none;
+}
+
+/* Печать отчёта по зарплате (ФОТ) (reports.vue): печатается только .salary-print */
+.salary-print {
+  display: none;
+}
+
+/* Печать отчёта по накладным расходам (reports.vue): печатается только .overhead-print */
+.overhead-print {
+  display: none;
+}
+
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 10mm;
+  }
+
+  body.print-profit-report #app {
+    display: none !important;
+  }
+
+  body.print-salary-report #app {
+    display: none !important;
+  }
+
+  body.print-overhead-report #app {
+    display: none !important;
+  }
+
+  body.print-overhead-report .overhead-print {
+    display: block;
+    color: #000;
+    background: #fff;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: 12px;
+  }
+
+  .overhead-print h1 {
+    font-size: 18px;
+    font-weight: 700;
+    margin: 0 0 2px;
+  }
+
+  .overhead-print .op-printed-at {
+    font-size: 11px;
+    color: #555;
+    margin-bottom: 12px;
+  }
+
+  .overhead-print .op-empty {
+    padding: 20px 0;
+    color: #555;
+  }
+
+  .overhead-print .op-doc {
+    margin-bottom: 14px;
+  }
+
+  .overhead-print .op-doc-header {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    align-items: baseline;
+    padding: 6px 10px;
+    background: #f0f0f0;
+    border: 1px solid #bbb;
+    border-radius: 4px;
+    page-break-after: avoid;
+  }
+
+  .overhead-print .op-doc-date {
+    font-weight: 700;
+  }
+
+  .overhead-print table.op-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 6px;
+  }
+
+  .overhead-print .op-table th {
+    font-size: 11px;
+    font-weight: 700;
+    text-align: center;
+    padding: 4px 5px;
+    border: 1px solid #999;
+    background: #eee;
+    white-space: nowrap;
+  }
+
+  .overhead-print .op-table td {
+    text-align: right;
+    padding: 4px 5px;
+    border: 1px solid #999;
+  }
+
+  .overhead-print .op-table td.op-name {
+    text-align: left;
+  }
+
+  .overhead-print .op-total {
+    font-weight: 700;
+    padding: 6px 10px;
+    background: #f0f0f0;
+    border: 1px solid #bbb;
+    border-radius: 4px;
+  }
+
+  .overhead-print tr {
+    page-break-inside: avoid;
+  }
+
+  body.print-salary-report .salary-print {
+    display: block;
+    color: #000;
+    background: #fff;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: 12px;
+  }
+
+  .salary-print h1 {
+    font-size: 18px;
+    font-weight: 700;
+    margin: 0 0 2px;
+  }
+
+  .salary-print .sp-printed-at {
+    font-size: 11px;
+    color: #555;
+    margin-bottom: 12px;
+  }
+
+  .salary-print .sp-empty {
+    padding: 20px 0;
+    color: #555;
+  }
+
+  .salary-print .sp-doc {
+    margin-bottom: 14px;
+  }
+
+  .salary-print .sp-doc-header {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    align-items: baseline;
+    padding: 6px 10px;
+    background: #f0f0f0;
+    border: 1px solid #bbb;
+    border-radius: 4px;
+    page-break-after: avoid;
+  }
+
+  .salary-print .sp-doc-date {
+    font-weight: 700;
+  }
+
+  .salary-print table.sp-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 6px;
+  }
+
+  .salary-print .sp-table th {
+    font-size: 11px;
+    font-weight: 700;
+    text-align: center;
+    padding: 4px 5px;
+    border: 1px solid #999;
+    background: #eee;
+    white-space: nowrap;
+  }
+
+  .salary-print .sp-table td {
+    text-align: right;
+    padding: 4px 5px;
+    border: 1px solid #999;
+  }
+
+  .salary-print .sp-table td.sp-name {
+    text-align: left;
+  }
+
+  .salary-print .sp-total {
+    font-weight: 700;
+    padding: 6px 10px;
+    background: #f0f0f0;
+    border: 1px solid #bbb;
+    border-radius: 4px;
+  }
+
+  .salary-print tr {
+    page-break-inside: avoid;
+  }
+
+  body.print-profit-report .profit-print {
+    display: block;
+    color: #000;
+    background: #fff;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: 12px;
+  }
+
+  .profit-print h1 {
+    font-size: 18px;
+    font-weight: 700;
+    margin: 0 0 2px;
+  }
+
+  .profit-print .pp-printed-at {
+    font-size: 11px;
+    color: #555;
+    margin-bottom: 12px;
+  }
+
+  .profit-print .pp-empty {
+    padding: 20px 0;
+    color: #555;
+  }
+
+  .profit-print .pp-order {
+    margin-bottom: 14px;
+  }
+
+  .profit-print .pp-order-header {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    align-items: baseline;
+    padding: 6px 10px;
+    background: #f0f0f0;
+    border: 1px solid #bbb;
+    border-radius: 4px;
+    page-break-after: avoid;
+  }
+
+  .profit-print .pp-order-num {
+    font-weight: 700;
+  }
+
+  .profit-print .pp-customer {
+    color: #444;
+  }
+
+  .profit-print table.pp-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 6px;
+  }
+
+  .profit-print .pp-table th {
+    font-size: 11px;
+    font-weight: 700;
+    text-align: center;
+    padding: 4px 5px;
+    border: 1px solid #999;
+    background: #eee;
+    white-space: nowrap;
+  }
+
+  .profit-print .pp-table td {
+    text-align: right;
+    padding: 4px 5px;
+    border: 1px solid #999;
+  }
+
+  .profit-print .pp-table td.pp-name {
+    text-align: left;
+  }
+
+  .profit-print .pp-table tfoot td {
+    font-weight: 700;
+    background: #f5f5f5;
+  }
+
+  .profit-print tr {
+    page-break-inside: avoid;
+  }
+
+  .profit-print .pp-other {
+    margin-top: 4px;
+    font-size: 11px;
+    color: #555;
+  }
+}

@@ -669,7 +669,7 @@ try {
 
 // Financial data (FOT, delivery, overhead) — independent from 1C sync
 try {
-  db.prepare(`
+  db.exec(`
     CREATE TABLE IF NOT EXISTS order_financials (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       order_ref_key TEXT NOT NULL,
@@ -686,4 +686,115 @@ try {
   console.error('Error initializing order_financials table:', err.message)
 }
 
-console.log('✅ Database initialized')
+// Absolute overhead amount (entered by user) — replaces percentage-based overhead
+try { db.exec('ALTER TABLE order_financials ADD COLUMN overhead REAL DEFAULT 0') } catch(e) { /* already exists */ }
+
+// Order-level salary (ФОТ) — documents (one per month), each holding many order/amount items
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS salary_documents (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      doc_date TEXT NOT NULL,
+      created_at TEXT DEFAULT (datetime('now'))
+    )
+  `)
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS salary_document_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        document_id INTEGER NOT NULL,
+        order_ref_key TEXT NOT NULL,
+        product_name TEXT,
+        amount REAL DEFAULT 0
+      )
+    `)
+    console.log('✓ Created salary_documents / salary_document_items tables')
+  } catch (err) {
+    console.error('Error initializing salary tables:', err.message)
+  }
+
+  // Миграция: в старых БД таблица создавалась без product_name и с UNIQUE(document_id, order_ref_key).
+  // UNIQUE мешает записывать несколько позиций одного заказа (по разным изделиям), поэтому при необходимости пересоздаём.
+  try {
+    const meta = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='salary_document_items'").get()
+    const tableSql = meta ? (meta.sql || '') : ''
+    if (tableSql.includes('UNIQUE(document_id, order_ref_key)')) {
+      db.exec('ALTER TABLE salary_document_items RENAME TO _salary_document_items_old')
+      db.exec(`
+        CREATE TABLE salary_document_items (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          document_id INTEGER NOT NULL,
+          order_ref_key TEXT NOT NULL,
+          product_name TEXT,
+          amount REAL DEFAULT 0
+        )
+      `)
+      db.exec('INSERT INTO salary_document_items (id, document_id, order_ref_key, product_name, amount) SELECT id, document_id, order_ref_key, NULL, amount FROM _salary_document_items_old')
+      db.exec('DROP TABLE _salary_document_items_old')
+      console.log('✓ Migrated salary_document_items (added product_name, removed UNIQUE)')
+    } else if (!tableSql.includes('product_name')) {
+      db.exec('ALTER TABLE salary_document_items ADD COLUMN product_name TEXT')
+      console.log('✓ Added product_name to salary_document_items')
+    }
+  } catch (err) {
+    console.error('Error migrating salary_document_items:', err.message)
+  }
+
+ // Order-level overhead (Накладные расходы) — documents (one per period), each holding
+ // many order/amount items. product_name NULL = amount applies to the whole order (итого),
+ // non-null = amount applies to that specific product.
+ try {
+   db.exec(`
+     CREATE TABLE IF NOT EXISTS overhead_documents (
+       id INTEGER PRIMARY KEY AUTOINCREMENT,
+       doc_date TEXT NOT NULL,
+       created_at TEXT DEFAULT (datetime('now'))
+     )
+   `)
+   db.exec(`
+     CREATE TABLE IF NOT EXISTS overhead_document_items (
+       id INTEGER PRIMARY KEY AUTOINCREMENT,
+       document_id INTEGER NOT NULL,
+       order_ref_key TEXT NOT NULL,
+       product_name TEXT,
+       amount REAL DEFAULT 0
+     )
+   `)
+   console.log('✓ Created overhead_documents / overhead_document_items tables')
+ } catch (err) {
+   console.error('Error initializing overhead tables:', err.message)
+ }
+
+ // Services (услуги) pulled from 1C incoming goods receipts (ПриходнаяНакладная).
+ // A line is recorded when: the receipt line is linked to a customer order
+ // (ЗаказПокупателя_Key) AND its nomenclature belongs to the service category.
+ // The per-order sum feeds the "Услуги" column of the financial report.
+ try {
+   db.exec(`
+     CREATE TABLE IF NOT EXISTS receipt_services (
+       id INTEGER PRIMARY KEY AUTOINCREMENT,
+       receipt_ref_key TEXT NOT NULL,
+       line_ref_key TEXT NOT NULL,
+       order_ref_key TEXT NOT NULL,
+       doc_date TEXT,
+       amount REAL DEFAULT 0,
+       nomenclature TEXT DEFAULT '',
+       UNIQUE(receipt_ref_key, line_ref_key)
+     )
+   `)
+   console.log('✓ Created receipt_services table')
+ } catch (err) {
+   console.error('Error initializing receipt_services table:', err.message)
+ }
+
+ // Indexes for profitability report
+  try {
+     db.exec('CREATE INDEX IF NOT EXISTS idx_order_financials_ref ON order_financials(order_ref_key)')
+     db.exec('CREATE INDEX IF NOT EXISTS idx_transfer_orders_customer_key ON transfer_orders(customer_order_key)')
+     db.exec('CREATE INDEX IF NOT EXISTS idx_overhead_items_doc ON overhead_document_items(document_id)')
+     db.exec('CREATE INDEX IF NOT EXISTS idx_overhead_items_order ON overhead_document_items(order_ref_key)')
+     db.exec('CREATE INDEX IF NOT EXISTS idx_receipt_services_order ON receipt_services(order_ref_key)')
+  } catch (err) {
+    console.error('Error creating indexes:', err.message)
+  }
+
+  console.log('✅ Database initialized')
